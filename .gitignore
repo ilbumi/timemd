@@ -9,7 +9,8 @@ frontend/build/
 frontend/dist/
 
 # the server embeds this at compile time; it is a build artifact
-crates/server/assets/
+crates/server/assets/*
+!crates/server/assets/.gitkeep
 
 # coverage
 lcov.info
