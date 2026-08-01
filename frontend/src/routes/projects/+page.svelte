@@ -302,8 +302,15 @@
 			flex: none;
 		}
 
-		/* A target bar nine hundred pixels long stops reading as a quantity. */
-		.detail {
+		/*
+		 * A target bar nine hundred pixels long stops reading as a quantity — but
+		 * it is the bar that wants the limit, not the row. Capping the row left
+		 * its rule running 200px past everything inside it and the hours landing
+		 * nowhere near the edge they are aligned to. Same call the log makes: the
+		 * bands stay full width, and only the part that needs a short line gets
+		 * one.
+		 */
+		.target {
 			max-width: 620px;
 		}
 
