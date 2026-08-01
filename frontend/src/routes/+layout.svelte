@@ -136,16 +136,24 @@
 			border-top: none;
 			border-right: var(--rule) solid var(--ink);
 			/* No bottom padding: the settings link sits flush to the foot, so a
-			   selected one fills the corner instead of floating above a strip. */
+			   selected one fills the corner instead of floating above a strip.
+			   The bar's inset has to be cleared for that, not just left unset.
+			   The left inset replaces it: a notched phone in landscape is past
+			   700px, and the marks would otherwise sit under the housing. */
 			padding-top: var(--pad);
+			padding-bottom: 0;
+			padding-left: env(safe-area-inset-left);
 		}
 
 		main {
 			grid-column: 2;
 			grid-row: 1;
 			/* Centres the content in a readable measure without the screens having
-			   to know they are on a desktop. */
-			padding-inline: max(0px, calc((100% - var(--measure)) / 2));
+			   to know they are on a desktop. The sidebar absorbs the left inset,
+			   so only the right one has to be kept clear here — and only when the
+			   centring gutter is not already wider than it. */
+			padding-inline: max(0px, calc((100% - var(--measure)) / 2))
+				max(env(safe-area-inset-right), calc((100% - var(--measure)) / 2));
 		}
 
 		.marks {
