@@ -190,11 +190,11 @@
 							class:done
 							style:top="{place.top}%"
 							style:height="{place.height}%"
-							style:background={look.color}
-							style:color={done ? 'var(--ink)' : contrastInk(look.color)}
+							style:background={done ? 'var(--paper)' : look.color}
+							style:border-color={done ? look.color : 'var(--ink)'}
 							onclick={() => startBlock(block)}
 						>
-							<span class="block-text">
+							<span class="block-text" style:color={done ? 'var(--ink)' : contrastInk(look.color)}>
 								<span class="block-title">{block.title || look.name}</span>
 								<span class="block-when">
 									{clockTime(block.start)}–{clockTime(block.end)}{done ? ' · done' : ''}
@@ -310,12 +310,20 @@
 		border-left: var(--rule) solid var(--ink);
 	}
 
+	/*
+	 * Pulled left by one rule so the block's own border lands *on* the lane's
+	 * axis instead of beside it. Flush, they drew a 4px double line down the
+	 * left of every block with a notched corner, while the right edge was a
+	 * single 2px rule — the block looked lopsided.
+	 */
 	.block {
 		position: absolute;
-		left: 0;
+		left: calc(-1 * var(--rule));
 		right: 0;
 		display: block;
 		min-height: 0;
+		/* So a block too short for two lines can drop the second one. */
+		container-type: size;
 		padding: 5px 11px;
 		overflow: hidden;
 		border: var(--rule) solid var(--ink);
@@ -335,11 +343,22 @@
 		gap: 2px;
 	}
 
-	/* A finished block is drawn faded, which is why its text goes back to ink:
-	   paper on a 35%-opacity fill is unreadable. */
+	/*
+	 * A finished block is drawn rather than filled — the same way an archived
+	 * project's mark is. Fading it instead mixed the fill, the text and the
+	 * lane's rule showing through into one muddy colour, and nothing else in
+	 * this design is a tint.
+	 */
 	.block.done {
-		opacity: 0.4;
-		border-style: none;
+		background: var(--paper);
+	}
+
+	/* Two lines need about 44px. Below that the time goes and the title stays,
+	   which is the half worth keeping. */
+	@container (max-height: 43px) {
+		.block-when {
+			display: none;
+		}
 	}
 
 	.block-title {

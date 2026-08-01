@@ -194,15 +194,39 @@
 	.stack {
 		position: relative;
 		flex: 1;
+	}
+
+	/*
+	 * Both the day dividers and today's frame are drawn in the gaps rather than
+	 * as borders on the column. A border would sit inside the column and inset
+	 * that column's chips relative to every other column's — which is what made
+	 * today's blocks look a pixel out of line with the rest of the week.
+	 */
+	.column + .column .stack::before {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 -2px;
 		border-left: 1px solid rgba(17, 17, 17, 0.18);
 	}
 
 	/* Today is the only column with a field and hard edges — the week's "you are
 	   here" without adding a colour the palette does not have. */
 	.column.today .stack {
-		border-left: var(--rule) solid var(--ink);
-		border-right: var(--rule) solid var(--ink);
 		background: rgba(233, 184, 58, 0.16);
+	}
+
+	.column.today .stack::after {
+		content: '';
+		position: absolute;
+		inset: 0 -2px;
+		border-inline: var(--rule) solid var(--ink);
+		pointer-events: none;
+	}
+
+	/* The hairlines either side of today would sit right against its frame. */
+	.column.today .stack::before,
+	.column.today + .column .stack::before {
+		display: none;
 	}
 
 	.chip {
