@@ -205,10 +205,17 @@ h2 {
 	padding: 13px var(--pad) 16px;
 }
 
-/* A screen's top bar: title left, a count or total right. */
+/*
+ * A screen's top bar: title left, a count or total right.
+ *
+ * Aligned on the baseline rather than on box bottoms. `flex-end` happens to
+ * land within a third of a pixel where both sides are plain text, but it puts
+ * anything with a tap target's height — settings' back link is a 44px box with
+ * its label centred — most of the way up the title instead of on its baseline.
+ */
 .topbar {
 	display: flex;
-	align-items: flex-end;
+	align-items: baseline;
 	justify-content: space-between;
 	gap: var(--gap);
 	padding: var(--gap) var(--pad) 12px;

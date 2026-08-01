@@ -164,10 +164,14 @@
 		min-height: 100%;
 	}
 
+	/*
+	 * The label is text, so it sits on the title's baseline. It used to be a
+	 * 44px box with the text centred inside it, which put it most of the way up
+	 * the title and made the bar 74px tall to fit. The thumb gets its 44px from
+	 * an invisible overlay instead, the way the steppers below do.
+	 */
 	.back {
-		display: flex;
-		align-items: center;
-		min-height: var(--tap-target);
+		position: relative;
 		padding-left: 12px;
 		font-size: 0.6875rem;
 		font-weight: 500;
@@ -175,6 +179,12 @@
 		text-transform: uppercase;
 		text-decoration: none;
 		color: var(--ink-60);
+	}
+
+	.back::after {
+		content: '';
+		position: absolute;
+		inset: -14px 0;
 	}
 
 	.body {
