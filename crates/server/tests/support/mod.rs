@@ -99,6 +99,10 @@ impl Harness {
         self.request("PATCH", uri, Some(body)).await
     }
 
+    pub async fn put(&self, uri: &str, body: Value) -> (StatusCode, Value) {
+        self.request("PUT", uri, Some(body)).await
+    }
+
     pub async fn delete(&self, uri: &str) -> (StatusCode, Value) {
         self.request("DELETE", uri, None).await
     }
