@@ -277,11 +277,14 @@
 		/* A note is prose; past about sixty characters a line stops being one.
 		   The day bands stay full width, because they are the rules that separate
 		   the days. */
-		/* Left-aligned rather than centred, so the day bands start on the same
-		   line as the header's rule and the button below them. */
-		.body {
-			max-width: 720px;
-			width: 100%;
+		/*
+		 * The bands, the rows and the header all run to the same edge — capping
+		 * the body left the header's rule and the foot's hanging 180px past
+		 * everything between them. It is the note that needs a short line, not
+		 * the screen, so the limit goes there.
+		 */
+		.note {
+			max-width: 620px;
 		}
 
 		.foot > .actions {

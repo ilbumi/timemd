@@ -253,12 +253,10 @@
 	/* ---- wide ------------------------------------------------------------ */
 
 	@media (min-width: 900px) {
-		/* A form does not get better by getting wider. The top bar keeps its rule
-		   across the whole measure. */
-		.body,
-		.foot {
+		/* A form does not get better by getting wider — and the bar above it
+		   should not either, or its rule hangs out past the fields. */
+		.screen {
 			max-width: 560px;
-			width: 100%;
 		}
 	}
 </style>

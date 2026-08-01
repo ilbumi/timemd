@@ -281,9 +281,10 @@
 			display: none;
 		}
 
-		.body {
+		/* The screen narrows, not just its middle: capping the body alone left
+		   the header's rule hanging out over empty paper. */
+		.screen {
 			max-width: 560px;
-			width: 100%;
 		}
 	}
 </style>

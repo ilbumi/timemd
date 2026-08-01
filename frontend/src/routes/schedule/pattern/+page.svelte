@@ -437,10 +437,9 @@
 	/* ---- wide ------------------------------------------------------------ */
 
 	@media (min-width: 900px) {
-		/* Each block is a form; the rule between two of them still spans. */
-		article > * {
+		/* The rule between two blocks ends where the fields do. */
+		.screen {
 			max-width: 620px;
-			width: 100%;
 		}
 
 		/* Seven squares across 620px would be 80px each — bigger than they need
@@ -450,7 +449,7 @@
 		}
 
 		.foot > .actions {
-			max-width: 520px;
+			max-width: 400px;
 		}
 	}
 </style>
