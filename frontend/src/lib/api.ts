@@ -114,6 +114,23 @@ export interface BlockEdit {
 	remindBefore?: string | null;
 }
 
+export type GroupBy = 'project' | 'day';
+
+export interface Bucket {
+	/** Project slug or date, depending on the grouping; null means no project. */
+	key: string | null;
+	tracked: string;
+	sessions: number;
+}
+
+export interface Report {
+	from: string;
+	to: string;
+	groupBy: GroupBy;
+	total: string;
+	buckets: Bucket[];
+}
+
 export interface ProjectPatch {
 	name?: string;
 	color?: string | null;
@@ -217,5 +234,8 @@ export const api = {
 	readRecurring: (): Promise<RecurringBlock[]> => request('GET', '/api/schedule/recurring'),
 
 	writeRecurring: (blocks: RecurringBlock[]): Promise<RecurringBlock[]> =>
-		request('PUT', '/api/schedule/recurring', blocks)
+		request('PUT', '/api/schedule/recurring', blocks),
+
+	readReport: (from: string, to: string, groupBy: GroupBy): Promise<Report> =>
+		request('GET', `/api/reports?from=${from}&to=${to}&groupBy=${groupBy}`)
 };

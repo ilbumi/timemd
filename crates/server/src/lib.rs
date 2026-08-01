@@ -12,6 +12,7 @@ mod assets;
 mod error;
 mod health;
 mod projects;
+mod report;
 mod schedule;
 pub mod state;
 mod ticker;
@@ -36,6 +37,7 @@ pub fn router(state: AppState) -> Router {
         .merge(projects::routes())
         .merge(timer::routes())
         .merge(schedule::routes())
+        .merge(report::routes())
         .fallback(unknown_endpoint);
 
     Router::new()

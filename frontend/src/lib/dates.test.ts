@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { clockTime, dayLabel, isoDate, shiftDays, today } from './dates';
+import {
+	clockTime,
+	dayLabel,
+	endOfMonth,
+	isoDate,
+	shiftDays,
+	startOfMonth,
+	startOfWeek,
+	today
+} from './dates';
 
 describe('isoDate', () => {
 	/**
@@ -57,5 +66,25 @@ describe('dayLabel', () => {
 
 	it('defaults its reference to the current day', () => {
 		expect(dayLabel(today())).toBe('Today');
+	});
+});
+
+describe('week and month boundaries', () => {
+	it('starts the week on Monday', () => {
+		// 2026-08-05 is a Wednesday, 2026-08-03 the Monday before it.
+		expect(startOfWeek('2026-08-05')).toBe('2026-08-03');
+		expect(startOfWeek('2026-08-03')).toBe('2026-08-03');
+	});
+
+	it('treats Sunday as the end of its week, not the start', () => {
+		// 2026-08-09 is a Sunday; its Monday is 2026-08-03.
+		expect(startOfWeek('2026-08-09')).toBe('2026-08-03');
+	});
+
+	it('brackets a month', () => {
+		expect(startOfMonth('2026-08-05')).toBe('2026-08-01');
+		expect(endOfMonth('2026-08-05')).toBe('2026-08-31');
+		expect(endOfMonth('2026-02-10')).toBe('2026-02-28');
+		expect(endOfMonth('2028-02-10')).toBe('2028-02-29');
 	});
 });

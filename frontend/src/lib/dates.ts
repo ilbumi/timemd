@@ -37,3 +37,24 @@ export function dayLabel(iso: string, reference: string = today()): string {
 		month: 'short'
 	});
 }
+
+/** Monday of the week containing `iso`, as `YYYY-MM-DD`. */
+export function startOfWeek(iso: string): string {
+	const [year, month, day] = iso.split('-').map(Number);
+	const date = new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1);
+	// getDay() is Sunday-based; the schedule grammar and the UI are Monday-based.
+	const offset = (date.getDay() + 6) % 7;
+	return shiftDays(iso, -offset);
+}
+
+/** First day of the month containing `iso`. */
+export function startOfMonth(iso: string): string {
+	return `${iso.slice(0, 7)}-01`;
+}
+
+/** Last day of the month containing `iso`. */
+export function endOfMonth(iso: string): string {
+	const [year, month] = iso.split('-').map(Number);
+	// Day 0 of the next month is the last day of this one.
+	return isoDate(new Date(year ?? 1970, month ?? 1, 0));
+}

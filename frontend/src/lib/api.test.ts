@@ -204,3 +204,19 @@ describe('days and schedule', () => {
 		expect(calls[1]?.init.body).toContain('"id":"deep-work"');
 	});
 });
+
+describe('reports', () => {
+	it('passes the range and grouping through', async () => {
+		const calls = mockFetch(200, {
+			from: '2026-08-01',
+			to: '2026-08-31',
+			groupBy: 'day',
+			total: '3h',
+			buckets: []
+		});
+		const report = await api.readReport('2026-08-01', '2026-08-31', 'day');
+
+		expect(report.total).toBe('3h');
+		expect(calls[0]?.url).toBe('/api/reports?from=2026-08-01&to=2026-08-31&groupBy=day');
+	});
+});
