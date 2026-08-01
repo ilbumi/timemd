@@ -12,6 +12,7 @@ mod assets;
 mod error;
 mod health;
 mod projects;
+mod schedule;
 pub mod state;
 mod ticker;
 mod timer;
@@ -34,6 +35,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health::health))
         .merge(projects::routes())
         .merge(timer::routes())
+        .merge(schedule::routes())
         .fallback(unknown_endpoint);
 
     Router::new()
