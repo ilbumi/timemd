@@ -16,3 +16,8 @@ crates/server/assets/*
 lcov.info
 *.profraw
 frontend/coverage/
+
+# the layout suite seeds its own markdown tree and never touches ./data
+/.e2e-data
+frontend/test-results/
+frontend/playwright-report/

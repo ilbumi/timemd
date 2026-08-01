@@ -11,7 +11,7 @@ COVERAGE_MIN ?= 85
 COVERAGE_EXCLUDE ?= crates/cli/src/main\.rs
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint fmt cov frontend serve dev clean
+.PHONY: help test lint fmt cov e2e frontend serve dev clean
 
 help: ## Show available targets
 	@grep -hE '^[a-z][a-z-]*:.*?## ' $(MAKEFILE_LIST) \
@@ -37,6 +37,13 @@ cov: ## Measure coverage, failing under the floor
 		--ignore-filename-regex '$(COVERAGE_EXCLUDE)' \
 		--fail-under-lines $(COVERAGE_MIN)
 	cd frontend && $(PNPM) run coverage
+
+# Deliberately not part of `test`: it needs a downloaded browser and a compiled
+# server, and the design it checks is geometry rather than behaviour. The suite
+# seeds its own markdown tree under `.e2e-data` and never reads `./data`.
+e2e: frontend ## Check alignment and adaptive layout in a real browser
+	cd frontend && $(PNPM) exec playwright install --with-deps chromium
+	cd frontend && $(PNPM) run e2e
 
 frontend: ## Build the web UI into the server crate for embedding
 	cd frontend && $(PNPM) install --frozen-lockfile && $(PNPM) run build
