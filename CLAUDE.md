@@ -34,6 +34,7 @@ that users and agents edit by hand.
 
 ```sh
 make test lint cov     # all three must pass
+make e2e               # layout in a real browser; needs a downloaded Chromium
 make serve             # build the UI and run locally
 ```
 
@@ -42,6 +43,10 @@ make serve             # build the UI and run locally
 - Handlers define their own `*View` types. Core stays free of HTTP naming.
 - Tests: property tests pin the grammar's round-trip and preservation
   guarantees. If you change the grammar, they should fail — read them first.
+- The design language is enforced by `make e2e`, not by eye: one pair of edges
+  per screen, one rule where two meet, no radius that is not a circle, 44px of
+  reach under a thumb. If you change the sheet, run it. It seeds its own tree
+  and never reads `./data`.
 - Coverage floors are >85% overall and >80% per file. `crates/cli/src/main.rs`
   is excluded as a process shim; the reason is recorded in the `Makefile`.
 - Never log to stdout: `timemd mcp` speaks JSON-RPC there.

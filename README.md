@@ -119,8 +119,15 @@ line it cannot parse is preserved and reported rather than dropped.
 make test    # Rust and frontend suites
 make lint    # clippy -D warnings, rustfmt, svelte-check, prettier
 make cov     # coverage, failing under 85%
+make e2e     # alignment and adaptive layout in a real browser
 make help
 ```
+
+`make e2e` is separate because it downloads a Chromium and compiles the server.
+It checks the things the design language promises — that a screen's rules end
+where its content ends, that two rules meeting draw one line, that nothing is
+rounded that is not a circle — at five widths either side of the breakpoints. It
+seeds its own markdown tree and never touches your `./data`.
 
 Layout:
 
