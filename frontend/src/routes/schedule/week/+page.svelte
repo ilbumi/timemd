@@ -201,11 +201,15 @@
 	 * as borders on the column. A border would sit inside the column and inset
 	 * that column's chips relative to every other column's — which is what made
 	 * today's blocks look a pixel out of line with the rest of the week.
+	 *
+	 * Both are offset by one rule, so the hairline and today's frame share a
+	 * left edge and the week's verticals land in the same place whichever
+	 * column happens to be today.
 	 */
 	.column + .column .stack::before {
 		content: '';
 		position: absolute;
-		inset: 0 auto 0 -2px;
+		inset: 0 auto 0 calc(-1 * var(--rule));
 		border-left: 1px solid rgba(17, 17, 17, 0.18);
 	}
 
@@ -218,7 +222,7 @@
 	.column.today .stack::after {
 		content: '';
 		position: absolute;
-		inset: 0 -2px;
+		inset: 0 calc(-1 * var(--rule));
 		border-inline: var(--rule) solid var(--ink);
 		pointer-events: none;
 	}

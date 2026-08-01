@@ -54,7 +54,7 @@
 
 <style>
 	/*
-	 * One grid, two arrangements. On a phone it is content over a bar; from 900px
+	 * One grid, two arrangements. On a phone it is content over a bar; from 700px
 	 * the same two children become a sidebar beside content, so nothing has to be
 	 * rendered twice or moved in the markup.
 	 */
