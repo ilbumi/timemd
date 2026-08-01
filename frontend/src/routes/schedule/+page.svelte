@@ -187,7 +187,6 @@
 						{@const place = placeIn(span, block)}
 						<button
 							class="block"
-							class:done
 							style:top="{place.top}%"
 							style:height="{place.height}%"
 							style:--fill={done ? 'var(--paper)' : look.color}

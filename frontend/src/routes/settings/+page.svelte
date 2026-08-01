@@ -158,12 +158,6 @@
 </section>
 
 <style>
-	.screen {
-		display: flex;
-		flex-direction: column;
-		min-height: 100%;
-	}
-
 	/*
 	 * The label is text, so it sits on the title's baseline. It used to be a
 	 * 44px box with the text centred inside it, which put it most of the way up

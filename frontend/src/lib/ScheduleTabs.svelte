@@ -23,26 +23,15 @@
 </nav>
 
 <style>
+	/*
+	 * The sheet's `.segmented` already supplies the box, the type and the rule
+	 * between segments, and inverts the current one. All that is left is
+	 * centring a link's label the way a button's is centred for free.
+	 */
 	.segmented a {
-		flex: 1;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-height: 34px;
-		font-size: 0.75rem;
-		font-weight: 400;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
 		text-decoration: none;
-	}
-
-	.segmented a + a {
-		border-left: var(--rule) solid var(--ink);
-	}
-
-	.segmented a[aria-current='page'] {
-		background: var(--ink);
-		color: var(--paper);
-		font-weight: 600;
 	}
 </style>

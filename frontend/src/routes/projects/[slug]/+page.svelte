@@ -728,10 +728,6 @@
 		border-top: var(--rule) solid var(--ink);
 	}
 
-	.wide {
-		width: 100%;
-	}
-
 	.grow {
 		flex: 1.6 !important;
 	}
