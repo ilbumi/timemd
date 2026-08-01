@@ -463,7 +463,9 @@
 		align-items: center;
 		width: var(--tap-target);
 		height: var(--tap-target);
-		margin: -10px 0 -10px -12px;
+		/* Vertical only: a negative left margin bought alignment by hanging the
+		   glyph outside the header's padding. */
+		margin: -10px 0;
 		font-size: 1.25rem;
 		line-height: 1;
 		text-decoration: none;

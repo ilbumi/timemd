@@ -236,10 +236,12 @@
 		min-height: 3px;
 	}
 
+	/* Confined to today's column. Reaching into the gaps put a stray mark across
+	   the columns either side of it. */
 	.now {
 		position: absolute;
-		left: -7px;
-		right: -7px;
+		left: 0;
+		right: 0;
 		height: 2px;
 		background: var(--ink);
 	}

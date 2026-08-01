@@ -382,15 +382,21 @@
 		white-space: nowrap;
 	}
 
-	/* The only red on the screen, which is the point of it. */
+	/*
+	 * The only red on the screen, which is the point of it. Kept inside the lane
+	 * rather than reaching back into the gutter: out there it crossed the hour
+	 * labels, and an evening reading of "20" came with a line through it.
+	 */
 	.now {
 		position: absolute;
-		left: -36px;
+		left: 0;
 		right: 0;
 		height: 2px;
 		background: var(--red);
 	}
 
+	/* Sits against the axis rather than straddling it, so nothing crosses into
+	   the gutter at all. */
 	.dot {
 		position: absolute;
 		left: 0;
