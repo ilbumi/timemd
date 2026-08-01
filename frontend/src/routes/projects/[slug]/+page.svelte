@@ -551,6 +551,53 @@
 		margin-bottom: 0;
 	}
 
+	/*
+	 * The app's one native control. Left to the browser it drew a rounded track
+	 * and a round thumb in the browser's own blue — the only radius on the
+	 * screen and the only colour not in the palette, sitting inside an otherwise
+	 * correct 2px box.
+	 *
+	 * Redrawn as the trough-and-fill the weekly target already uses everywhere
+	 * else, with a square thumb. `currentColor` because this sits on the
+	 * project's coloured header, which is the same reason `.target` uses it.
+	 */
+	.edit input[type='range'] {
+		appearance: none;
+		padding: 0;
+		border: none;
+		background: none;
+		/* The global form rule pins inputs to `--ink`; on a coloured header the
+		   trough has to take the header's own ink like `.target` does. */
+		color: inherit;
+	}
+
+	.edit input[type='range']::-webkit-slider-runnable-track {
+		height: 8px;
+		border: 1px solid currentColor;
+	}
+
+	.edit input[type='range']::-webkit-slider-thumb {
+		appearance: none;
+		width: 12px;
+		height: 22px;
+		/* Half the thumb, less half the track, to sit it on the centre line. */
+		margin-top: -8px;
+		background: currentColor;
+	}
+
+	.edit input[type='range']::-moz-range-track {
+		height: 8px;
+		border: 1px solid currentColor;
+	}
+
+	.edit input[type='range']::-moz-range-thumb {
+		width: 12px;
+		height: 22px;
+		border: none;
+		border-radius: 0;
+		background: currentColor;
+	}
+
 	/* Carries the screen's whole column so the wide layout has something to turn
 	   into a row. `.screen` cannot do it itself: it is the query container, and
 	   an element cannot query its own container. */
