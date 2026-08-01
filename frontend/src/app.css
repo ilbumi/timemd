@@ -87,8 +87,16 @@ body {
 	min-height: 100%;
 }
 
+/*
+ * The field behind the shell, which is only ever visible between 440px — where
+ * the phone column stops growing — and 700px, where the sidebar arrives and the
+ * shell fills the window again. In that band the column used to be paper on
+ * paper, so it had no edge: the tab bar's rule stopped in mid-air with nothing
+ * to say where the app ended. A darker field gives the column a sheet to sit on
+ * without spending a breakpoint on it.
+ */
 body {
-	background: var(--paper);
+	background: var(--paper-dim);
 	color: var(--ink);
 	font-family: 'Jost Variable', 'Jost', system-ui, sans-serif;
 	font-size: 16px;
