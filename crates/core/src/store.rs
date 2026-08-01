@@ -21,11 +21,14 @@ use crate::day::Day;
 use crate::error::{Error, Result};
 use crate::ids::ProjectSlug;
 use crate::project::Project;
+use crate::schedule::Recurring;
 use crate::settings::Settings;
 
 const PROJECTS_DIR: &str = "projects";
 const DAYS_DIR: &str = "days";
 const STATE_DIR: &str = "state";
+const SCHEDULE_DIR: &str = "schedule";
+const RECURRING_FILE: &str = "recurring.md";
 const SETTINGS_FILE: &str = "settings.md";
 const ACTIVE_FILE: &str = "active.md";
 
@@ -165,6 +168,26 @@ impl Store {
             .take_while(|date| *date <= to)
             .filter(|date| self.day_path(*date).exists())
             .collect()
+    }
+
+    // ---- schedule ----------------------------------------------------------
+
+    pub fn recurring_path(&self) -> PathBuf {
+        self.root.join(SCHEDULE_DIR).join(RECURRING_FILE)
+    }
+
+    pub fn read_recurring(&self) -> Result<Recurring> {
+        let path = self.recurring_path();
+        match read_to_string(&path)? {
+            Some(text) => {
+                Recurring::parse(&text).map_err(|source| Error::Frontmatter { path, source })
+            }
+            None => Ok(Recurring::default()),
+        }
+    }
+
+    pub fn update_recurring<T>(&self, edit: impl FnOnce(&mut Recurring) -> T) -> Result<T> {
+        self.transaction(|tx| tx.update_recurring(edit))
     }
 
     // ---- settings and timer state -----------------------------------------
@@ -309,6 +332,17 @@ impl Tx<'_> {
     pub fn set_active(&self, session: Option<&ActiveSession>) -> Result<()> {
         let text = session.map_or_else(|| IDLE.to_owned(), ActiveSession::render);
         write_atomic(&self.store.active_path(), &text)
+    }
+
+    pub fn read_recurring(&self) -> Result<Recurring> {
+        self.store.read_recurring()
+    }
+
+    pub fn update_recurring<T>(&self, edit: impl FnOnce(&mut Recurring) -> T) -> Result<T> {
+        let mut recurring = self.store.read_recurring()?;
+        let outcome = edit(&mut recurring);
+        write_atomic(&self.store.recurring_path(), &recurring.render())?;
+        Ok(outcome)
     }
 }
 

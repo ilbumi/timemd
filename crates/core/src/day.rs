@@ -10,14 +10,17 @@ use serde::Serialize;
 use crate::document::Document;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::grammar;
-use crate::ids::ProjectSlug;
+use crate::ids::{BlockId, ProjectSlug};
 use crate::minutes::Minutes;
+use crate::schedule::DayBlock;
 
 const SECTION_SCHEDULE: &str = "Schedule";
 const SECTION_SKIPPED: &str = "Skipped";
 const SECTION_SESSIONS: &str = "Sessions";
 
-/// Sections that must precede `## Sessions` when it is created.
+/// Sections that must precede each owned section when it is created, so a file
+/// built up over time keeps the same order as one written in one go.
+const BEFORE_SKIPPED: &[&str] = &[SECTION_SCHEDULE];
 const BEFORE_SESSIONS: &[&str] = &[SECTION_SKIPPED, SECTION_SCHEDULE];
 
 /// A tracked interval.
@@ -76,11 +79,16 @@ impl Session {
 #[derive(Debug, Clone)]
 pub struct Day {
     date: NaiveDate,
+    /// One-off blocks planned for this day only.
+    schedule: Vec<DayBlock>,
+    /// Repeating blocks suppressed for this day.
+    skipped: Vec<BlockId>,
     sessions: Vec<Session>,
     /// Session lines that failed to parse. Preserved verbatim and re-emitted at
     /// the end of the section, so a typo costs the user one misplaced line
     /// rather than the whole day.
     unparsed: Vec<String>,
+    unparsed_schedule: Vec<String>,
     problems: Vec<ParseError>,
     document: Document,
 }
@@ -93,8 +101,11 @@ impl Day {
         document.set_preamble(vec![String::new(), format!("# {date}"), String::new()]);
         Self {
             date,
+            schedule: Vec::new(),
+            skipped: Vec::new(),
             sessions: Vec::new(),
             unparsed: Vec::new(),
+            unparsed_schedule: Vec::new(),
             problems: Vec::new(),
             document,
         }
@@ -122,10 +133,38 @@ impl Day {
 
         sessions.sort_by_key(|session| session.start);
 
+        let mut schedule = Vec::new();
+        let mut unparsed_schedule = Vec::new();
+        if let Some(section) = document.section(SECTION_SCHEDULE) {
+            for (line_number, line) in section.content() {
+                match grammar::list_item(line).and_then(DayBlock::parse) {
+                    Ok(block) => schedule.push(block),
+                    Err(kind) => {
+                        problems.push(ParseError::new(line_number, kind));
+                        unparsed_schedule.push(line.to_owned());
+                    }
+                }
+            }
+        }
+        schedule.sort_by_key(|block| block.start);
+
+        let mut skipped = Vec::new();
+        if let Some(section) = document.section(SECTION_SKIPPED) {
+            for (line_number, line) in section.content() {
+                match grammar::list_item(line).and_then(parse_skip) {
+                    Ok(id) => skipped.push(id),
+                    Err(kind) => problems.push(ParseError::new(line_number, kind)),
+                }
+            }
+        }
+
         Ok(Self {
             date,
+            schedule,
+            skipped,
             sessions,
             unparsed,
+            unparsed_schedule,
             problems,
             document,
         })
@@ -134,9 +173,18 @@ impl Day {
     /// Writes the owned sections back and reassembles the file text.
     pub fn render(&self) -> String {
         let mut document = self.document.clone();
+
+        let mut blocks: Vec<String> = self.schedule.iter().map(DayBlock::render).collect();
+        blocks.extend(self.unparsed_schedule.iter().cloned());
+        document.upsert_section(SECTION_SCHEDULE, blocks, &[]);
+
+        let skips: Vec<String> = self.skipped.iter().map(|id| format!("- `{id}`")).collect();
+        document.upsert_section(SECTION_SKIPPED, skips, BEFORE_SKIPPED);
+
         let mut lines: Vec<String> = self.sessions.iter().map(Session::render).collect();
         lines.extend(self.unparsed.iter().cloned());
         document.upsert_section(SECTION_SESSIONS, lines, BEFORE_SESSIONS);
+
         document.render()
     }
 
@@ -177,6 +225,52 @@ impl Day {
     pub fn remove_session(&mut self, index: usize) -> Option<Session> {
         (index < self.sessions.len()).then(|| self.sessions.remove(index))
     }
+
+    pub fn schedule(&self) -> &[DayBlock] {
+        &self.schedule
+    }
+
+    pub fn skipped(&self) -> &[BlockId] {
+        &self.skipped
+    }
+
+    /// Adds a one-off block, keeping the list ordered by start time.
+    pub fn add_block(&mut self, block: DayBlock) {
+        let position = self
+            .schedule
+            .partition_point(|existing| existing.start <= block.start);
+        self.schedule.insert(position, block);
+    }
+
+    pub fn remove_block(&mut self, index: usize) -> Option<DayBlock> {
+        (index < self.schedule.len()).then(|| self.schedule.remove(index))
+    }
+
+    /// Suppresses a repeating block for this day. Idempotent.
+    pub fn skip(&mut self, id: BlockId) {
+        if !self.skipped.contains(&id) {
+            self.skipped.push(id);
+        }
+    }
+
+    /// Restores a suppressed block. Returns whether it had been skipped.
+    pub fn unskip(&mut self, id: &BlockId) -> bool {
+        let before = self.skipped.len();
+        self.skipped.retain(|candidate| candidate != id);
+        self.skipped.len() != before
+    }
+}
+
+/// A `## Skipped` entry: a backtick-quoted block id and nothing else.
+fn parse_skip(content: &str) -> Result<BlockId, ParseErrorKind> {
+    let missing = || ParseErrorKind::MissingBlockId {
+        found: content.to_owned(),
+    };
+    let inner = content
+        .strip_prefix('`')
+        .and_then(|rest| rest.strip_suffix('`'))
+        .ok_or_else(missing)?;
+    BlockId::new(inner).map_err(|_| missing())
 }
 
 #[cfg(test)]
@@ -372,6 +466,83 @@ mod tests {
         let rendered = day.render();
         assert!(!rendered.contains("## Sessions"), "{rendered}");
         assert!(rendered.contains("keep me"), "{rendered}");
+    }
+
+    #[test]
+    fn parses_schedule_and_skipped_sections() {
+        let text = "---\ndate: 2026-08-01\n---\n\n## Schedule\n\n- 16:00-17:00 [[reading]] Paper club !15m\n\n## Skipped\n\n- `deep-work`\n\n## Sessions\n\n- 09:00-09:25 (25m) [[timemd]] work\n";
+        let day = Day::parse(date(), text).expect("parses");
+
+        assert_eq!(day.schedule().len(), 1);
+        assert_eq!(day.schedule()[0].title, "Paper club");
+        assert_eq!(
+            day.skipped(),
+            &[BlockId::new("deep-work").expect("valid id")]
+        );
+        assert_eq!(day.sessions().len(), 1);
+        assert_eq!(day.render(), text);
+    }
+
+    #[test]
+    fn owned_sections_keep_their_canonical_order_when_added_late() {
+        let mut day = Day::new(date());
+        day.add_session(Session::new(at(9, 0), at(9, 25), None, "work"));
+        day.skip(BlockId::new("deep-work").expect("valid id"));
+        day.add_block(DayBlock::parse("16:00-17:00 Talk").expect("parses"));
+
+        let rendered = day.render();
+        let schedule = rendered.find("## Schedule").expect("present");
+        let skipped = rendered.find("## Skipped").expect("present");
+        let sessions = rendered.find("## Sessions").expect("present");
+        assert!(schedule < skipped && skipped < sessions, "{rendered}");
+    }
+
+    #[test]
+    fn blocks_are_kept_in_start_order() {
+        let mut day = Day::new(date());
+        day.add_block(DayBlock::parse("16:00-17:00 Later").expect("parses"));
+        day.add_block(DayBlock::parse("09:00-10:00 Earlier").expect("parses"));
+
+        assert_eq!(day.schedule()[0].title, "Earlier");
+        assert_eq!(
+            day.remove_block(0).map(|block| block.title),
+            Some("Earlier".to_owned())
+        );
+        assert!(day.remove_block(5).is_none());
+    }
+
+    #[test]
+    fn skipping_is_idempotent_and_reversible() {
+        let mut day = Day::new(date());
+        let id = BlockId::new("deep-work").expect("valid id");
+
+        day.skip(id.clone());
+        day.skip(id.clone());
+        assert_eq!(day.skipped().len(), 1);
+
+        assert!(day.unskip(&id));
+        assert!(!day.unskip(&id));
+        assert!(!day.render().contains("## Skipped"));
+    }
+
+    #[test]
+    fn an_unreadable_skip_entry_is_reported_rather_than_dropped_silently() {
+        let text = "---\ndate: 2026-08-01\n---\n\n## Skipped\n\n- not-backticked\n";
+        let day = Day::parse(date(), text).expect("parses");
+
+        assert!(day.skipped().is_empty());
+        assert_eq!(day.problems().len(), 1);
+    }
+
+    #[test]
+    fn an_unreadable_schedule_line_is_preserved() {
+        let text =
+            "---\ndate: 2026-08-01\n---\n\n## Schedule\n\n- 16:00-17:00 Fine\n- nonsense here\n";
+        let day = Day::parse(date(), text).expect("parses");
+
+        assert_eq!(day.schedule().len(), 1);
+        assert_eq!(day.problems().len(), 1);
+        assert!(day.render().contains("- nonsense here"));
     }
 
     /// Durations are wall-clock, so the two clock changes a year distort those
