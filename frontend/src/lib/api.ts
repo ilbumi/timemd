@@ -40,6 +40,7 @@ export interface NewProject {
 	color?: string | null;
 	mark?: Mark;
 	target?: string | null;
+	milestones?: Milestone[];
 }
 
 export type SessionKind = 'focus' | 'short_break' | 'long_break';
@@ -113,7 +114,8 @@ export interface DayView {
  */
 export type RecurringBlock = {
 	id: string;
-	days: string;
+	/** Weekday names, Monday first. The server spells the stored form. */
+	days: string[];
 	start: string;
 	end: string;
 	project: string | null;

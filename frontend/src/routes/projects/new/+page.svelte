@@ -4,22 +4,25 @@
 	import Mark from '$lib/Mark.svelte';
 	import { api, type Mark as MarkShape, type Milestone } from '$lib/api';
 	import { describe } from '$lib/attempt';
-	import { IDENTITIES } from '$lib/palette';
+	import { formatHours } from '$lib/countdown';
+	import { DEFAULT_COLOR } from '$lib/palette';
 
-	/** The stepper's bounds. A week has 168 hours; anything near it is a typo. */
-	const MAX_TARGET_HOURS = 60;
+	/** The stepper's bounds, in minutes. A week has 168 hours; anything near it
+	    is a typo. Half-hour steps so `1h30m` is expressible. */
+	const MAX_TARGET = 60 * 60;
+	const TARGET_STEP = 30;
 
 	let name = $state('');
 	let mark = $state<MarkShape>('square');
-	let color = $state(IDENTITIES[0]?.color ?? '#245a8d');
-	let targetHours = $state(10);
+	let color = $state(DEFAULT_COLOR);
+	let target = $state(10 * 60);
 	let milestones = $state<Milestone[]>([]);
 	let draft = $state('');
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
 	function step(by: number): void {
-		targetHours = Math.min(MAX_TARGET_HOURS, Math.max(0, targetHours + by));
+		target = Math.min(MAX_TARGET, Math.max(0, target + by));
 	}
 
 	function addMilestone(): void {
@@ -40,17 +43,13 @@
 		busy = true;
 		error = null;
 		try {
-			// Milestones need the project to exist first, so this is two calls: the
-			// second is skipped entirely when there are none to write.
 			const created = await api.createProject({
 				name: name.trim(),
 				color,
 				mark,
-				target: targetHours === 0 ? null : `${targetHours}h`
+				target: target === 0 ? null : `${target}m`,
+				milestones
 			});
-			if (milestones.length > 0) {
-				await api.updateProject(created.slug, { milestones });
-			}
 			await goto(`/projects/${created.slug}`);
 		} catch (failure) {
 			error = describe(failure);
@@ -85,12 +84,17 @@
 		<div class="field">
 			<span class="label" id="target-label">Weekly target</span>
 			<div class="stepper" role="group" aria-labelledby="target-label">
-				<button type="button" onclick={() => step(-1)} aria-label="Fewer hours">−</button>
+				<button type="button" onclick={() => step(-TARGET_STEP)} aria-label="Less time">−</button>
 				<span class="reading">
-					<strong class="numeric">{targetHours}</strong>
-					<span>{targetHours === 0 ? 'no target' : 'hours'}</span>
+					<strong class="numeric">{target === 0 ? '—' : formatHours(target)}</strong>
+					<span>{target === 0 ? 'no target' : 'per week'}</span>
 				</span>
-				<button type="button" class="accent" onclick={() => step(1)} aria-label="More hours">
+				<button
+					type="button"
+					class="accent"
+					onclick={() => step(TARGET_STEP)}
+					aria-label="More time"
+				>
 					+
 				</button>
 			</div>
@@ -141,12 +145,6 @@
 </form>
 
 <style>
-	.screen {
-		display: flex;
-		flex-direction: column;
-		min-height: 100%;
-	}
-
 	.bar {
 		display: flex;
 		align-items: center;

@@ -1,27 +1,30 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import Mark from '$lib/Mark.svelte';
-	import ScheduleTabs from '$lib/ScheduleTabs.svelte';
+	import PeriodHeader from '$lib/PeriodHeader.svelte';
 	import { api, type DayView, type Occurrence, type Project } from '$lib/api';
 	import { attempt, describe } from '$lib/attempt';
 	import { formatHours } from '$lib/countdown';
-	import { clockTime, minutesOfDay, shiftDays, today } from '$lib/dates';
+	import { clockTime, minutesOfDay, monthDay, shiftDays, today, weekdayName } from '$lib/dates';
 	import { contrastInk } from '$lib/palette';
-	import { lookOf, looksFrom, type Look } from '$lib/look';
+	import { lookOf, readLooks, type Look } from '$lib/look';
+	import { hourMarks, minutesNow, offsetIn, placeIn, spanOf } from '$lib/timeline';
 
-	/** The window the timeline always shows, widened to fit anything outside it. */
+	/** The hours the timeline always shows, widened to fit anything outside them. */
 	const DEFAULT_FROM = 8 * 60;
 	const DEFAULT_TO = 20 * 60;
+	/** Every second hour, which is what fits the gutter at phone width. */
+	const HOUR_STEP = 2;
 	/** How often the now-bar moves. A minute is as fine as it needs to be. */
 	const NOW_MS = 60_000;
 
 	let date = $state(today());
 	let day = $state<DayView | null>(null);
+	let allProjects = $state<Project[]>([]);
 	let looks = $state<Record<string, Look>>({});
-	let projects = $state<Project[]>([]);
 	let error = $state<string | null>(null);
 	let loading = $state(true);
-	let nowMinutes = $state(currentMinutes());
+	let nowMinutes = $state(minutesNow());
 	let adding = $state(false);
 
 	let blockStart = $state('09:00');
@@ -29,13 +32,9 @@
 	let blockProject = $state('');
 	let blockTitle = $state('');
 
-	function currentMinutes(): number {
-		const now = new Date();
-		return now.getHours() * 60 + now.getMinutes();
-	}
-
 	const planned = $derived(day?.planned ?? []);
 	const isToday = $derived(date === today());
+	const projects = $derived(allProjects.filter((project) => project.status === 'active'));
 
 	const plannedMinutes = $derived(
 		planned.reduce(
@@ -44,40 +43,23 @@
 		)
 	);
 
-	/** The visible span, stretched to hold every block on the day. Not named
-	    `window`: shadowing the global inside a component is asking for it. */
-	const span = $derived.by(() => {
-		const starts = planned.map((block) => minutesOfDay(block.start));
-		const ends = planned.map((block) => minutesOfDay(block.end));
-		const from = Math.min(DEFAULT_FROM, ...starts);
-		const to = Math.max(DEFAULT_TO, ...ends);
-		return { from, to: Math.max(to, from + 60) };
-	});
+	const span = $derived(spanOf(planned, DEFAULT_FROM, DEFAULT_TO));
+	const hours = $derived(hourMarks(span, HOUR_STEP));
 
-	const hours = $derived.by(() => {
-		const marks: number[] = [];
-		// Every second hour, which is what fits the gutter at phone width.
-		for (let hour = Math.ceil(span.from / 60); hour * 60 <= span.to; hour += 2) {
-			marks.push(hour);
-		}
-		return marks;
-	});
-
-	function offset(minutes: number): number {
-		return ((minutes - span.from) / (span.to - span.from)) * 100;
-	}
-
-	function height(block: Occurrence): number {
-		return offset(minutesOfDay(block.end)) - offset(minutesOfDay(block.start));
-	}
+	/** The day's sessions as minute ranges, parsed once rather than once per
+	    block: `isDone` is otherwise O(blocks x sessions) string parses. */
+	const tracked = $derived(
+		(day?.sessions ?? []).map((session) => ({
+			from: minutesOfDay(session.start),
+			to: minutesOfDay(session.end)
+		}))
+	);
 
 	/** A block counts as done once a logged session overlaps it. */
 	function isDone(block: Occurrence): boolean {
 		const from = minutesOfDay(block.start);
 		const to = minutesOfDay(block.end);
-		return (day?.sessions ?? []).some(
-			(session) => minutesOfDay(session.start) < to && minutesOfDay(session.end) > from
-		);
+		return tracked.some((session) => session.from < to && session.to > from);
 	}
 
 	/** The block to offer on the start button: the one running now, else the next. */
@@ -90,13 +72,22 @@
 		loading = false;
 	}
 
-	async function run(work: () => Promise<void>): Promise<void> {
-		error = await attempt(work);
+	/**
+	 * Runs an edit and re-reads the day.
+	 *
+	 * The re-read is in the wrapper rather than at each call site so a new
+	 * mutation cannot forget it and leave the timeline silently stale.
+	 */
+	async function mutate(work: () => Promise<void>): Promise<void> {
+		error = await attempt(async () => {
+			await work();
+			day = await api.readDay(date);
+		});
 	}
 
 	const addBlock = (event: SubmitEvent): Promise<void> => {
 		event.preventDefault();
-		return run(async () => {
+		return mutate(async () => {
 			await api.addBlock(date, {
 				start: `${blockStart}:00`,
 				end: `${blockEnd}:00`,
@@ -105,27 +96,14 @@
 			});
 			blockTitle = '';
 			adding = false;
-			day = await api.readDay(date);
 		});
 	};
 
-	const skip = (id: string): Promise<void> =>
-		run(async () => {
-			await api.skipBlock(date, id);
-			day = await api.readDay(date);
-		});
+	const skip = (id: string): Promise<void> => mutate(() => api.skipBlock(date, id));
 
-	const unskip = (id: string): Promise<void> =>
-		run(async () => {
-			await api.unskipBlock(date, id);
-			day = await api.readDay(date);
-		});
+	const unskip = (id: string): Promise<void> => mutate(() => api.unskipBlock(date, id));
 
-	const removeBlock = (index: number): Promise<void> =>
-		run(async () => {
-			await api.deleteBlock(date, index);
-			day = await api.readDay(date);
-		});
+	const removeBlock = (index: number): Promise<void> => mutate(() => api.deleteBlock(date, index));
 
 	async function startBlock(block: Occurrence): Promise<void> {
 		try {
@@ -143,47 +121,29 @@
 	});
 
 	$effect(() => {
-		api
-			.listProjects()
-			.then((all) => {
-				projects = all.filter((project) => project.status === 'active');
-				looks = looksFrom(all);
-			})
-			.catch(() => {
-				// Blocks fall back to a derived colour without it.
-			});
+		void readLooks().then((loaded) => {
+			looks = loaded.looks;
+			allProjects = loaded.active;
+		});
 
 		const tick = setInterval(() => {
-			nowMinutes = currentMinutes();
+			nowMinutes = minutesNow();
 		}, NOW_MS);
 		return () => clearInterval(tick);
 	});
 </script>
 
 <section class="screen">
-	<header class="head">
-		<div class="head-top">
-			<button class="quiet" aria-label="Previous day" onclick={() => (date = shiftDays(date, -1))}>
-				‹
-			</button>
-			<h1>
-				{new Date(`${date}T00:00`).toLocaleDateString(undefined, { weekday: 'long' })}<br />
-				<span class="light"
-					>{new Date(`${date}T00:00`).toLocaleDateString(undefined, {
-						day: 'numeric',
-						month: 'short'
-					})}</span
-				>
-			</h1>
-			<div class="totals meta">
-				{formatHours(plannedMinutes)}<br />planned
-			</div>
-			<button class="quiet" aria-label="Next day" onclick={() => (date = shiftDays(date, 1))}>
-				›
-			</button>
-		</div>
-		<ScheduleTabs />
-	</header>
+	<PeriodHeader
+		unit="day"
+		total="{formatHours(plannedMinutes)} planned"
+		onPrevious={() => (date = shiftDays(date, -1))}
+		onNext={() => (date = shiftDays(date, 1))}
+	>
+		{#snippet title()}
+			{weekdayName(date)}<br /><span class="light">{monthDay(date)}</span>
+		{/snippet}
+	</PeriodHeader>
 
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 
@@ -210,7 +170,9 @@
 			<div class="timeline">
 				<div class="gutter">
 					{#each hours as hour (hour)}
-						<span style:top="{offset(hour * 60)}%">{hour.toString().padStart(2, '0')}</span>
+						<span style:top="{offsetIn(span, hour * 60)}%">
+							{hour.toString().padStart(2, '0')}
+						</span>
 					{/each}
 				</div>
 
@@ -218,11 +180,12 @@
 					{#each planned as block, position (`${block.start}-${block.title}-${position}`)}
 						{@const look = lookOf(looks, block.project)}
 						{@const done = isDone(block)}
+						{@const place = placeIn(span, block)}
 						<button
 							class="block"
 							class:done
-							style:top="{offset(minutesOfDay(block.start))}%"
-							style:height="{height(block)}%"
+							style:top="{place.top}%"
+							style:height="{place.height}%"
 							style:background={look.color}
 							style:color={contrastInk(look.color)}
 							onclick={() => startBlock(block)}
@@ -235,7 +198,7 @@
 					{/each}
 
 					{#if isToday && nowMinutes >= span.from && nowMinutes <= span.to}
-						<div class="now" style:top="{offset(nowMinutes)}%" aria-hidden="true">
+						<div class="now" style:top="{offsetIn(span, nowMinutes)}%" aria-hidden="true">
 							<span class="dot"></span>
 						</div>
 					{/if}
@@ -305,43 +268,8 @@
 </section>
 
 <style>
-	.screen {
-		display: flex;
-		flex-direction: column;
-		min-height: 100%;
-	}
-
-	.head {
-		padding: 14px var(--pad) 12px;
-		border-bottom: var(--rule) solid var(--ink);
-	}
-
-	.head-top {
-		display: flex;
-		align-items: flex-end;
-		gap: 8px;
-		margin-bottom: 14px;
-	}
-
-	.head-top h1 {
-		flex: 1;
-		text-transform: uppercase;
-	}
-
 	.light {
 		font-weight: 300;
-	}
-
-	.totals {
-		text-align: right;
-		text-transform: uppercase;
-	}
-
-	.head-top button {
-		font-size: 1.5rem;
-		line-height: 1;
-		min-height: 0;
-		align-self: center;
 	}
 
 	.canvas {
@@ -489,7 +417,6 @@
 	}
 
 	.foot {
-		padding: 13px var(--pad) 16px;
 		border-top: var(--rule) solid var(--ink);
 	}
 

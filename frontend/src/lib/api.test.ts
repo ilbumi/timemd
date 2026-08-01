@@ -219,7 +219,7 @@ describe('days and schedule', () => {
 	it('reads and replaces the repeating list', async () => {
 		const block = {
 			id: 'deep-work',
-			days: 'mon-fri',
+			days: ['mon', 'tue', 'wed', 'thu', 'fri'],
 			start: '09:00:00',
 			end: '11:00:00',
 			project: null,

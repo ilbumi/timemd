@@ -43,6 +43,16 @@ impl DaySet {
         self.0 == 0
     }
 
+    /// The selected days as their canonical names, Monday first.
+    ///
+    /// The spelling is part of the file grammar, so it belongs here rather than
+    /// being reinvented by whatever wants to show a day picker. Feeding the
+    /// names back through `parse` round-trips, which is how a caller edits a set
+    /// without knowing about ranges or `daily`.
+    pub fn names(self) -> Vec<&'static str> {
+        self.indices().map(|index| DAY_NAMES[index]).collect()
+    }
+
     fn indices(self) -> impl Iterator<Item = usize> {
         (0..7).filter(move |index| self.0 & (1 << index) != 0)
     }
@@ -402,6 +412,29 @@ mod tests {
     }
 
     const SAMPLE: &str = "---\n---\n\n# Recurring schedule\n\n## Blocks\n\n- `deep-work` mon-fri 09:00-11:00 [[timemd]] Deep work !5m\n- `review` wed 14:00-15:00 [[admin]] Weekly review !10m\n";
+
+    /// The names are the editable form: a day picker sends them back joined,
+    /// and the canonical spelling — ranges, `daily` — is re-derived here.
+    #[test]
+    fn day_names_round_trip_through_the_spec() {
+        for spec in ["daily", "mon-fri", "mon,wed,fri", "mon-fri,sun", "sun"] {
+            let parsed: DaySet = spec.parse().expect("parses");
+            assert_eq!(parsed.names().join(",").parse(), Ok(parsed), "{spec}");
+            assert_eq!(
+                parsed
+                    .names()
+                    .join(",")
+                    .parse::<DaySet>()
+                    .map(|set| set.to_string()),
+                Ok(spec.to_owned())
+            );
+        }
+        assert_eq!(
+            "mon-fri".parse::<DaySet>().expect("parses").names(),
+            vec!["mon", "tue", "wed", "thu", "fri"]
+        );
+        assert!(DaySet::default().names().is_empty());
+    }
 
     #[test]
     fn parses_day_specs() {

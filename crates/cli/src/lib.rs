@@ -217,16 +217,14 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
                             .count();
                         format!("  {done}/{} done", project.milestones.len())
                     };
-                    format!(
-                        "{:<24} {}{target}{milestones}{}",
-                        project.slug().as_str(),
-                        project.name,
-                        if project.status.is_archived() {
-                            "  (archived)"
-                        } else {
-                            ""
-                        },
-                    )
+                    let slug = project.slug().as_str();
+                    let name = &project.name;
+                    let archived = if project.status.is_archived() {
+                        "  (archived)"
+                    } else {
+                        ""
+                    };
+                    format!("{slug:<24} {name}{target}{milestones}{archived}")
                 })
                 .collect::<Vec<_>>()
                 .join("\n"))

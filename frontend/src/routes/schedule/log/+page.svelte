@@ -1,11 +1,11 @@
 <script lang="ts">
 	import Mark from '$lib/Mark.svelte';
-	import ScheduleTabs from '$lib/ScheduleTabs.svelte';
+	import PeriodHeader from '$lib/PeriodHeader.svelte';
 	import { api, type LoggedSession, type Project } from '$lib/api';
 	import { attempt } from '$lib/attempt';
 	import { formatHours, parseMinutes } from '$lib/countdown';
-	import { clockTime, dayLabel, shiftDays, startOfWeek, today } from '$lib/dates';
-	import { lookOf, looksFrom, type Look } from '$lib/look';
+	import { clockTime, dayLabel, shiftDays, startOfWeek, today, weekDates } from '$lib/dates';
+	import { lookOf, readLooks, type Look } from '$lib/look';
 
 	interface Band {
 		date: string;
@@ -17,6 +17,7 @@
 	let bands = $state<Band[]>([]);
 	let looks = $state<Record<string, Look>>({});
 	let projects = $state<Project[]>([]);
+
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 	let adding = $state(false);
@@ -39,8 +40,7 @@
 	 */
 	async function load(): Promise<void> {
 		error = await attempt(async () => {
-			const dates = Array.from({ length: 7 }, (_, offset) => shiftDays(monday, offset));
-			const days = await Promise.all(dates.map((date) => api.readDay(date)));
+			const days = await Promise.all(weekDates(monday).map((date) => api.readDay(date)));
 
 			bands = days
 				.map((day) => ({
@@ -86,38 +86,22 @@
 	});
 
 	$effect(() => {
-		api
-			.listProjects()
-			.then((all) => {
-				projects = all.filter((candidate) => candidate.status === 'active');
-				looks = looksFrom(all);
-			})
-			.catch(() => {
-				// Rows fall back to a derived colour without it.
-			});
+		void readLooks().then((loaded) => {
+			looks = loaded.looks;
+			projects = loaded.active;
+		});
 	});
 </script>
 
 <section class="screen">
-	<header class="head">
-		<div class="head-top">
-			<button
-				class="quiet"
-				aria-label="Previous week"
-				onclick={() => (anchor = shiftDays(anchor, -7))}
-			>
-				‹
-			</button>
-			<h1>LOG</h1>
-			<div class="totals meta">
-				{formatHours(totalMinutes)} · {sessionCount} sessions
-			</div>
-			<button class="quiet" aria-label="Next week" onclick={() => (anchor = shiftDays(anchor, 7))}>
-				›
-			</button>
-		</div>
-		<ScheduleTabs />
-	</header>
+	<PeriodHeader
+		unit="week"
+		total="{formatHours(totalMinutes)} · {sessionCount} sessions"
+		onPrevious={() => (anchor = shiftDays(anchor, -7))}
+		onNext={() => (anchor = shiftDays(anchor, 7))}
+	>
+		{#snippet title()}LOG{/snippet}
+	</PeriodHeader>
 
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 
@@ -188,39 +172,6 @@
 </section>
 
 <style>
-	.screen {
-		display: flex;
-		flex-direction: column;
-		min-height: 100%;
-	}
-
-	.head {
-		padding: 14px var(--pad) 12px;
-		border-bottom: var(--rule) solid var(--ink);
-	}
-
-	.head-top {
-		display: flex;
-		align-items: baseline;
-		gap: 8px;
-		margin-bottom: 14px;
-	}
-
-	.head-top h1 {
-		flex: 1;
-	}
-
-	.totals {
-		text-align: right;
-		text-transform: uppercase;
-	}
-
-	.head-top button {
-		font-size: 1.5rem;
-		line-height: 1;
-		min-height: 0;
-	}
-
 	.body {
 		flex: 1;
 	}
@@ -317,7 +268,6 @@
 	}
 
 	.foot {
-		padding: 13px var(--pad) 16px;
 		border-top: var(--rule) solid var(--ink);
 	}
 </style>

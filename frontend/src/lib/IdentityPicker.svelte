@@ -8,11 +8,11 @@
 	 */
 	import Mark from '$lib/Mark.svelte';
 	import type { Mark as MarkShape } from '$lib/api';
-	import { IDENTITIES, contrastInk } from '$lib/palette';
+	import { DEFAULT_COLOR, IDENTITIES, contrastInk } from '$lib/palette';
 
 	let {
 		mark = $bindable('square'),
-		color = $bindable(IDENTITIES[0]?.color ?? '#245a8d')
+		color = $bindable(DEFAULT_COLOR)
 	}: { mark: MarkShape; color: string } = $props();
 </script>
 

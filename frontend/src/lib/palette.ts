@@ -25,6 +25,10 @@ export const IDENTITIES: readonly { mark: Mark; color: string }[] = MARKS.map((m
 	color: PALETTE[index] ?? PALETTE[0]
 }));
 
+/** What a project gets before anyone chooses. Widened from the `as const` tuple
+    so a `$state` seeded with it stays assignable from any colour. */
+export const DEFAULT_COLOR: string = PALETTE[0];
+
 const PAPER = '#f2efe6';
 const INK = '#111111';
 

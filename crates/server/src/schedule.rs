@@ -116,7 +116,10 @@ pub struct DayView {
 #[serde(rename_all = "camelCase")]
 pub struct RecurringView {
     id: String,
-    days: String,
+    /// The weekdays as canonical names. The stored form has ranges and `daily`
+    /// in it; spelling those is core's job, so the wire carries the plain set
+    /// and the client edits it without knowing the grammar.
+    days: Vec<String>,
     start: NaiveTime,
     end: NaiveTime,
     project: Option<String>,
@@ -337,7 +340,12 @@ async fn remove_skip(
 fn view_of(block: &RecurringBlock) -> RecurringView {
     RecurringView {
         id: block.id.to_string(),
-        days: block.days.to_string(),
+        days: block
+            .days
+            .names()
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect(),
         start: block.start,
         end: block.end,
         project: block.project.as_ref().map(ToString::to_string),
@@ -349,8 +357,12 @@ fn view_of(block: &RecurringBlock) -> RecurringView {
 fn block_from(view: &RecurringView) -> ApiResult<RecurringBlock> {
     Ok(RecurringBlock {
         id: block_id(&view.id)?,
+        // Joined and handed straight back to core's parser, so there is exactly
+        // one implementation of what a day spec means. An empty list is refused
+        // there, which is right: a block on no days would never fire.
         days: view
             .days
+            .join(",")
             .parse()
             .map_err(|error: timemd_core::ParseErrorKind| {
                 ApiError::bad_request(error.to_string())

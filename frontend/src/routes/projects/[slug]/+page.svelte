@@ -3,26 +3,27 @@
 	import { page } from '$app/state';
 	import IdentityPicker from '$lib/IdentityPicker.svelte';
 	import Mark from '$lib/Mark.svelte';
-	import {
-		api,
-		type LoggedSession,
-		type Mark as MarkShape,
-		type Milestone,
-		type Project
-	} from '$lib/api';
+	import { api, type LoggedSession, type Mark as MarkShape, type Project } from '$lib/api';
 	import { attempt, describe } from '$lib/attempt';
 	import { formatHours, parseMinutes } from '$lib/countdown';
-	import { clockTime, dayLabel, shiftDays, startOfWeek, today } from '$lib/dates';
-	import { contrastInk, paletteColor } from '$lib/palette';
-	import { readTotals, totalsFor, type Totals } from '$lib/totals';
+	import { clockTime, dayLabel, today, weekDates } from '$lib/dates';
+	import { DEFAULT_COLOR, contrastInk, paletteColor } from '$lib/palette';
+	import {
+		readLifetimeTotals,
+		targetFill,
+		targetMinutes,
+		totalsFor,
+		type Totals
+	} from '$lib/totals';
 
-	const LIFETIME_DAYS = 365;
-	const DAYS_IN_WEEK = 7;
+	/** The stepper's step, in minutes. Half-hours, so a `1h30m` target written by
+	    hand survives an edit instead of being rounded to the nearest hour. */
+	const TARGET_STEP = 30;
+	const MAX_TARGET = 60 * 60;
 
 	const slug = $derived(page.params.slug ?? '');
 
 	let project = $state<Project | null>(null);
-	let week = $state<Record<string, Totals>>({});
 	let lifetime = $state<Record<string, Totals>>({});
 	let recent = $state<{ date: string; session: LoggedSession }[]>([]);
 	let loading = $state(true);
@@ -32,20 +33,35 @@
 	let editing = $state(false);
 	let draftName = $state('');
 	let draftMark = $state<MarkShape>('square');
-	let draftColor = $state('#245a8d');
+	let draftColor = $state(DEFAULT_COLOR);
 	let draftTarget = $state(0);
 	let newMilestone = $state('');
 
 	let confirming = $state(false);
 	let typedName = $state('');
 
-	const color = $derived(project === null ? '#245a8d' : paletteColor(project.slug, project.color));
+	const dismissDelete = (): void => {
+		confirming = false;
+		typedName = '';
+	};
+
+	const color = $derived(
+		project === null ? DEFAULT_COLOR : paletteColor(project.slug, project.color)
+	);
 	const ink = $derived(contrastInk(color));
 	const archived = $derived(project?.status === 'archived');
-	const tracked = $derived(totalsFor(week, slug));
+	/**
+	 * This week's total, counted from the sessions already loaded rather than
+	 * asked for again: `recent` is exactly this project's week, and the report
+	 * endpoint would re-read the same seven day files to say the same thing.
+	 */
+	const tracked = $derived({
+		tracked: recent.reduce((total, entry) => total + parseMinutes(entry.session.duration), 0),
+		sessions: recent.length
+	});
 	const logged = $derived(totalsFor(lifetime, slug));
-	const target = $derived(project?.target === null ? 0 : parseMinutes(project?.target ?? ''));
-	const fill = $derived(target === 0 ? 0 : Math.min(100, (tracked.tracked / target) * 100));
+	const target = $derived(project === null ? 0 : targetMinutes(project));
+	const fill = $derived(targetFill(tracked.tracked, target));
 	const doneCount = $derived(project?.milestones.filter((milestone) => milestone.done).length ?? 0);
 	const canDelete = $derived(
 		typedName.trim().toLowerCase() === (project?.name ?? '').trim().toLowerCase()
@@ -66,11 +82,8 @@
 	 * returns totals rather than rows.
 	 */
 	async function loadRecent(): Promise<void> {
-		const monday = startOfWeek(today());
-		const dates = Array.from({ length: DAYS_IN_WEEK }, (_, offset) => shiftDays(monday, offset));
-
 		const days = await Promise.all(
-			dates.map((date) =>
+			weekDates(today()).map((date) =>
 				api
 					.readDay(date)
 					.then((day) => ({ date, sessions: day.sessions }))
@@ -90,7 +103,7 @@
 		draftName = project.name;
 		draftMark = project.mark;
 		draftColor = color;
-		draftTarget = Math.round(target / 60);
+		draftTarget = target;
 		editing = true;
 	}
 
@@ -100,7 +113,7 @@
 				name: draftName.trim(),
 				mark: draftMark,
 				color: draftColor,
-				target: draftTarget === 0 ? null : `${draftTarget}h`
+				target: draftTarget === 0 ? null : `${draftTarget}m`
 			});
 			editing = false;
 		});
@@ -169,13 +182,12 @@
 		void slug;
 		void load();
 		void loadRecent();
-		const monday = startOfWeek(today());
-		void readTotals(monday, shiftDays(monday, 6)).then((rows) => {
-			week = rows;
-		});
-		void readTotals(shiftDays(today(), -LIFETIME_DAYS), today()).then((rows) => {
-			lifetime = rows;
-		});
+	});
+
+	$effect(() => {
+		// A year of day files, and only the archived layout and the delete sheet
+		// ever render it — so an active project never pays for it.
+		if (archived) void readLifetimeTotals().then((rows) => (lifetime = rows));
 	});
 </script>
 
@@ -214,9 +226,16 @@
 					<IdentityPicker bind:mark={draftMark} bind:color={draftColor} />
 
 					<label class="label" for="edit-target" style:color="inherit">
-						Weekly target — hours, 0 for none
+						Weekly target — {draftTarget === 0 ? 'none' : formatHours(draftTarget)}
 					</label>
-					<input id="edit-target" type="number" min="0" max="60" bind:value={draftTarget} />
+					<input
+						id="edit-target"
+						type="range"
+						min="0"
+						max={MAX_TARGET}
+						step={TARGET_STEP}
+						bind:value={draftTarget}
+					/>
 				</div>
 			{:else}
 				<div class="title">
@@ -245,7 +264,7 @@
 						{formatHours(tracked.tracked)}
 						<span>/ {formatHours(target)} this week</span>
 					</p>
-					<div class="bar" style:border-color={ink}>
+					<div class="target header-bar">
 						<span style:width="{fill}%" style:background="var(--yellow)"></span>
 					</div>
 				{/if}
@@ -412,19 +431,8 @@
 						Delete forever
 					</button>
 					<div class="actions">
-						<button
-							class="quiet"
-							onclick={() => {
-								confirming = false;
-								typedName = '';
-							}}>Cancel</button
-						>
-						<button
-							onclick={() => {
-								confirming = false;
-								typedName = '';
-							}}>Keep archived</button
-						>
+						<button class="quiet" onclick={dismissDelete}>Cancel</button>
+						<button onclick={dismissDelete}>Keep archived</button>
 					</div>
 				</div>
 			</div>
@@ -433,12 +441,6 @@
 {/if}
 
 <style>
-	.screen {
-		display: flex;
-		flex-direction: column;
-		min-height: 100%;
-	}
-
 	.head {
 		padding: 14px var(--pad) 18px;
 		border-bottom: var(--rule) solid var(--ink);
@@ -493,16 +495,11 @@
 		opacity: 0.7;
 	}
 
-	.bar {
+	/* The shared trough, heavier and taller against a full-bleed colour field. */
+	.header-bar {
 		height: 10px;
 		margin-top: 9px;
-		border: var(--rule) solid;
-		overflow: hidden;
-	}
-
-	.bar > span {
-		display: block;
-		height: 100%;
+		border-width: var(--rule);
 	}
 
 	.stats {
@@ -647,7 +644,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
-		padding: 12px var(--pad) 16px;
 		border-top: var(--rule) solid var(--ink);
 	}
 

@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
 	clockTime,
 	dayLabel,
-	endOfMonth,
 	isoDate,
 	isoWeek,
 	minutesOfDay,
+	monthDay,
+	weekDates,
+	weekdayName,
 	shiftDays,
-	startOfMonth,
-	shiftMonths,
 	startOfWeek,
 	today
 } from './dates';
@@ -72,7 +72,7 @@ describe('dayLabel', () => {
 	});
 });
 
-describe('week and month boundaries', () => {
+describe('week boundaries', () => {
 	it('starts the week on Monday', () => {
 		// 2026-08-05 is a Wednesday, 2026-08-03 the Monday before it.
 		expect(startOfWeek('2026-08-05')).toBe('2026-08-03');
@@ -83,12 +83,33 @@ describe('week and month boundaries', () => {
 		// 2026-08-09 is a Sunday; its Monday is 2026-08-03.
 		expect(startOfWeek('2026-08-09')).toBe('2026-08-03');
 	});
+});
 
-	it('brackets a month', () => {
-		expect(startOfMonth('2026-08-05')).toBe('2026-08-01');
-		expect(endOfMonth('2026-08-05')).toBe('2026-08-31');
-		expect(endOfMonth('2026-02-10')).toBe('2026-02-28');
-		expect(endOfMonth('2028-02-10')).toBe('2028-02-29');
+describe('weekdayName and monthDay', () => {
+	/** Locale-dependent, so these pin the shape rather than the spelling: the
+	    point is that neither repeats what the other says. */
+	it('splits the date into a weekday and a day-month', () => {
+		expect(weekdayName('2026-08-01')).toMatch(/^\p{L}+$/u);
+		expect(monthDay('2026-08-01')).toMatch(/1/);
+		expect(monthDay('2026-08-01')).not.toBe(weekdayName('2026-08-01'));
+	});
+
+	it('reads the local date, not the UTC one', () => {
+		expect(weekdayName('2026-08-01')).not.toBe(weekdayName('2026-08-02'));
+	});
+});
+
+describe('weekDates', () => {
+	it('gives Monday to Sunday of the week containing the date', () => {
+		expect(weekDates('2026-08-01')).toEqual([
+			'2026-07-27',
+			'2026-07-28',
+			'2026-07-29',
+			'2026-07-30',
+			'2026-07-31',
+			'2026-08-01',
+			'2026-08-02'
+		]);
 	});
 });
 
@@ -122,17 +143,5 @@ describe('parsing guard', () => {
 		for (const bad of ['2026-8-1', 'yesterday', '', '2026/08/01']) {
 			expect(() => shiftDays(bad, 1)).toThrow(RangeError);
 		}
-	});
-});
-
-describe('shiftMonths', () => {
-	it('lands on the first of the target month', () => {
-		expect(shiftMonths('2026-08-15', 1)).toBe('2026-09-01');
-		expect(shiftMonths('2026-08-15', -1)).toBe('2026-07-01');
-	});
-
-	it('crosses years', () => {
-		expect(shiftMonths('2026-12-31', 1)).toBe('2027-01-01');
-		expect(shiftMonths('2026-01-01', -1)).toBe('2025-12-01');
 	});
 });

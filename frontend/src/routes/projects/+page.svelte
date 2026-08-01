@@ -2,14 +2,16 @@
 	import Mark from '$lib/Mark.svelte';
 	import { api, type Project } from '$lib/api';
 	import { attempt } from '$lib/attempt';
-	import { formatHours, parseMinutes } from '$lib/countdown';
-	import { shiftDays, startOfWeek, today } from '$lib/dates';
+	import { formatHours } from '$lib/countdown';
 	import { contrastInk, paletteColor } from '$lib/palette';
-	import { readTotals, totalsFor, type Totals } from '$lib/totals';
-
-	/** How far back the "logged" figure on an archived project looks. Matches the
-	    server's own range limit, so it is the longest window it will answer. */
-	const LIFETIME_DAYS = 365;
+	import {
+		readLifetimeTotals,
+		readWeekTotals,
+		targetFill,
+		targetMinutes,
+		totalsFor,
+		type Totals
+	} from '$lib/totals';
 
 	let projects = $state<Project[]>([]);
 	let week = $state<Record<string, Totals>>({});
@@ -21,25 +23,13 @@
 	const active = $derived(projects.filter((project) => project.status === 'active'));
 	const archived = $derived(projects.filter((project) => project.status === 'archived'));
 
-	function targetMinutes(project: Project): number {
-		return project.target === null ? 0 : parseMinutes(project.target);
-	}
-
-	function fill(project: Project): number {
-		const goal = targetMinutes(project);
-		return goal === 0 ? 0 : Math.min(100, (totalsFor(week, project.slug).tracked / goal) * 100);
-	}
-
-	/** The line under the bar: milestones if the project keeps any, hours if not. */
+	/** The line under the bar. Deliberately about milestones rather than lifetime
+	    hours: the year-long total costs a 366-day scan, and only the archived
+	    rows — which are collapsed until asked for — actually show it. */
 	function subtitle(project: Project): string {
-		const logged = totalsFor(lifetime, project.slug);
-		const hours = logged.tracked === 0 ? '' : `${formatHours(logged.tracked)} logged`;
-
-		if (project.milestones.length === 0) return hours === '' ? 'no milestones yet' : hours;
-
+		if (project.milestones.length === 0) return 'no milestones yet';
 		const done = project.milestones.filter((milestone) => milestone.done).length;
-		const marks = `${done} of ${project.milestones.length} milestones`;
-		return hours === '' ? marks : `${marks} · ${hours}`;
+		return `${done} of ${project.milestones.length} milestones`;
 	}
 
 	async function load(): Promise<void> {
@@ -63,13 +53,15 @@
 
 	$effect(() => {
 		void load();
-		const monday = startOfWeek(today());
-		void readTotals(monday, shiftDays(monday, 6)).then((rows) => {
+		void readWeekTotals().then((rows) => {
 			week = rows;
 		});
-		void readTotals(shiftDays(today(), -LIFETIME_DAYS), today()).then((rows) => {
-			lifetime = rows;
-		});
+	});
+
+	$effect(() => {
+		// A year of day files is the most expensive read the app makes, and it is
+		// only ever rendered by the archived rows — so it waits until they open.
+		if (showArchived) void readLifetimeTotals().then((rows) => (lifetime = rows));
 	});
 </script>
 
@@ -94,6 +86,8 @@
 
 		{#each active as project (project.slug)}
 			{@const color = paletteColor(project.slug, project.color)}
+			{@const goal = targetMinutes(project)}
+			{@const tracked = totalsFor(week, project.slug).tracked}
 			<a class="row" href="/projects/{project.slug}">
 				<span class="swatch" style:background={color}>
 					<Mark mark={project.mark} color={contrastInk(color)} size={24} />
@@ -101,17 +95,14 @@
 				<span class="detail">
 					<span class="line">
 						<span class="name">{project.name}</span>
-						{#if targetMinutes(project) > 0}
-							<span class="numeric hours">
-								{formatHours(totalsFor(week, project.slug).tracked)} / {formatHours(
-									targetMinutes(project)
-								)}
-							</span>
+						{#if goal > 0}
+							<span class="numeric hours">{formatHours(tracked)} / {formatHours(goal)}</span>
 						{/if}
 					</span>
-					{#if targetMinutes(project) > 0}
+					{#if goal > 0}
 						<span class="target"
-							><span style:width="{fill(project)}%" style:background={color}></span></span
+							><span style:width="{targetFill(tracked, goal)}%" style:background={color}
+							></span></span
 						>
 					{/if}
 					<span class="subtitle">{subtitle(project)}</span>
@@ -162,12 +153,6 @@
 </section>
 
 <style>
-	.screen {
-		display: flex;
-		flex-direction: column;
-		min-height: 100%;
-	}
-
 	.list {
 		flex: 1;
 	}

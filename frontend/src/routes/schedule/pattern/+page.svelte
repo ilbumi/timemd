@@ -4,7 +4,7 @@
 	import { attempt } from '$lib/attempt';
 	import { clockTime } from '$lib/dates';
 	import { contrastInk } from '$lib/palette';
-	import { lookOf, looksFrom, type Look } from '$lib/look';
+	import { lookOf, readLooks, type Look } from '$lib/look';
 
 	const DAYS = [
 		{ key: 'mon', letter: 'M' },
@@ -16,12 +16,18 @@
 		{ key: 'sun', letter: 'S' }
 	];
 
-	/** The three lead times the design offers, plus off. */
+	/** The lead times the design offers. A block whose stored lead is none of
+	    them keeps it as a fourth choice rather than losing it on the next tap. */
 	const LEADS = [
 		{ value: '0m', label: 'At time' },
 		{ value: '10m', label: '10 min' },
 		{ value: '30m', label: '30 min' }
 	];
+
+	function leadsFor(lead: string | null): { value: string; label: string }[] {
+		if (lead === null || LEADS.some((option) => option.value === lead)) return LEADS;
+		return [...LEADS, { value: lead, label: lead }];
+	}
 
 	let blocks = $state<RecurringBlock[]>([]);
 	let projects = $state<Project[]>([]);
@@ -32,7 +38,7 @@
 
 	const blank = (): RecurringBlock => ({
 		id: '',
-		days: 'mon-fri',
+		days: ['mon', 'tue', 'wed', 'thu', 'fri'],
 		start: '09:00:00',
 		end: '10:00:00',
 		project: null,
@@ -41,49 +47,18 @@
 	});
 
 	/**
-	 * The day spec as a set of weekdays.
+	 * Adds or removes one weekday.
 	 *
-	 * The stored form is the grammar's — `mon-fri`, `mon,wed,fri`, `daily` — and
-	 * the editor's is seven squares, so both directions live here rather than
-	 * being re-derived per square.
+	 * The wire carries a plain list of names and the server spells the stored
+	 * form, so this screen never has to know that `mon-fri` and `daily` exist.
 	 */
-	function selectedDays(spec: string): Set<string> {
-		const trimmed = spec.trim().toLowerCase();
-		if (trimmed === 'daily') return new Set(DAYS.map((day) => day.key));
-
-		const chosen = new Set<string>();
-		for (const part of trimmed.split(',')) {
-			const [from, to] = part.split('-');
-			const first = DAYS.findIndex((day) => day.key === from?.trim());
-			if (first === -1) continue;
-			const last = to === undefined ? first : DAYS.findIndex((day) => day.key === to.trim());
-			for (let index = first; index <= (last === -1 ? first : last); index += 1) {
-				const day = DAYS[index];
-				if (day !== undefined) chosen.add(day.key);
-			}
-		}
-		return chosen;
-	}
-
-	/** Back to the grammar. Always the explicit comma list: it is what the
-	    grammar accepts for every combination, ranges only for some. */
-	function toSpec(chosen: Set<string>): string {
-		if (chosen.size === DAYS.length) return 'daily';
-		return DAYS.filter((day) => chosen.has(day.key))
-			.map((day) => day.key)
-			.join(',');
-	}
-
 	function toggleDay(block: RecurringBlock, key: string): void {
-		const chosen = selectedDays(block.days);
-		if (chosen.has(key)) {
-			chosen.delete(key);
-		} else {
-			chosen.add(key);
-		}
-		// An empty spec would never fire; keep the last day rather than silently
-		// producing a block that does nothing.
-		if (chosen.size > 0) block.days = toSpec(chosen);
+		const next = block.days.includes(key)
+			? block.days.filter((day) => day !== key)
+			: DAYS.filter((day) => day.key === key || block.days.includes(day.key)).map((day) => day.key);
+		// A block on no days would be refused by the server and would never fire;
+		// keep the last one rather than letting the user reach that state.
+		if (next.length > 0) block.days = next;
 		dirty = true;
 	}
 
@@ -122,15 +97,10 @@
 
 	$effect(() => {
 		void load();
-		api
-			.listProjects()
-			.then((all) => {
-				projects = all.filter((project) => project.status === 'active');
-				looks = looksFrom(all);
-			})
-			.catch(() => {
-				// The project row just shows fewer choices.
-			});
+		void readLooks().then((loaded) => {
+			looks = loaded.looks;
+			projects = loaded.active;
+		});
 	});
 </script>
 
@@ -206,8 +176,8 @@
 				<div class="field">
 					<span class="label" id="repeats-{position}">Repeats</span>
 					<div class="days" role="group" aria-labelledby="repeats-{position}">
-						{#each DAYS as day, index (day.key)}
-							{@const on = selectedDays(block.days).has(day.key)}
+						{#each DAYS as day (day.key)}
+							{@const on = block.days.includes(day.key)}
 							<button
 								class="day"
 								aria-pressed={on}
@@ -217,7 +187,7 @@
 								style:border-color={on ? 'var(--ink)' : 'var(--ink-30)'}
 								onclick={() => toggleDay(block, day.key)}
 							>
-								{DAYS[index]?.letter}
+								{day.letter}
 							</button>
 						{/each}
 					</div>
@@ -279,7 +249,7 @@
 
 					{#if block.remindBefore !== null}
 						<div class="segmented">
-							{#each LEADS as lead (lead.value)}
+							{#each leadsFor(block.remindBefore) as lead (lead.value)}
 								<button
 									aria-pressed={block.remindBefore === lead.value}
 									onclick={() => {
@@ -306,12 +276,6 @@
 </section>
 
 <style>
-	.screen {
-		display: flex;
-		flex-direction: column;
-		min-height: 100%;
-	}
-
 	.bar {
 		display: flex;
 		align-items: center;

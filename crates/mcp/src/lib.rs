@@ -91,13 +91,7 @@ pub struct UpsertProjectParams {
     /// `active` or `archived`.
     pub status: Option<String>,
     /// Replaces the whole list when given. Omit to leave it alone.
-    pub milestones: Option<Vec<MilestoneParam>>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct MilestoneParam {
-    pub done: bool,
-    pub title: String,
+    pub milestones: Option<Vec<MilestoneIo>>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -161,13 +155,24 @@ pub struct ProjectSummary {
     pub mark: String,
     pub target: Option<String>,
     pub status: String,
-    pub milestones: Vec<MilestoneSummary>,
+    pub milestones: Vec<MilestoneIo>,
 }
 
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct MilestoneSummary {
+/// A milestone in both directions. The two halves were identical structs that
+/// differed only in which serde trait they derived.
+#[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MilestoneIo {
     pub done: bool,
     pub title: String,
+}
+
+impl From<&Milestone> for MilestoneIo {
+    fn from(milestone: &Milestone) -> Self {
+        Self {
+            done: milestone.done,
+            title: milestone.title.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -515,14 +520,7 @@ fn summarise(project: &Project) -> ProjectSummary {
         mark: project.mark.to_string(),
         target: project.target.map(|target| target.to_string()),
         status: project.status.to_string(),
-        milestones: project
-            .milestones
-            .iter()
-            .map(|milestone| MilestoneSummary {
-                done: milestone.done,
-                title: milestone.title.clone(),
-            })
-            .collect(),
+        milestones: project.milestones.iter().map(MilestoneIo::from).collect(),
     }
 }
 
@@ -758,7 +756,7 @@ mod tests {
                 color: Some("#4f46e5".to_owned()),
                 mark: Some("triangle".to_owned()),
                 target: Some("10h".to_owned()),
-                milestones: Some(vec![MilestoneParam {
+                milestones: Some(vec![MilestoneIo {
                     done: false,
                     title: "Ship it".to_owned(),
                 }]),

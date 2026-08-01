@@ -84,7 +84,7 @@ function stubApi(): void {
 				return [
 					{
 						id: 'deep-work',
-						days: 'mon-fri',
+						days: ['mon', 'tue', 'wed', 'thu', 'fri'],
 						start: '09:00:00',
 						end: '11:00:00',
 						project: 'thesis',

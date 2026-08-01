@@ -17,7 +17,7 @@ async fn with_deep_work(harness: &Harness) {
             "/api/schedule/recurring",
             Some(json!([{
                 "id": "deep-work",
-                "days": "mon-fri",
+                "days": ["mon", "tue", "wed", "thu", "fri"],
                 "start": "09:00:00",
                 "end": "11:00:00",
                 "project": "timemd",
@@ -37,7 +37,7 @@ async fn recurring_blocks_round_trip_through_the_api() {
     let (status, body) = harness.get("/api/schedule/recurring").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body[0]["id"], "deep-work");
-    assert_eq!(body[0]["days"], "mon-fri");
+    assert_eq!(body[0]["days"], json!(["mon", "tue", "wed", "thu", "fri"]));
     assert_eq!(body[0]["title"], "Deep work");
     assert_eq!(body[0]["remindBefore"], "5m");
 }
@@ -270,24 +270,28 @@ async fn a_backwards_or_oversized_range_is_rejected() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// An unknown weekday and a block on no days at all both come back as bad
+/// requests, because core's day-spec parser is the only thing that judges them.
 #[tokio::test]
 async fn a_malformed_recurring_block_is_rejected() {
     let harness = Harness::new();
 
-    let (status, _) = harness
-        .request(
-            "PUT",
-            "/api/schedule/recurring",
-            Some(json!([{
-                "id": "deep-work",
-                "days": "funday",
-                "start": "09:00:00",
-                "end": "11:00:00",
-                "title": "Deep work"
-            }])),
-        )
-        .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    for days in [json!(["funday"]), json!([])] {
+        let (status, _) = harness
+            .request(
+                "PUT",
+                "/api/schedule/recurring",
+                Some(json!([{
+                    "id": "deep-work",
+                    "days": days,
+                    "start": "09:00:00",
+                    "end": "11:00:00",
+                    "title": "Deep work"
+                }])),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
 }
 
 #[tokio::test]

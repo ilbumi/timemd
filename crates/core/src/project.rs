@@ -193,8 +193,9 @@ impl Milestone {
     }
 
     fn render(&self) -> String {
-        let line = format!("- [{}] {}", if self.done { "x" } else { " " }, self.title);
-        line.trim_end().to_owned()
+        // No trailing trim: `new` is the only constructor and it rejects a blank
+        // title, so the line always ends in one.
+        format!("- [{}] {}", if self.done { "x" } else { " " }, self.title)
     }
 }
 

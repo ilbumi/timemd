@@ -33,19 +33,12 @@ describe('Mark', () => {
 	});
 
 	/**
-	 * A mark carries meaning only where nothing else names the project — in a
-	 * row that already says "Thesis" it is decoration, and announcing it twice
-	 * is worse than not announcing it.
+	 * A mark always sits next to text that names the project, so it is decoration
+	 * and announcing it would say everything twice.
 	 */
-	it('is hidden from assistive tech unless it is given a title', () => {
+	it('is hidden from assistive tech', () => {
 		const { container } = render(Mark, { mark: 'square' });
 		expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-
-		const named = render(Mark, { mark: 'square', title: 'Thesis' });
-		const svg = named.container.querySelector('svg');
-		expect(svg).toHaveAttribute('role', 'img');
-		expect(svg).toHaveAttribute('aria-label', 'Thesis');
-		expect(svg).not.toHaveAttribute('aria-hidden');
 	});
 
 	it('sizes the box without changing the geometry', () => {

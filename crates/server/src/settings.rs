@@ -6,12 +6,13 @@
 //! `settings.md` by hand still works, and any key the app does not know is
 //! carried through untouched either way.
 
+use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use timemd_core::Minutes;
 
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::parse::optional_minutes;
 use crate::state::AppState;
 
@@ -52,22 +53,20 @@ pub struct SettingsPatch {
     remind_before: Option<String>,
 }
 
-async fn read(
-    axum::extract::State(state): axum::extract::State<AppState>,
-) -> ApiResult<Json<SettingsView>> {
+async fn read(State(state): State<AppState>) -> ApiResult<Json<SettingsView>> {
     let settings = state.store().read_settings()?;
     Ok(Json(SettingsView::from(&settings)))
 }
 
 async fn write(
-    axum::extract::State(state): axum::extract::State<AppState>,
+    State(state): State<AppState>,
     Json(patch): Json<SettingsPatch>,
 ) -> ApiResult<Json<SettingsView>> {
     // Parsed before the store is touched, so a rejected duration cannot leave
     // the file half-updated.
-    let focus = duration(patch.focus)?;
-    let short_break = duration(patch.short_break)?;
-    let long_break = duration(patch.long_break)?;
+    let focus = length(patch.focus)?;
+    let short_break = length(patch.short_break)?;
+    let long_break = length(patch.long_break)?;
     let remind_before = optional_minutes(patch.remind_before)?;
 
     let view = state.store().update_settings(|settings| {
@@ -89,12 +88,15 @@ async fn write(
     Ok(Json(view))
 }
 
-/// A session length has to be a real length: a zero-minute pomodoro would start
-/// and immediately retire itself.
-fn duration(raw: Option<String>) -> ApiResult<Option<Minutes>> {
-    let parsed = optional_minutes(raw)?;
-    match parsed {
-        Some(value) if value.is_zero() => Err(crate::error::ApiError::bad_request(
+/// A session length the app is willing to write.
+///
+/// The other half of the rule lives in `Settings::parse`, which falls back when
+/// it reads a zero: reads are lenient so a hand-edited file cannot break the
+/// timer, writes are strict so the app never puts one there itself. Rejecting
+/// rather than silently defaulting is what tells the caller nothing happened.
+fn length(raw: Option<String>) -> ApiResult<Option<Minutes>> {
+    match optional_minutes(raw)? {
+        Some(value) if value.is_zero() => Err(ApiError::bad_request(
             "a session length must be more than zero minutes",
         )),
         other => Ok(other),

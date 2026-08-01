@@ -12,7 +12,7 @@
  * phone with no signal has no business fetching a stylesheet or a font.
  */
 
-@import '@fontsource-variable/jost';
+@import '@fontsource-variable/jost/wght.css';
 
 :root {
 	/* Field */
@@ -33,8 +33,6 @@
 	--red: #d1332e;
 	--blue: #245a8d;
 	--yellow: #e9b83a;
-	--purple: #8b6f8e;
-	--green: #4a6b63;
 
 	--rule: 2px;
 	--tap-target: 44px;
@@ -115,10 +113,6 @@ h2 {
 	color: var(--ink-60);
 }
 
-.muted {
-	color: var(--ink-60);
-}
-
 .numeric {
 	font-variant-numeric: tabular-nums;
 }
@@ -133,6 +127,18 @@ h2 {
 .hairline {
 	height: 1px;
 	background: var(--ink-15);
+}
+
+/* Every screen is a column that fills the shell: content, then a footer that
+   sits at the bottom whether or not the content reaches it. */
+.screen {
+	display: flex;
+	flex-direction: column;
+	min-height: 100%;
+}
+
+.screen > .foot {
+	padding: 13px var(--pad) 16px;
 }
 
 /* A screen's top bar: title left, a count or total right. */
@@ -227,7 +233,7 @@ button.quiet {
 	border: var(--rule) solid var(--ink);
 }
 
-.segmented > button {
+.segmented > :is(button, a) {
 	flex: 1;
 	min-height: 34px;
 	padding: 0 4px;
@@ -236,11 +242,12 @@ button.quiet {
 	letter-spacing: 0.14em;
 }
 
-.segmented > button + button {
+.segmented > * + * {
 	border-left: var(--rule) solid var(--ink);
 }
 
-.segmented > button[aria-pressed='true'] {
+.segmented > [aria-pressed='true'],
+.segmented > [aria-current='page'] {
 	background: var(--ink);
 	color: var(--paper);
 	font-weight: 600;
@@ -271,12 +278,6 @@ input.underlined {
 	font-size: 1.375rem;
 }
 
-input[type='color'] {
-	padding: 3px;
-	width: 52px;
-	min-width: 52px;
-}
-
 label {
 	display: block;
 	margin-bottom: 8px;
@@ -294,19 +295,19 @@ a {
 /* ---- shared pieces ------------------------------------------------------- */
 
 /*
- * A weekly target: an outlined trough with a solid fill. Used at three sizes,
- * so the height is a variable rather than three near-copies.
+ * A weekly target: an outlined trough with a solid fill. The trough takes the
+ * surrounding ink so the same class works on paper and on a coloured header;
+ * the fill is always the project's own colour, so it is set inline.
  */
 .target {
-	height: var(--target-height, 8px);
-	border: 1px solid var(--ink);
+	height: 8px;
+	border: 1px solid currentColor;
 	overflow: hidden;
 }
 
 .target > span {
 	display: block;
 	height: 100%;
-	background: var(--ink);
 }
 
 .error {

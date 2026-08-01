@@ -7,7 +7,7 @@
  * at all, which the design shows in ink rather than hiding.
  */
 
-import type { Mark, Project } from './api';
+import { api, type Mark, type Project } from './api';
 import { markFor, paletteColor } from './palette';
 
 export interface Look {
@@ -43,4 +43,24 @@ export function looksFrom(projects: Project[]): Record<string, Look> {
 export function lookOf(looks: Record<string, Look>, slug: string | null): Look {
 	if (slug === null || slug === '') return UNTAGGED;
 	return looks[slug] ?? { name: slug, color: paletteColor(slug, null), mark: 'square' };
+}
+
+/**
+ * Every project, shaped for drawing and split into the ones you can still track
+ * against.
+ *
+ * Resolves to empty rather than throwing, like `readTotals`: a schedule that
+ * cannot colour its blocks is worth showing, and every caller was writing the
+ * same swallow by hand.
+ */
+export async function readLooks(): Promise<{ looks: Record<string, Look>; active: Project[] }> {
+	try {
+		const all = await api.listProjects();
+		return {
+			looks: looksFrom(all),
+			active: all.filter((project) => project.status === 'active')
+		};
+	} catch {
+		return { looks: {}, active: [] };
+	}
 }

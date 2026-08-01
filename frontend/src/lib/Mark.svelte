@@ -20,25 +20,18 @@
 		mark = 'square',
 		color = 'currentColor',
 		size = 20,
-		outline = false,
-		title = ''
+		outline = false
 	}: {
 		mark?: Mark;
 		color?: string;
 		size?: number;
 		outline?: boolean;
-		title?: string;
 	} = $props();
 </script>
 
-<svg
-	width={size}
-	height={size}
-	viewBox="0 0 20 20"
-	role={title === '' ? 'presentation' : 'img'}
-	aria-label={title === '' ? undefined : title}
-	aria-hidden={title === '' ? 'true' : undefined}
->
+<!-- Always decorative: every mark in the app sits next to text that names the
+     project, so announcing it as well would say everything twice. -->
+<svg width={size} height={size} viewBox="0 0 20 20" aria-hidden="true">
 	{#if mark === 'circle'}
 		<circle
 			cx="10"

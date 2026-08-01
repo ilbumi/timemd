@@ -1,11 +1,18 @@
 <script lang="ts">
 	import Mark from '$lib/Mark.svelte';
-	import { api, type LoggedSession, type Project, type Settings, type TimerState } from '$lib/api';
+	import {
+		api,
+		type LoggedSession,
+		type Project,
+		type Running,
+		type Settings,
+		type TimerState
+	} from '$lib/api';
 	import { describe } from '$lib/attempt';
-	import { Countdown, formatClock, formatHours, parseMinutes, progress } from '$lib/countdown';
-	import { shiftDays, startOfWeek, today } from '$lib/dates';
+	import { Countdown, formatClock, formatHours, progress } from '$lib/countdown';
+	import { today } from '$lib/dates';
 	import { contrastInk, paletteColor } from '$lib/palette';
-	import { readTotals, totalsFor, type Totals } from '$lib/totals';
+	import { readWeekTotals, targetFill, targetMinutes, totalsFor, type Totals } from '$lib/totals';
 
 	/** How often to re-ask the server while the screen is visible. */
 	const POLL_MS = 20_000;
@@ -24,6 +31,9 @@
 	let seconds = $state(0);
 	let chosenProject = $state('');
 	let note = $state('');
+	/** Kept apart from `note`: the first-run screen asks for a project name, not
+	    a note, and sharing one variable made two unrelated meanings of it. */
+	let firstProjectName = $state('');
 
 	/**
 	 * The screen shown after a focus block is logged — the design's one moment
@@ -34,7 +44,6 @@
 	let finishedNote = $state('');
 
 	const running = $derived(timer?.active ?? null);
-	const onBreak = $derived(running !== null && running.kind !== 'focus');
 	const spent = $derived(progress(seconds, running?.durationSeconds ?? 0));
 	const firstRun = $derived(!loadingProjects && projects.length === 0);
 
@@ -46,21 +55,12 @@
 	const nextMilestone = $derived.by(() => {
 		const list = finishedProject?.milestones ?? [];
 		const index = list.findIndex((milestone) => !milestone.done);
-		const milestone = index === -1 ? undefined : list[index];
+		const milestone = list[index ?? -1];
 		return milestone === undefined ? null : { index, milestone };
 	});
 
 	function tracked(project: Project): number {
 		return totalsFor(weekly, project.slug).tracked;
-	}
-
-	function targetMinutes(project: Project): number {
-		return project.target === null ? 0 : parseMinutes(project.target);
-	}
-
-	function fill(project: Project): number {
-		const goal = targetMinutes(project);
-		return goal === 0 ? 0 : Math.min(100, (tracked(project) / goal) * 100);
 	}
 
 	async function run(work: () => Promise<TimerState>): Promise<void> {
@@ -84,11 +84,13 @@
 		// the completion screen. Reading it off `completedToday` rather than off a
 		// flag means the server's own tick — which fires while the tab is asleep —
 		// counts too, not just a stop we asked for.
-		const justLogged =
+		const finishedFocus =
 			timer !== null &&
 			timer.active?.kind === 'focus' &&
 			next.active === null &&
-			next.completedToday > timer.completedToday;
+			next.completedToday > timer.completedToday
+				? timer.active
+				: null;
 
 		timer = next;
 		countdown.sync(next.active?.remainingSeconds ?? null, performance.now());
@@ -97,15 +99,23 @@
 			chosenProject = next.active.project ?? '';
 			note = next.active.note;
 		}
-		if (justLogged) void openFinished();
+		if (finishedFocus !== null) void openFinished(finishedFocus);
 	}
 
-	/** Finds the block that was just written so its note can still be edited. */
-	async function openFinished(): Promise<void> {
+	/**
+	 * Finds the block that was just written so its note can still be edited.
+	 *
+	 * Matched on its start time rather than taken as the last row: sessions are
+	 * stored sorted by start, so a meeting logged by hand for later in the day
+	 * would otherwise be the one whose note this screen edits.
+	 */
+	async function openFinished(block: Running): Promise<void> {
 		const date = today();
+		const startedAt = block.startedAt.slice(11, 19);
 		try {
 			const day = await api.readDay(date);
-			const session = day.sessions.at(-1);
+			const session =
+				day.sessions.findLast((candidate) => candidate.start === startedAt) ?? day.sessions.at(-1);
 			if (session === undefined) return;
 			finished = { session, date };
 			finishedNote = session.note;
@@ -177,14 +187,14 @@
 
 	async function begin(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
-		const name = note.trim();
+		const name = firstProjectName.trim();
 		if (name === '') return;
 		error = null;
 		try {
 			const created = await api.createProject({ name });
 			projects = [created];
 			chosenProject = created.slug;
-			note = '';
+			firstProjectName = '';
 		} catch (failure) {
 			error = describe(failure);
 		}
@@ -202,8 +212,7 @@
 	}
 
 	async function loadWeek(): Promise<void> {
-		const from = startOfWeek(today());
-		weekly = await readTotals(from, shiftDays(from, 6));
+		weekly = await readWeekTotals();
 	}
 
 	$effect(() => {
@@ -281,13 +290,15 @@
 				class="underlined"
 				type="text"
 				placeholder="e.g. Thesis"
-				bind:value={note}
+				bind:value={firstProjectName}
 			/>
 
 			<div class="spacer"></div>
 
 			<div class="actions">
-				<button class="primary" type="submit" disabled={note.trim() === ''}>Begin</button>
+				<button class="primary" type="submit" disabled={firstProjectName.trim() === ''}
+					>Begin</button
+				>
 			</div>
 			<p class="footnote">No account. Everything stays in markdown on your server.</p>
 		</form>
@@ -326,14 +337,16 @@
 				</div>
 			{/if}
 
-			{#if finishedProject && targetMinutes(finishedProject) > 0}
-				{@const project = finishedProject}
-				<div class="week">
-					<span class="hairline"></span>
-					<span class="numeric"
-						>Week: {formatHours(tracked(project))} / {formatHours(targetMinutes(project))}</span
-					>
-				</div>
+			{#if finishedProject}
+				{@const goal = targetMinutes(finishedProject)}
+				{#if goal > 0}
+					<div class="week">
+						<span class="hairline"></span>
+						<span class="numeric">
+							Week: {formatHours(tracked(finishedProject))} / {formatHours(goal)}
+						</span>
+					</div>
+				{/if}
 			{/if}
 		</div>
 
@@ -344,7 +357,7 @@
 			</div>
 		</div>
 	</section>
-{:else if onBreak && running}
+{:else if running && running.kind !== 'focus'}
 	<!-- 3a: the field inverts so it is unmistakably not work time. -->
 	{@const current = running}
 	<section class="screen break">
@@ -394,6 +407,8 @@
 			{#if chosen}
 				{@const project = chosen}
 				{@const color = paletteColor(project.slug, project.color)}
+				{@const goal = targetMinutes(project)}
+				{@const spentThisWeek = tracked(project)}
 				<div class="card">
 					<div class="swatch" style:background={color}>
 						<Mark mark={project.mark} color={contrastInk(color)} size={22} />
@@ -401,15 +416,16 @@
 					<div class="detail">
 						<div class="line">
 							<h2>{project.name}</h2>
-							{#if targetMinutes(project) > 0}
-								<span class="numeric"
-									>{formatHours(tracked(project))} / {formatHours(targetMinutes(project))}</span
-								>
+							{#if goal > 0}
+								<span class="numeric">
+									{formatHours(spentThisWeek)} / {formatHours(goal)}
+								</span>
 							{/if}
 						</div>
-						{#if targetMinutes(project) > 0}
+						{#if goal > 0}
 							<div class="target">
-								<span style:width="{fill(project)}%" style:background={color}></span>
+								<span style:width="{targetFill(spentThisWeek, goal)}%" style:background={color}
+								></span>
 							</div>
 						{/if}
 						{#if current.note}<p class="note">{current.note}</p>{/if}
@@ -442,6 +458,7 @@
 			{#each projects as project (project.slug)}
 				{@const color = paletteColor(project.slug, project.color)}
 				{@const ink = contrastInk(color)}
+				{@const goal = targetMinutes(project)}
 				<button
 					class="tile"
 					style:background={color}
@@ -452,9 +469,9 @@
 					<Mark mark={project.mark} color={ink} size={24} />
 					<span class="tile-foot">
 						<span class="tile-name">{project.name}</span>
-						{#if targetMinutes(project) > 0}
+						{#if goal > 0}
 							<span class="tile-hours numeric">
-								{formatHours(tracked(project))} / {formatHours(targetMinutes(project))}
+								{formatHours(tracked(project))} / {formatHours(goal)}
 							</span>
 						{/if}
 					</span>
@@ -486,12 +503,6 @@
 {/if}
 
 <style>
-	.screen {
-		display: flex;
-		flex-direction: column;
-		min-height: 100%;
-	}
-
 	.bar {
 		display: flex;
 		align-items: center;

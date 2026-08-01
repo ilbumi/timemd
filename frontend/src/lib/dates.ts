@@ -53,6 +53,16 @@ export function dayLabel(iso: string, reference: string = today()): string {
 	});
 }
 
+/** The weekday's own name — "Friday" — for a header that shows the date below it. */
+export function weekdayName(iso: string): string {
+	return parseIso(iso).toLocaleDateString(undefined, { weekday: 'long' });
+}
+
+/** Day and month without the weekday — "1 Aug". */
+export function monthDay(iso: string): string {
+	return parseIso(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
 /** Monday of the week containing `iso`. */
 export function startOfWeek(iso: string): string {
 	// getDay() is Sunday-based; the schedule grammar and the UI are Monday-based.
@@ -70,30 +80,17 @@ export function startOfWeek(iso: string): string {
 export function isoWeek(iso: string): number {
 	const thursday = parseIso(shiftDays(startOfWeek(iso), 3));
 	const firstThursday = parseIso(shiftDays(startOfWeek(`${thursday.getFullYear()}-01-04`), 3));
-	const week = Math.round((thursday.getTime() - firstThursday.getTime()) / 604_800_000) + 1;
-	return week;
+	return Math.round((thursday.getTime() - firstThursday.getTime()) / 604_800_000) + 1;
+}
+
+/** Monday to Sunday of the week containing `iso`. */
+export function weekDates(iso: string): string[] {
+	const monday = startOfWeek(iso);
+	return Array.from({ length: 7 }, (_, offset) => shiftDays(monday, offset));
 }
 
 /** Minutes since midnight for an `HH:MM` or `HH:MM:SS` time. */
 export function minutesOfDay(time: string): number {
 	const [hours, minutes] = clockTime(time).split(':');
 	return Number(hours ?? 0) * 60 + Number(minutes ?? 0);
-}
-
-/** First day of the month containing `iso`. */
-export function startOfMonth(iso: string): string {
-	return `${iso.slice(0, 7)}-01`;
-}
-
-/** Last day of the month containing `iso`. */
-export function endOfMonth(iso: string): string {
-	const date = parseIso(iso);
-	// Day 0 of the next month is the last day of this one.
-	return isoDate(new Date(date.getFullYear(), date.getMonth() + 1, 0));
-}
-
-/** `YYYY-MM-DD` moved by whole months, landing on the first of the month. */
-export function shiftMonths(iso: string, months: number): string {
-	const date = parseIso(iso);
-	return isoDate(new Date(date.getFullYear(), date.getMonth() + months, 1));
 }

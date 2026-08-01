@@ -74,6 +74,9 @@ pub struct NewProject {
     color: Option<String>,
     mark: Option<String>,
     target: Option<String>,
+    /// Accepted here so creating a project with a milestone list is one atomic
+    /// write: a rejected title must not leave a half-made project behind.
+    milestones: Option<Vec<MilestoneView>>,
 }
 
 #[derive(Deserialize)]
@@ -128,11 +131,13 @@ async fn create(
     let color = optional_color(request.color)?;
     let mark = optional_mark(request.mark)?;
     let target = optional_minutes(request.target)?;
+    let milestones = request.milestones.map(milestones_from).transpose()?;
 
     let mut project = Project::new(slug, &request.name, state.today()?);
     project.color = color;
     project.mark = mark.unwrap_or_default();
     project.target = target;
+    project.milestones = milestones.unwrap_or_default();
     state.store().create_project(&project)?;
 
     Ok((StatusCode::CREATED, Json(ProjectView::from(&project))))

@@ -37,12 +37,20 @@ impl Settings {
                 .front_key::<String>("timezone")
                 .and_then(|raw| raw.parse().ok())
                 .unwrap_or_else(system_timezone),
-            focus: document.front_key("focus").unwrap_or(DEFAULT_FOCUS),
+            // A zero-length block would start and immediately retire itself, so
+            // it falls back like any other unusable value — the rule lives with
+            // the value rather than with whichever writer happens to set it.
+            focus: document
+                .front_key("focus")
+                .filter(usable)
+                .unwrap_or(DEFAULT_FOCUS),
             short_break: document
                 .front_key("short_break")
+                .filter(usable)
                 .unwrap_or(DEFAULT_SHORT_BREAK),
             long_break: document
                 .front_key("long_break")
+                .filter(usable)
                 .unwrap_or(DEFAULT_LONG_BREAK),
             long_break_every: document
                 .front_key::<u32>("long_break_every")
@@ -75,6 +83,10 @@ impl Settings {
             self.short_break
         }
     }
+}
+
+fn usable(length: &Minutes) -> bool {
+    !length.is_zero()
 }
 
 /// Compares the settings themselves, not the carried-through frontmatter.
@@ -119,6 +131,17 @@ fn system_timezone() -> Tz {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reads are lenient: a zero-length block would start and immediately retire
+    /// itself, so a hand-edited one falls back rather than breaking the timer.
+    #[test]
+    fn falls_back_on_a_zero_length_block() {
+        let settings = Settings::parse("---\nfocus: 0m\nshort_break: 0m\nlong_break: 0m\n---\n")
+            .expect("parses");
+        assert_eq!(settings.focus, DEFAULT_FOCUS);
+        assert_eq!(settings.short_break, DEFAULT_SHORT_BREAK);
+        assert_eq!(settings.long_break, DEFAULT_LONG_BREAK);
+    }
 
     #[test]
     fn reads_every_value() {
