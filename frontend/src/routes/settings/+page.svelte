@@ -215,7 +215,14 @@
 		gap: 2px;
 	}
 
+	/*
+	 * The glyphs stay 30×34 because that is what the design draws either side of
+	 * the number; the thumb gets its 44px from an invisible overlay instead, the
+	 * same way the pattern editor's switch does. The overlays reach 7px inward
+	 * over the number, which is not a target, and so never over each other.
+	 */
 	.stepper button {
+		position: relative;
 		min-height: 34px;
 		width: 30px;
 		padding: 0;
@@ -225,6 +232,12 @@
 		font-size: 1.125rem;
 		font-weight: 300;
 		opacity: 0.75;
+	}
+
+	.stepper button::after {
+		content: '';
+		position: absolute;
+		inset: -5px -7px;
 	}
 
 	.stepper strong {

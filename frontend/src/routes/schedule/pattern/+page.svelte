@@ -368,7 +368,7 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		min-height: 40px;
+		min-height: var(--tap-target);
 		padding: 0 11px;
 		font-size: 0.8125rem;
 		font-weight: 500;
