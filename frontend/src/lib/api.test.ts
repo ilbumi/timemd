@@ -89,6 +89,38 @@ describe('api', () => {
 		expect(calls[0]?.init.method).toBe('PATCH');
 		expect(calls[0]?.init.body).toBe('{"status":"archived"}');
 	});
+
+	it('sends the milestone list whole, because the server replaces it whole', async () => {
+		const calls = mockFetch(200, { slug: 'thesis', milestones: [] });
+		await api.updateProject('thesis', { milestones: [{ done: true, title: 'Ch. 1' }] });
+
+		expect(calls[0]?.init.body).toBe('{"milestones":[{"done":true,"title":"Ch. 1"}]}');
+	});
+
+	it('creates with a mark and a target', async () => {
+		const calls = mockFetch(201, { slug: 'thesis' });
+		await api.createProject({ name: 'Thesis', mark: 'triangle', target: '10h' });
+
+		expect(calls[0]?.init.body).toBe('{"name":"Thesis","mark":"triangle","target":"10h"}');
+	});
+});
+
+describe('settings', () => {
+	it('reads the durations', async () => {
+		const calls = mockFetch(200, { focus: '25m', shortBreak: '5m' });
+		const settings = await api.readSettings();
+
+		expect(settings.focus).toBe('25m');
+		expect(calls[0]?.url).toBe('/api/settings');
+	});
+
+	it('writes only the keys it is given', async () => {
+		const calls = mockFetch(200, { focus: '50m' });
+		await api.writeSettings({ focus: '50m' });
+
+		expect(calls[0]?.init.method).toBe('PUT');
+		expect(calls[0]?.init.body).toBe('{"focus":"50m"}');
+	});
 });
 
 describe('timer', () => {

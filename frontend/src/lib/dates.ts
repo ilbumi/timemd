@@ -60,6 +60,26 @@ export function startOfWeek(iso: string): string {
 	return shiftDays(iso, -offset);
 }
 
+/**
+ * ISO-8601 week number, which is what the week view titles itself with.
+ *
+ * ISO weeks run Monday to Sunday and week 1 is the one containing the first
+ * Thursday — which is why this pivots on Thursday rather than counting days
+ * from January 1st.
+ */
+export function isoWeek(iso: string): number {
+	const thursday = parseIso(shiftDays(startOfWeek(iso), 3));
+	const firstThursday = parseIso(shiftDays(startOfWeek(`${thursday.getFullYear()}-01-04`), 3));
+	const week = Math.round((thursday.getTime() - firstThursday.getTime()) / 604_800_000) + 1;
+	return week;
+}
+
+/** Minutes since midnight for an `HH:MM` or `HH:MM:SS` time. */
+export function minutesOfDay(time: string): number {
+	const [hours, minutes] = clockTime(time).split(':');
+	return Number(hours ?? 0) * 60 + Number(minutes ?? 0);
+}
+
 /** First day of the month containing `iso`. */
 export function startOfMonth(iso: string): string {
 	return `${iso.slice(0, 7)}-01`;

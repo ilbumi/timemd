@@ -11,17 +11,35 @@ export type JsonValue =
 
 export type ProjectStatus = 'active' | 'archived';
 
+/** The geometric shape a project is drawn as. Mirrors core's `Mark`. */
+export type Mark = 'square' | 'circle' | 'triangle' | 'diamond' | 'bar';
+
+/** A type alias, not an interface, for the same reason as `RecurringBlock`
+    below: it is sent as a request body and needs an implicit index signature. */
+export type Milestone = {
+	done: boolean;
+	title: string;
+};
+
 export interface Project {
 	slug: string;
 	name: string;
 	color: string | null;
+	mark: Mark;
+	/** Weekly hour target as a duration (`10h`), or null for none. */
+	target: string | null;
 	status: ProjectStatus;
 	created: string | null;
+	milestones: Milestone[];
+	/** Milestone lines the server could not read, kept and reported. */
+	problems: string[];
 }
 
 export interface NewProject {
 	name: string;
 	color?: string | null;
+	mark?: Mark;
+	target?: string | null;
 }
 
 export type SessionKind = 'focus' | 'short_break' | 'long_break';
@@ -135,6 +153,23 @@ export interface Report {
 	buckets: Bucket[];
 }
 
+export interface Settings {
+	timezone: string;
+	focus: string;
+	shortBreak: string;
+	longBreak: string;
+	longBreakEvery: number;
+	remindBefore: string;
+}
+
+/** The four knobs the settings screen edits. Timezone is read-only on purpose. */
+export interface SettingsPatch {
+	focus?: string;
+	shortBreak?: string;
+	longBreak?: string;
+	remindBefore?: string;
+}
+
 export interface PushKey {
 	publicKey: string;
 }
@@ -148,7 +183,11 @@ export interface PushSubscriptionInput {
 export interface ProjectPatch {
 	name?: string;
 	color?: string | null;
+	mark?: Mark;
+	target?: string | null;
 	status?: ProjectStatus;
+	/** Replaces the whole list when given. */
+	milestones?: Milestone[];
 }
 
 /** A non-2xx response, carrying the server's message so the UI can show it. */
@@ -258,6 +297,11 @@ export const api = {
 
 	readReport: (from: string, to: string, groupBy: GroupBy): Promise<Report> =>
 		request('GET', `/api/reports?from=${from}&to=${to}&groupBy=${groupBy}`),
+
+	readSettings: (): Promise<Settings> => request('GET', '/api/settings'),
+
+	writeSettings: (patch: SettingsPatch): Promise<Settings> =>
+		request('PUT', '/api/settings', { ...patch }),
 
 	pushKey: (): Promise<PushKey> => request('GET', '/api/push/key'),
 

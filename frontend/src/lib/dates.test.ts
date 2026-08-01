@@ -4,6 +4,8 @@ import {
 	dayLabel,
 	endOfMonth,
 	isoDate,
+	isoWeek,
+	minutesOfDay,
 	shiftDays,
 	startOfMonth,
 	shiftMonths,
@@ -87,6 +89,31 @@ describe('week and month boundaries', () => {
 		expect(endOfMonth('2026-08-05')).toBe('2026-08-31');
 		expect(endOfMonth('2026-02-10')).toBe('2026-02-28');
 		expect(endOfMonth('2028-02-10')).toBe('2028-02-29');
+	});
+});
+
+describe('isoWeek', () => {
+	it('numbers a mid-year week', () => {
+		expect(isoWeek('2026-08-01')).toBe(31);
+	});
+
+	it('gives every day of one week the same number', () => {
+		expect(['2026-07-27', '2026-07-29', '2026-08-02'].map(isoWeek)).toEqual([31, 31, 31]);
+	});
+
+	/** Week 1 is the one holding the first Thursday, so a date at the turn of the
+	    year can belong to the neighbouring year's numbering. */
+	it('handles the turn of the year', () => {
+		expect(isoWeek('2026-01-01')).toBe(1);
+		expect(isoWeek('2027-01-01')).toBe(53);
+	});
+});
+
+describe('minutesOfDay', () => {
+	it('counts from midnight, with or without seconds', () => {
+		expect(minutesOfDay('00:00')).toBe(0);
+		expect(minutesOfDay('09:30')).toBe(570);
+		expect(minutesOfDay('23:59:00')).toBe(1439);
 	});
 });
 

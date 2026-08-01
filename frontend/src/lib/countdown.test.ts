@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Countdown, formatClock, parseMinutes, progress } from './countdown';
+import { Countdown, formatClock, formatHours, parseMinutes, progress } from './countdown';
 
 describe('Countdown', () => {
 	it('reports nothing before a sync', () => {
@@ -87,6 +87,19 @@ describe('progress', () => {
 		expect(progress(-100, 1500)).toBe(1);
 		expect(progress(2000, 1500)).toBe(0);
 		expect(progress(10, 0)).toBe(0);
+	});
+});
+
+describe('formatHours', () => {
+	it('reads as hours and minutes, which is what the target bars show', () => {
+		expect(formatHours(0)).toBe('0:00');
+		expect(formatHours(380)).toBe('6:20');
+		expect(formatHours(600)).toBe('10:00');
+		expect(formatHours(59)).toBe('0:59');
+	});
+
+	it('clamps a negative to zero', () => {
+		expect(formatHours(-30)).toBe('0:00');
 	});
 });
 

@@ -53,6 +53,17 @@ export function formatClock(totalSeconds: number): string {
 	return hours > 0 ? `${hours}:${padded}` : padded;
 }
 
+/**
+ * Minutes as `H:MM`, the form the weekly targets read in — `6:20 / 10:00`.
+ *
+ * Distinct from `formatClock`, which counts a session down in seconds: these are
+ * two different quantities and reading one as the other would be silently wrong.
+ */
+export function formatHours(totalMinutes: number): string {
+	const safe = Math.max(0, Math.floor(totalMinutes));
+	return `${Math.floor(safe / 60)}:${(safe % 60).toString().padStart(2, '0')}`;
+}
+
 /** Fraction of a session already spent, clamped to 0..1, for the dial. */
 export function progress(remainingSeconds: number, totalSeconds: number): number {
 	if (totalSeconds <= 0) return 0;

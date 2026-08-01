@@ -1,24 +1,21 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import Mark from '$lib/Mark.svelte';
+	import type { Mark as MarkShape } from '$lib/api';
 	import '../app.css';
 
 	let { children } = $props();
 
 	/**
-	 * Tabs appear as their screens are built. Kept as data so the bar has one
-	 * definition rather than five hand-written links.
+	 * Three tabs, drawn as the three basic shapes: circle is time, square is a
+	 * project, triangle is a plan. Settings and the log are not tabs — settings
+	 * hangs off the timer's header, the log is a segment of the schedule — which
+	 * is what keeps the bar down to three thumb-sized targets.
 	 */
-	const tabs = [
-		{ href: '/', label: 'Timer', icon: 'M12 7v5l3 2' },
-		{ href: '/today', label: 'Today', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
-		{ href: '/schedule', label: 'Schedule', icon: 'M4 6h16M4 12h16M4 18h10M7 4v4M7 10v4M7 16v4' },
-		{ href: '/projects', label: 'Projects', icon: 'M3 8h18M3 8l2-3h5l2 3M3 8v9h18V8' },
-		{ href: '/reports', label: 'Reports', icon: 'M5 20V10M12 20V4M19 20v-7' },
-		{
-			href: '/settings',
-			label: 'Settings',
-			icon: 'M4 6h16M4 12h16M4 18h16M9 4v4M15 10v4M7 16v4'
-		}
+	const tabs: { href: string; label: string; mark: MarkShape }[] = [
+		{ href: '/', label: 'Timer', mark: 'circle' },
+		{ href: '/projects', label: 'Projects', mark: 'square' },
+		{ href: '/schedule', label: 'Schedule', mark: 'triangle' }
 	];
 
 	function isCurrent(href: string): boolean {
@@ -33,14 +30,9 @@
 
 	<nav aria-label="Sections">
 		{#each tabs as tab (tab.href)}
-			<a href={tab.href} aria-current={isCurrent(tab.href) ? 'page' : undefined}>
-				<svg viewBox="0 0 24 24" aria-hidden="true">
-					{#if tab.href === '/'}
-						<circle cx="12" cy="12" r="9" />
-					{/if}
-					<path d={tab.icon} />
-				</svg>
-				<span>{tab.label}</span>
+			{@const current = isCurrent(tab.href)}
+			<a href={tab.href} aria-label={tab.label} aria-current={current ? 'page' : undefined}>
+				<Mark mark={tab.mark} size={22} color={current ? 'var(--paper)' : 'var(--ink)'} />
 			</a>
 		{/each}
 	</nav>
@@ -50,57 +42,40 @@
 	.shell {
 		display: flex;
 		flex-direction: column;
-		min-height: 100dvh;
+		height: 100dvh;
+		max-width: 440px;
+		margin: 0 auto;
+		background: var(--paper);
 	}
 
 	main {
 		flex: 1;
-		padding: max(16px, env(safe-area-inset-top)) 16px 16px;
-		padding-left: max(16px, env(safe-area-inset-left));
-		padding-right: max(16px, env(safe-area-inset-right));
-		max-width: 640px;
-		width: 100%;
-		margin: 0 auto;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding-top: env(safe-area-inset-top);
 	}
 
 	nav {
-		position: sticky;
-		bottom: 0;
+		flex: none;
 		display: flex;
-		justify-content: space-around;
-		gap: 4px;
-		padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-		background: var(--surface-raised);
-		border-top: 1px solid var(--border);
+		border-top: var(--rule) solid var(--ink);
+		padding-bottom: env(safe-area-inset-bottom);
 	}
 
 	nav a {
 		flex: 1;
 		display: flex;
-		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 2px;
-		min-height: var(--tap-target);
-		padding: 4px;
-		border-radius: var(--radius);
-		text-decoration: none;
-		color: var(--text-muted);
-		font-size: 0.72rem;
+		min-height: 58px;
+	}
+
+	nav a + a {
+		border-left: var(--rule) solid var(--ink);
 	}
 
 	nav a[aria-current='page'] {
-		color: var(--accent);
-		background: var(--surface-sunken);
-	}
-
-	svg {
-		width: 22px;
-		height: 22px;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 1.8;
-		stroke-linecap: round;
-		stroke-linejoin: round;
+		background: var(--ink);
 	}
 </style>

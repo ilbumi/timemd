@@ -1,224 +1,297 @@
 <script lang="ts">
-	import { api, type Project, type ProjectStatus } from '$lib/api';
+	import Mark from '$lib/Mark.svelte';
+	import { api, type Project } from '$lib/api';
 	import { attempt } from '$lib/attempt';
+	import { formatHours, parseMinutes } from '$lib/countdown';
+	import { shiftDays, startOfWeek, today } from '$lib/dates';
+	import { contrastInk, paletteColor } from '$lib/palette';
+	import { readTotals, totalsFor, type Totals } from '$lib/totals';
+
+	/** How far back the "logged" figure on an archived project looks. Matches the
+	    server's own range limit, so it is the longest window it will answer. */
+	const LIFETIME_DAYS = 365;
 
 	let projects = $state<Project[]>([]);
+	let week = $state<Record<string, Totals>>({});
+	let lifetime = $state<Record<string, Totals>>({});
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-	let newName = $state('');
-	let newColor = $state('#4f46e5');
-	let editing = $state<string | null>(null);
 	let showArchived = $state(false);
 
-	const visible = $derived(
-		showArchived ? projects : projects.filter((project) => project.status === 'active')
-	);
+	const active = $derived(projects.filter((project) => project.status === 'active'));
+	const archived = $derived(projects.filter((project) => project.status === 'archived'));
 
-	async function run(work: () => Promise<void>): Promise<void> {
-		error = await attempt(work);
+	function targetMinutes(project: Project): number {
+		return project.target === null ? 0 : parseMinutes(project.target);
+	}
+
+	function fill(project: Project): number {
+		const goal = targetMinutes(project);
+		return goal === 0 ? 0 : Math.min(100, (totalsFor(week, project.slug).tracked / goal) * 100);
+	}
+
+	/** The line under the bar: milestones if the project keeps any, hours if not. */
+	function subtitle(project: Project): string {
+		const logged = totalsFor(lifetime, project.slug);
+		const hours = logged.tracked === 0 ? '' : `${formatHours(logged.tracked)} logged`;
+
+		if (project.milestones.length === 0) return hours === '' ? 'no milestones yet' : hours;
+
+		const done = project.milestones.filter((milestone) => milestone.done).length;
+		const marks = `${done} of ${project.milestones.length} milestones`;
+		return hours === '' ? marks : `${marks} · ${hours}`;
 	}
 
 	async function load(): Promise<void> {
-		await run(async () => {
+		error = await attempt(async () => {
 			projects = await api.listProjects();
 		});
 		loading = false;
 	}
 
-	async function create(event: SubmitEvent): Promise<void> {
-		event.preventDefault();
-		const name = newName.trim();
-		if (name === '') return;
-
-		await run(async () => {
-			const created = await api.createProject({ name, color: newColor });
-			projects = [...projects, created].sort((left, right) => left.slug.localeCompare(right.slug));
-			newName = '';
+	const restore = (project: Project): Promise<void> =>
+		run(async () => {
+			const updated = await api.updateProject(project.slug, { status: 'active' });
+			projects = projects.map((candidate) =>
+				candidate.slug === updated.slug ? updated : candidate
+			);
 		});
-	}
 
-	async function rename(project: Project, name: string): Promise<void> {
-		const trimmed = name.trim();
-		if (trimmed === '' || trimmed === project.name) {
-			editing = null;
-			return;
-		}
-		await run(async () => {
-			replace(await api.updateProject(project.slug, { name: trimmed }));
-			editing = null;
-		});
-	}
-
-	async function recolor(project: Project, color: string): Promise<void> {
-		await run(async () => {
-			replace(await api.updateProject(project.slug, { color }));
-		});
-	}
-
-	async function setStatus(project: Project, status: ProjectStatus): Promise<void> {
-		await run(async () => {
-			replace(await api.updateProject(project.slug, { status }));
-		});
-	}
-
-	async function remove(project: Project): Promise<void> {
-		await run(async () => {
-			await api.deleteProject(project.slug);
-			projects = projects.filter((candidate) => candidate.slug !== project.slug);
-		});
-	}
-
-	function replace(updated: Project): void {
-		projects = projects.map((project) => (project.slug === updated.slug ? updated : project));
+	async function run(work: () => Promise<void>): Promise<void> {
+		error = await attempt(work);
 	}
 
 	$effect(() => {
 		void load();
+		const monday = startOfWeek(today());
+		void readTotals(monday, shiftDays(monday, 6)).then((rows) => {
+			week = rows;
+		});
+		void readTotals(shiftDays(today(), -LIFETIME_DAYS), today()).then((rows) => {
+			lifetime = rows;
+		});
 	});
 </script>
 
-<header>
-	<h1>Projects</h1>
-	<label class="toggle">
-		<input type="checkbox" bind:checked={showArchived} />
-		Show archived
-	</label>
-</header>
+<section class="screen">
+	<header class="topbar">
+		<h1>PROJECTS</h1>
+		<span class="meta">{active.length} active</span>
+	</header>
 
-{#if error}
-	<p class="error" role="alert">{error}</p>
-{/if}
+	{#if error}
+		<p class="error" role="alert">{error}</p>
+	{/if}
 
-<form onsubmit={create}>
-	<input type="text" placeholder="New project" aria-label="New project name" bind:value={newName} />
-	<input type="color" aria-label="New project colour" bind:value={newColor} />
-	<button class="primary" type="submit" disabled={newName.trim() === ''}>Add</button>
-</form>
+	<div class="list">
+		{#if loading}
+			<p class="empty">Loading…</p>
+		{:else if projects.length === 0}
+			<p class="empty">
+				Nothing here yet. Add one below, or drop a markdown file in <code>projects/</code>.
+			</p>
+		{/if}
 
-{#if loading}
-	<p class="muted">Loading…</p>
-{:else if visible.length === 0}
-	<p class="muted">
-		No projects yet. Add one above, or drop a markdown file in <code>projects/</code>.
-	</p>
-{:else}
-	<ul>
-		{#each visible as project (project.slug)}
-			<li class:archived={project.status === 'archived'}>
-				<input
-					type="color"
-					aria-label="Colour for {project.name}"
-					value={project.color ?? '#4f46e5'}
-					onchange={(event) => recolor(project, event.currentTarget.value)}
-				/>
-
-				{#if editing === project.slug}
-					<input
-						type="text"
-						aria-label="Rename {project.name}"
-						value={project.name}
-						onblur={(event) => rename(project, event.currentTarget.value)}
-						onkeydown={(event) => {
-							if (event.key === 'Enter') event.currentTarget.blur();
-							if (event.key === 'Escape') editing = null;
-						}}
-					/>
-				{:else}
-					<button class="quiet name" onclick={() => (editing = project.slug)}>
-						<span>{project.name}</span>
-						<small>{project.slug}</small>
-					</button>
-				{/if}
-
-				<button
-					class="quiet"
-					title={project.status === 'active' ? 'Archive' : 'Restore'}
-					onclick={() => setStatus(project, project.status === 'active' ? 'archived' : 'active')}
-				>
-					{project.status === 'active' ? 'Archive' : 'Restore'}
-				</button>
-
-				{#if project.status === 'archived'}
-					<button class="quiet danger" title="Delete" onclick={() => remove(project)}>Delete</button
-					>
-				{/if}
-			</li>
+		{#each active as project (project.slug)}
+			{@const color = paletteColor(project.slug, project.color)}
+			<a class="row" href="/projects/{project.slug}">
+				<span class="swatch" style:background={color}>
+					<Mark mark={project.mark} color={contrastInk(color)} size={24} />
+				</span>
+				<span class="detail">
+					<span class="line">
+						<span class="name">{project.name}</span>
+						{#if targetMinutes(project) > 0}
+							<span class="numeric hours">
+								{formatHours(totalsFor(week, project.slug).tracked)} / {formatHours(
+									targetMinutes(project)
+								)}
+							</span>
+						{/if}
+					</span>
+					{#if targetMinutes(project) > 0}
+						<span class="target"
+							><span style:width="{fill(project)}%" style:background={color}></span></span
+						>
+					{/if}
+					<span class="subtitle">{subtitle(project)}</span>
+				</span>
+			</a>
 		{/each}
-	</ul>
-{/if}
+
+		{#if archived.length > 0}
+			<button
+				class="archived-toggle"
+				aria-expanded={showArchived}
+				onclick={() => (showArchived = !showArchived)}
+			>
+				<span class="hairline"></span>
+				<span>Archived · {archived.length}</span>
+				<span class="chevron">{showArchived ? '⌃' : '⌄'}</span>
+			</button>
+
+			{#if showArchived}
+				{#each archived as project (project.slug)}
+					{@const logged = totalsFor(lifetime, project.slug)}
+					<div class="row archived">
+						<a class="swatch outline" href="/projects/{project.slug}" aria-label={project.name}>
+							<Mark mark={project.mark} color="var(--ink-45)" size={22} outline />
+						</a>
+						<a class="detail" href="/projects/{project.slug}">
+							<span class="name faded">{project.name}</span>
+							<span class="subtitle">
+								{logged.tracked === 0 ? 'nothing logged' : `${formatHours(logged.tracked)} logged`}
+								· archived
+							</span>
+						</a>
+						<button class="restore" onclick={() => restore(project)}>Restore</button>
+					</div>
+				{/each}
+
+				<p class="empty">
+					Archived projects keep their history but leave the picker, the schedule and your weekly
+					targets.
+				</p>
+			{/if}
+		{/if}
+	</div>
+
+	<div class="foot">
+		<a class="new" href="/projects/new">+ New project</a>
+	</div>
+</section>
 
 <style>
-	header {
+	.screen {
+		display: flex;
+		flex-direction: column;
+		min-height: 100%;
+	}
+
+	.list {
+		flex: 1;
+	}
+
+	/* A row is the full width of the screen: the colour field runs to the edge,
+	   which is what makes the list read as a stack of blocks rather than cards. */
+	.row {
+		display: flex;
+		align-items: stretch;
+		border-bottom: var(--rule) solid var(--ink);
+		text-decoration: none;
+		color: inherit;
+	}
+
+	.row.archived {
+		border-bottom: 1px solid var(--ink-15);
+	}
+
+	.swatch {
+		flex: none;
+		width: 62px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.swatch.outline {
+		border-right: 1px solid var(--ink-15);
+	}
+
+	.detail {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: 9px;
+		padding: 14px 15px;
+		text-decoration: none;
+		color: inherit;
+	}
+
+	.line {
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;
-		gap: var(--gap);
-		margin-bottom: var(--gap);
-	}
-
-	.toggle {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		margin: 0;
-		font-size: 0.8rem;
-		white-space: nowrap;
-	}
-
-	.toggle input {
-		width: auto;
-		min-height: auto;
-	}
-
-	form {
-		display: flex;
-		gap: 8px;
-		margin-bottom: var(--gap);
-	}
-
-	ul {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	li {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px;
-		background: var(--surface-raised);
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-	}
-
-	li.archived {
-		opacity: 0.6;
+		gap: 10px;
 	}
 
 	.name {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 0;
-		text-align: left;
-		min-width: 0;
-	}
-
-	.name span {
+		font-size: 1.0625rem;
 		font-weight: 600;
+		letter-spacing: 0.02em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
-	.name small {
-		color: var(--text-muted);
-		font-size: 0.72rem;
+	.name.faded {
+		font-size: 0.96875rem;
+		font-weight: 500;
+		color: var(--ink-60);
 	}
 
-	code {
-		font-size: 0.85em;
+	.hours {
+		flex: none;
+		font-size: 0.78125rem;
+	}
+
+	.subtitle {
+		font-size: 0.75rem;
+		color: var(--ink-45);
+	}
+
+	.archived-toggle {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		width: 100%;
+		min-height: var(--tap-target);
+		padding: 14px var(--pad);
+		border: none;
+		background: var(--paper-sunk);
+		font-size: 0.6875rem;
+		letter-spacing: 0.16em;
+		color: var(--ink-60);
+	}
+
+	.archived-toggle .hairline {
+		flex: 1;
+	}
+
+	.chevron {
+		letter-spacing: 0;
+	}
+
+	.restore {
+		flex: none;
+		align-self: center;
+		margin-right: 15px;
+		min-height: 34px;
+		padding: 0 9px;
+		border-width: 1px;
+		font-size: 0.6875rem;
+		letter-spacing: 0.12em;
+	}
+
+	.foot {
+		padding: var(--gap) var(--pad) 16px;
+	}
+
+	/* An anchor, not a button, because it navigates — styled as the design's
+	   yellow bar so it still reads as the screen's one action. */
+	.new {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 54px;
+		border: var(--rule) solid var(--ink);
+		background: var(--yellow);
+		font-size: 0.875rem;
+		font-weight: 600;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		text-decoration: none;
 	}
 </style>

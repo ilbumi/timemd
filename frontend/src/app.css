@@ -1,40 +1,49 @@
 /*
- * Design tokens and base styles.
+ * The Bauhaus design language: primary colour on paper, hard black rules, Jost,
+ * and three basic shapes doing real work — circle is time, square is a project,
+ * triangle is a milestone.
  *
- * Plain CSS with custom properties: the app is small, and a PWA that should keep
- * working on a phone with no signal has no business fetching a stylesheet or a
- * font from anywhere.
+ * Two rules the whole sheet follows. Nothing is rounded: the radius token is
+ * gone rather than set to zero, so a stray `border-radius` reads as a mistake.
+ * And every border is either a 2px black rule (structure) or a hairline
+ * (separation within a block) — there is no third weight.
+ *
+ * Jost ships as a bundled variable font. A PWA that should keep working on a
+ * phone with no signal has no business fetching a stylesheet or a font.
  */
 
+@import '@fontsource-variable/jost';
+
 :root {
-	--surface: #f7f8fa;
-	--surface-raised: #ffffff;
-	--surface-sunken: #eceef2;
-	--border: #dcdfe6;
-	--text: #16181d;
-	--text-muted: #5f6672;
-	--accent: #4f46e5;
-	--accent-contrast: #ffffff;
-	--danger: #c02626;
-	--radius: 12px;
+	/* Field */
+	--paper: #f2efe6;
+	--paper-sunk: #ebe7db;
+	--paper-dim: #e6e2d6;
+	--white: #ffffff;
+
+	/* Ink */
+	--ink: #111111;
+	--ink-80: rgba(17, 17, 17, 0.8);
+	--ink-60: rgba(17, 17, 17, 0.6);
+	--ink-45: rgba(17, 17, 17, 0.45);
+	--ink-30: rgba(17, 17, 17, 0.3);
+	--ink-15: rgba(17, 17, 17, 0.15);
+
+	/* Primaries. The workshop palette, used structurally rather than to decorate. */
+	--red: #d1332e;
+	--blue: #245a8d;
+	--yellow: #e9b83a;
+	--purple: #8b6f8e;
+	--green: #4a6b63;
+
+	--rule: 2px;
 	--tap-target: 44px;
-	--gap: 12px;
+	--gap: 16px;
+	--pad: 20px;
 
-	color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-	:root {
-		--surface: #111318;
-		--surface-raised: #1a1d24;
-		--surface-sunken: #0b0d11;
-		--border: #2a2f39;
-		--text: #e9ecf1;
-		--text-muted: #99a1af;
-		--accent: #8b85f5;
-		--accent-contrast: #14121f;
-		--danger: #f47171;
-	}
+	/* The design commits to paper. Telling the browser stops it rendering form
+	   controls for a dark theme the app does not have. */
+	color-scheme: light;
 }
 
 * {
@@ -49,95 +58,228 @@ body {
 }
 
 body {
-	background: var(--surface);
-	color: var(--text);
-	font-family:
-		system-ui,
-		-apple-system,
-		'Segoe UI',
-		sans-serif;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: 'Jost Variable', 'Jost', system-ui, sans-serif;
 	font-size: 16px;
-	line-height: 1.45;
+	line-height: 1.5;
 	/* Stops iOS from zooming when a form field takes focus. */
 	-webkit-text-size-adjust: 100%;
 }
+
+/* ---- type ---------------------------------------------------------------- */
 
 h1,
 h2,
 h3 {
 	margin: 0;
-	line-height: 1.2;
-	font-weight: 650;
+	line-height: 1;
+	font-weight: 600;
 }
 
+/* Screen title: PROJECTS, LOG, SETTINGS. */
 h1 {
-	font-size: 1.4rem;
+	font-size: 1.875rem;
+	line-height: 0.9;
+	letter-spacing: -0.01em;
 }
 
 h2 {
-	font-size: 1.1rem;
+	font-size: 1.0625rem;
+	letter-spacing: 0.02em;
 }
+
+/* Section heading inside a screen — small, spaced, upper case. */
+.label {
+	font-size: 0.6875rem;
+	font-weight: 600;
+	line-height: 1;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	color: var(--ink);
+}
+
+/* The line above a running timer: FOCUS 02/04. */
+.eyebrow {
+	font-size: 0.75rem;
+	font-weight: 700;
+	line-height: 1;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+}
+
+.meta {
+	font-size: 0.71875rem;
+	line-height: 1.4;
+	letter-spacing: 0.08em;
+	color: var(--ink-60);
+}
+
+.muted {
+	color: var(--ink-60);
+}
+
+.numeric {
+	font-variant-numeric: tabular-nums;
+}
+
+/* ---- structure ----------------------------------------------------------- */
+
+.rule {
+	height: var(--rule);
+	background: var(--ink);
+}
+
+.hairline {
+	height: 1px;
+	background: var(--ink-15);
+}
+
+/* A screen's top bar: title left, a count or total right. */
+.topbar {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: var(--gap);
+	padding: var(--gap) var(--pad) 12px;
+	border-bottom: var(--rule) solid var(--ink);
+}
+
+/* ---- controls ------------------------------------------------------------ */
 
 button,
 input,
-select {
+select,
+textarea {
 	font: inherit;
 	color: inherit;
+	border-radius: 0;
 }
 
 button {
 	min-height: var(--tap-target);
 	padding: 0 16px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	background: var(--surface-raised);
+	border: var(--rule) solid var(--ink);
+	background: var(--paper);
+	color: var(--ink);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
 	cursor: pointer;
 	touch-action: manipulation;
 }
 
 button:disabled {
-	opacity: 0.5;
+	opacity: 0.4;
 	cursor: default;
 }
 
+/* The dark button is the one that commits. */
 button.primary {
-	background: var(--accent);
-	border-color: var(--accent);
-	color: var(--accent-contrast);
+	background: var(--ink);
+	color: var(--paper);
+	font-weight: 600;
+	letter-spacing: 0.16em;
+}
+
+button.accent {
+	background: var(--yellow);
 	font-weight: 600;
 }
 
-button.quiet {
-	border-color: transparent;
-	background: transparent;
-	padding: 0 10px;
+button.danger {
+	border-color: rgba(209, 51, 46, 0.45);
+	color: var(--red);
 }
 
-button.danger {
-	color: var(--danger);
+/* No border, no field — for a back arrow or an inline "edit". */
+button.quiet {
+	border-color: transparent;
+	background: none;
+	padding: 0 8px;
+	letter-spacing: 0.12em;
+}
+
+/*
+ * A row of buttons sharing one outer rule, divided by 2px rather than gapped.
+ * This is the design's standard bottom action bar; the shared border is why the
+ * buttons inside it drop their own left edge.
+ */
+.actions {
+	display: flex;
+	border: var(--rule) solid var(--ink);
+}
+
+.actions > button {
+	flex: 1;
+	border: none;
+	min-height: 52px;
+}
+
+.actions > button + button {
+	border-left: var(--rule) solid var(--ink);
+}
+
+/* A segmented switch: DAY / WEEK / LOG. Same construction, smaller. */
+.segmented {
+	display: flex;
+	border: var(--rule) solid var(--ink);
+}
+
+.segmented > button {
+	flex: 1;
+	min-height: 34px;
+	padding: 0 4px;
+	border: none;
+	font-size: 0.75rem;
+	letter-spacing: 0.14em;
+}
+
+.segmented > button + button {
+	border-left: var(--rule) solid var(--ink);
+}
+
+.segmented > button[aria-pressed='true'] {
+	background: var(--ink);
+	color: var(--paper);
+	font-weight: 600;
 }
 
 input,
-select {
-	min-height: var(--tap-target);
+select,
+textarea {
 	width: 100%;
-	padding: 0 12px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
-	background: var(--surface-raised);
+	min-height: var(--tap-target);
+	padding: 10px 13px;
+	border: var(--rule) solid var(--ink);
+	background: var(--white);
+	color: var(--ink);
+}
+
+textarea {
+	resize: vertical;
+	line-height: 1.5;
+}
+
+/* The design underlines a name rather than boxing it: NAME on 3e, 3k. */
+input.underlined {
+	padding: 0 0 8px;
+	border: none;
+	border-bottom: var(--rule) solid var(--ink);
+	background: none;
+	font-size: 1.375rem;
 }
 
 input[type='color'] {
-	padding: 4px;
-	width: var(--tap-target);
-	flex: 0 0 var(--tap-target);
+	padding: 3px;
+	width: 52px;
+	min-width: 52px;
 }
 
 label {
 	display: block;
-	font-size: 0.85rem;
-	color: var(--text-muted);
-	margin-bottom: 4px;
+	margin-bottom: 8px;
 }
 
 a {
@@ -145,20 +287,57 @@ a {
 }
 
 :focus-visible {
-	outline: 2px solid var(--accent);
+	outline: var(--rule) solid var(--red);
 	outline-offset: 2px;
 }
 
-/* Shared by every screen. These lived in five scoped <style> blocks and had
-   already drifted apart on margin. */
-.muted {
-	color: var(--text-muted);
+/* ---- shared pieces ------------------------------------------------------- */
+
+/*
+ * A weekly target: an outlined trough with a solid fill. Used at three sizes,
+ * so the height is a variable rather than three near-copies.
+ */
+.target {
+	height: var(--target-height, 8px);
+	border: 1px solid var(--ink);
+	overflow: hidden;
+}
+
+.target > span {
+	display: block;
+	height: 100%;
+	background: var(--ink);
 }
 
 .error {
-	padding: 10px 12px;
-	margin-bottom: var(--gap);
-	border-radius: var(--radius);
-	background: color-mix(in srgb, var(--danger) 12%, transparent);
-	color: var(--danger);
+	margin: 0;
+	padding: 11px var(--pad);
+	background: var(--red);
+	color: var(--paper);
+	font-size: 0.875rem;
+}
+
+/* Malformed lines the app kept rather than dropped. Deliberately not an error:
+   nothing failed, the file just has something in it we could not read. */
+.problems {
+	margin: 0;
+	padding: 11px var(--pad);
+	background: var(--yellow);
+	font-size: 0.8125rem;
+}
+
+.problems ul {
+	margin: 6px 0 0;
+	padding-left: 18px;
+}
+
+.empty {
+	padding: var(--pad);
+	color: var(--ink-60);
+	font-size: 0.875rem;
+}
+
+code {
+	font-family: ui-monospace, Menlo, monospace;
+	font-size: 0.85em;
 }
