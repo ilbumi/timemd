@@ -21,6 +21,8 @@ use crate::day::Day;
 use crate::error::{Error, Result};
 use crate::ids::ProjectSlug;
 use crate::project::Project;
+use crate::push::PushState;
+use crate::reminders::SentLog;
 use crate::schedule::Recurring;
 use crate::settings::Settings;
 
@@ -31,6 +33,8 @@ const SCHEDULE_DIR: &str = "schedule";
 const RECURRING_FILE: &str = "recurring.md";
 const SETTINGS_FILE: &str = "settings.md";
 const ACTIVE_FILE: &str = "active.md";
+const REMINDERS_FILE: &str = "reminders.md";
+const PUSH_FILE: &str = "push.md";
 
 /// Reads and writes the markdown tree rooted at `root`.
 #[derive(Debug)]
@@ -229,6 +233,64 @@ impl Store {
         self.transaction(|tx| tx.set_active(session))
     }
 
+    pub fn push_path(&self) -> PathBuf {
+        self.root.join(STATE_DIR).join(PUSH_FILE)
+    }
+
+    pub fn read_push(&self) -> Result<PushState> {
+        let path = self.push_path();
+        match read_to_string(&path)? {
+            Some(text) => {
+                PushState::parse(&text).map_err(|source| Error::Frontmatter { path, source })
+            }
+            None => Ok(PushState::default()),
+        }
+    }
+
+    /// Applies an edit to the push state, then restricts the file to its owner.
+    ///
+    /// This is the one file in the tree holding a secret, so it does not inherit
+    /// the permissions everything else is happy with.
+    pub fn update_push<T>(&self, edit: impl FnOnce(&mut PushState) -> T) -> Result<T> {
+        self.transaction(|tx| {
+            let mut state = tx.store.read_push()?;
+            let outcome = edit(&mut state);
+            let path = tx.store.push_path();
+            write_atomic(&path, &state.render())?;
+            restrict_to_owner(&path)?;
+            Ok(outcome)
+        })
+    }
+
+    pub fn reminders_path(&self) -> PathBuf {
+        self.root.join(STATE_DIR).join(REMINDERS_FILE)
+    }
+
+    pub fn read_sent_reminders(&self) -> Result<SentLog> {
+        let path = self.reminders_path();
+        match read_to_string(&path)? {
+            Some(text) => {
+                SentLog::parse(&text).map_err(|source| Error::Frontmatter { path, source })
+            }
+            None => Ok(SentLog::default()),
+        }
+    }
+
+    /// Records reminders as sent, holding the lock across read and write so two
+    /// ticks cannot both decide the same reminder is unsent.
+    pub fn update_sent_reminders<T>(
+        &self,
+        now: chrono::NaiveDateTime,
+        edit: impl FnOnce(&mut SentLog) -> T,
+    ) -> Result<T> {
+        self.transaction(|tx| {
+            let mut log = tx.store.read_sent_reminders()?;
+            let outcome = edit(&mut log);
+            write_atomic(&tx.store.reminders_path(), &log.render(now))?;
+            Ok(outcome)
+        })
+    }
+
     /// Runs a sequence of writes atomically with respect to any other writer.
     ///
     /// The timer needs this: logging a finished session and clearing the running
@@ -344,6 +406,26 @@ impl Tx<'_> {
         write_atomic(&self.store.recurring_path(), &recurring.render())?;
         Ok(outcome)
     }
+}
+
+/// Restricts a file to owner read/write.
+///
+/// A no-op off Unix, where the concept does not map cleanly; the deployment this
+/// is built for is a Unix box on a tailnet.
+fn restrict_to_owner(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|source| {
+            Error::Io {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 /// Reads a file, mapping "not found" to `None`.
