@@ -243,11 +243,15 @@ async function roundedCorners(page: Page): Promise<string[]> {
  * A thumb needs `--tap-target`. The 700px block relaxes it for a pointer, so
  * this only runs on the phone.
  *
- * Some controls are exempt because their size is the design speaking rather
- * than an oversight:
+ * This measures *reach*, not the drawn box. The design deliberately draws some
+ * controls smaller than a thumb and hands them their 44px through an invisible
+ * `::after` overlay — the pattern editor's switch says so outright — and a
+ * check that only read `getBoundingClientRect` would call those broken and the
+ * overlay useless. Hit-testing the extremes is what the thumb actually does.
+ *
+ * Two controls are exempt because their size is the design speaking:
  *
  *   .segmented children — "the same construction, smaller" (`app.css:264`)
- *   .toggle             — 26px by design, reaching 44 via an `::after` overlay
  *   .block              — a schedule block's height *is* its duration
  *   .day                — a square in a seven-across row; at 360px seven of
  *                         them plus their gaps cannot each be 44 wide, and
@@ -262,7 +266,12 @@ async function smallTapTargets(page: Page): Promise<string[]> {
 			(typeof el.className === 'string' && el.className.trim()
 				? `.${el.className.trim().split(/\s+/).join('.')}`
 				: '');
-		const BY_DESIGN = ['toggle', 'block', 'day'];
+		const BY_DESIGN = ['block', 'day'];
+		/** A pseudo-element hit-tests as its originating element, which is the point. */
+		const reaches = (el: Element, x: number, y: number) => {
+			const hit = document.elementFromPoint(x, y);
+			return !!hit && (hit === el || el.contains(hit) || hit.contains(el));
+		};
 
 		const bad: string[] = [];
 		for (const el of document.querySelectorAll('button, a[href]')) {
@@ -271,7 +280,17 @@ async function smallTapTargets(page: Page): Promise<string[]> {
 			if (getComputedStyle(el).clipPath !== 'none') continue;
 			if (el.closest('.segmented')) continue;
 			if (BY_DESIGN.some((name) => el.classList.contains(name))) continue;
-			if (box.height < 44 - 0.5) bad.push(`${label(el)} is ${box.height.toFixed(1)}px tall`);
+			if (box.height >= 44 - 0.5) continue;
+
+			// `elementFromPoint` is viewport-relative and returns null past the
+			// fold, so bring the control into view before asking where it is.
+			el.scrollIntoView({ block: 'center' });
+			const seen = el.getBoundingClientRect();
+			const midX = seen.left + seen.width / 2;
+			const midY = seen.top + seen.height / 2;
+			if (!reaches(el, midX, midY - 21) || !reaches(el, midX, midY + 21)) {
+				bad.push(`${label(el)} is ${seen.height.toFixed(1)}px tall and does not reach 44px`);
+			}
 		}
 		return bad;
 	});
