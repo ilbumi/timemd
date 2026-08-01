@@ -442,7 +442,13 @@
 		}
 
 		/* Seven squares across 620px would be 80px each — bigger than they need
-		   to be, and the row stops reading as a week. */
+		   to be, and the row stops reading as a week. Capping them leaves slack,
+		   which goes into the gaps rather than into an 80px hole after Sunday:
+		   the week has to end on the same edge as the fields above it. */
+		.days {
+			justify-content: space-between;
+		}
+
 		.day {
 			max-width: 64px;
 		}
