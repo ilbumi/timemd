@@ -286,6 +286,12 @@
 	}
 
 	.close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: var(--tap-target);
+		height: var(--tap-target);
+		margin-left: -12px;
 		font-size: 1.25rem;
 		line-height: 1;
 		text-decoration: none;
@@ -391,6 +397,17 @@
 		padding: 0;
 		position: relative;
 		background: var(--paper);
+	}
+
+	/*
+	 * The switch stays 26px tall because that is what the design draws; the thumb
+	 * gets its 44px from an invisible overlay instead. `inset` is measured from
+	 * the padding box, so with the 2px rule the reach either side is 11px, not 9.
+	 */
+	.toggle::after {
+		content: '';
+		position: absolute;
+		inset: -11px 0;
 	}
 
 	.toggle[aria-checked='true'] {

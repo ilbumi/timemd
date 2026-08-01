@@ -119,7 +119,7 @@
 		white-space: nowrap;
 	}
 
-	@media (min-width: 900px) {
+	@media (min-width: 700px) {
 		.shell {
 			max-width: none;
 			grid-template-rows: none;

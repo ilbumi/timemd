@@ -43,7 +43,11 @@
 		)
 	);
 
-	const span = $derived(spanOf(planned, DEFAULT_FROM, DEFAULT_TO));
+	const span = $derived(
+		// Stretched past the planned hours on today, so the now-bar does not
+		// disappear off the bottom of the window in the evening.
+		spanOf(planned, DEFAULT_FROM, isToday ? Math.max(DEFAULT_TO, nowMinutes + 30) : DEFAULT_TO)
+	);
 	const hours = $derived(hourMarks(span, HOUR_STEP));
 
 	/** The day's sessions as minute ranges, parsed once rather than once per
@@ -312,7 +316,7 @@
 		right: 0;
 		display: block;
 		min-height: 0;
-		padding: 6px 11px;
+		padding: 5px 11px;
 		overflow: hidden;
 		border: var(--rule) solid var(--ink);
 		text-align: left;
@@ -328,7 +332,7 @@
 	.block-text {
 		display: flex;
 		flex-direction: column;
-		gap: 3px;
+		gap: 2px;
 	}
 
 	/* A finished block is drawn faded, which is why its text goes back to ink:
@@ -341,6 +345,7 @@
 	.block-title {
 		font-size: 0.84375rem;
 		font-weight: 600;
+		line-height: 1.15;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -348,6 +353,7 @@
 
 	.block-when {
 		font-size: 0.6875rem;
+		line-height: 1.15;
 		opacity: 0.8;
 		white-space: nowrap;
 	}

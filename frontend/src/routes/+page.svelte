@@ -849,7 +849,11 @@
 
 	.settings {
 		flex: none;
-		padding-top: 6px;
+		display: flex;
+		align-items: center;
+		min-height: var(--tap-target);
+		padding: 0 0 0 12px;
+		margin-top: -6px;
 		font-size: 0.6875rem;
 		font-weight: 500;
 		letter-spacing: 0.16em;

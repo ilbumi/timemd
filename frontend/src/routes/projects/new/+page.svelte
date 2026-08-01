@@ -155,10 +155,14 @@
 	}
 
 	.close {
-		width: 20px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: var(--tap-target);
+		height: var(--tap-target);
+		margin-left: -12px;
 		font-size: 1.25rem;
 		line-height: 1;
-		text-align: center;
 		text-decoration: none;
 	}
 

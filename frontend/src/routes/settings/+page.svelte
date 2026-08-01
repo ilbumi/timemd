@@ -165,6 +165,10 @@
 	}
 
 	.back {
+		display: flex;
+		align-items: center;
+		min-height: var(--tap-target);
+		padding-left: 12px;
 		font-size: 0.6875rem;
 		font-weight: 500;
 		letter-spacing: 0.16em;

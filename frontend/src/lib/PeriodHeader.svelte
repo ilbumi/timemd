@@ -59,10 +59,20 @@
 		text-transform: uppercase;
 	}
 
+	/* A thumb-sized target on a phone; a pointer needs less, and the row is
+	   tighter for it. */
 	button {
 		align-self: center;
-		min-height: 0;
+		min-width: var(--tap-target);
+		padding: 0;
 		font-size: 1.5rem;
 		line-height: 1;
+	}
+
+	@media (min-width: 700px) {
+		button {
+			min-width: 32px;
+			min-height: 32px;
+		}
 	}
 </style>

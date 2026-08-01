@@ -45,9 +45,16 @@
 	 * sidebar: past about 900px a column of rules and 14px text stops being
 	 * readable and starts being a banner.
 	 *
-	 * The breakpoint itself has to be written out in `@media` — custom
-	 * properties are not allowed there — so it lives in one comment instead:
-	 * 900px is where the sidebar replaces the bottom bar.
+	 * Breakpoints cannot use custom properties, so they are written out in every
+	 * `@media` and documented here instead. There are two, and they answer
+	 * different questions:
+	 *
+	 *   700px — is there room beside the content for a sidebar? A portrait
+	 *           tablet and a landscape phone both say yes, and both are worse
+	 *           off with a bar across the bottom.
+	 *   1000px — is there room for two columns *of content*? Only then does the
+	 *           project detail put its panel beside the milestones and the day
+	 *           timeline sit next to its list.
 	 */
 	--shell: 440px;
 	--measure: 900px;
@@ -376,7 +383,7 @@ code {
  * Everything above is the phone. From here the same pieces get the room a
  * desktop has: nothing is restyled, only re-proportioned.
  */
-@media (min-width: 900px) {
+@media (min-width: 700px) {
 	:root {
 		--gap: 20px;
 		--pad: 28px;
