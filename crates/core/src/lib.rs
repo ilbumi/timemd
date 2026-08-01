@@ -20,6 +20,7 @@ pub mod minutes;
 pub mod project;
 pub mod settings;
 pub mod store;
+pub mod timer;
 
 pub use active::{ActiveSession, SessionKind};
 pub use day::{Day, Session};
@@ -29,4 +30,5 @@ pub use ids::{BlockId, ProjectSlug};
 pub use minutes::Minutes;
 pub use project::{Color, Project, ProjectStatus};
 pub use settings::Settings;
-pub use store::Store;
+pub use store::{Store, Tx};
+pub use timer::{StartRequest, Timer, TimerState};

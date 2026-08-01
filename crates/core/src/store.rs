@@ -33,9 +33,7 @@ const ACTIVE_FILE: &str = "active.md";
 #[derive(Debug)]
 pub struct Store {
     root: PathBuf,
-    /// Serialises read-modify-write cycles so the timer task and an HTTP request
-    /// cannot interleave on the same file. Held by the `update_*` methods for
-    /// the whole cycle, which is why those exist instead of a bare `write`.
+    /// Serialises writes so the timer task and an HTTP request cannot interleave.
     write_lock: Mutex<()>,
 }
 
@@ -110,52 +108,22 @@ impl Store {
     }
 
     /// Writes a new project file, refusing to overwrite an existing one.
-    ///
-    /// Takes a fully-built project rather than its parts: the caller decides what
-    /// a new project looks like, and the file is written exactly once so its keys
-    /// land in a predictable order.
     pub fn create_project(&self, project: &Project) -> Result<()> {
-        let _guard = self.lock();
-        let path = self.project_path(project.slug());
-        if path.exists() {
-            return Err(Error::DuplicateProject(project.slug().to_string()));
-        }
-        write_atomic(&path, &project.render())
+        self.transaction(|tx| tx.create_project(project))
     }
 
-    /// Applies an edit to an existing project, holding the write lock across the
-    /// whole read-modify-write cycle.
+    /// Applies an edit to an existing project.
     pub fn update_project<T>(
         &self,
         slug: &ProjectSlug,
         edit: impl FnOnce(&mut Project) -> T,
     ) -> Result<T> {
-        let _guard = self.lock();
-        let path = self.project_path(slug);
-        let text = read_to_string(&path)?.ok_or_else(|| Error::UnknownProject(slug.to_string()))?;
-        let mut project =
-            Project::parse(slug.clone(), &text).map_err(|source| Error::Frontmatter {
-                path: path.clone(),
-                source,
-            })?;
-        let outcome = edit(&mut project);
-        write_atomic(&path, &project.render())?;
-        Ok(outcome)
+        self.transaction(|tx| tx.update_project(slug, edit))
     }
 
     /// Removes a project file. Returns whether it existed.
-    ///
-    /// Logged sessions that reference the slug are left alone: the day files are
-    /// a historical record, and silently rewriting history to tidy up a deletion
-    /// would be the wrong trade.
     pub fn delete_project(&self, slug: &ProjectSlug) -> Result<bool> {
-        let _guard = self.lock();
-        let path = self.project_path(slug);
-        match fs::remove_file(&path) {
-            Ok(()) => Ok(true),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-            Err(source) => Err(Error::Io { path, source }),
-        }
+        self.transaction(|tx| tx.delete_project(slug))
     }
 
     fn load_project(&self, path: &Path, slug: ProjectSlug) -> Result<Project> {
@@ -186,14 +154,9 @@ impl Store {
         }
     }
 
-    /// Applies an edit to a day, creating the file if needed and holding the
-    /// write lock across the whole cycle.
+    /// Applies an edit to a day, creating the file if needed.
     pub fn update_day<T>(&self, date: NaiveDate, edit: impl FnOnce(&mut Day) -> T) -> Result<T> {
-        let _guard = self.lock();
-        let mut day = self.read_day(date)?;
-        let outcome = edit(&mut day);
-        write_atomic(&self.day_path(date), &day.render())?;
-        Ok(outcome)
+        self.transaction(|tx| tx.update_day(date, edit))
     }
 
     /// Days in `from..=to` that have a file, oldest first.
@@ -221,11 +184,7 @@ impl Store {
     }
 
     pub fn update_settings<T>(&self, edit: impl FnOnce(&mut Settings) -> T) -> Result<T> {
-        let _guard = self.lock();
-        let mut settings = self.read_settings()?;
-        let outcome = edit(&mut settings);
-        write_atomic(&self.settings_path(), &settings.render())?;
-        Ok(outcome)
+        self.transaction(|tx| tx.update_settings(edit))
     }
 
     pub fn active_path(&self) -> PathBuf {
@@ -244,17 +203,112 @@ impl Store {
 
     /// Replaces the running timer, or clears it with `None`.
     pub fn set_active(&self, session: Option<&ActiveSession>) -> Result<()> {
-        let _guard = self.lock();
-        let text = session.map_or_else(|| IDLE.to_owned(), ActiveSession::render);
-        write_atomic(&self.active_path(), &text)
+        self.transaction(|tx| tx.set_active(session))
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, ()> {
+    /// Runs a sequence of writes atomically with respect to any other writer.
+    ///
+    /// The timer needs this: logging a finished session and clearing the running
+    /// one are two files, and without a boundary around both, the background tick
+    /// and a `stop` request can interleave and log the same session twice.
+    ///
+    /// Write operations live on [`Tx`] rather than on `Store`, so taking the lock
+    /// twice and deadlocking is not expressible — from inside a transaction there
+    /// is no locking method in scope to call.
+    pub fn transaction<T>(&self, work: impl FnOnce(&Tx<'_>) -> T) -> T {
         // A panic elsewhere cannot corrupt the invariant this lock protects —
         // it only orders file writes — so recovering beats propagating.
-        self.write_lock
+        let _guard = self
+            .write_lock
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        work(&Tx { store: self })
+    }
+}
+
+/// The write half of [`Store`], reachable only inside [`Store::transaction`].
+///
+/// Reads are not gated by the lock anywhere: an atomic rename means a reader
+/// always sees a whole file, so only writers need ordering.
+#[derive(Debug)]
+pub struct Tx<'store> {
+    store: &'store Store,
+}
+
+impl Tx<'_> {
+    pub fn read_day(&self, date: NaiveDate) -> Result<Day> {
+        self.store.read_day(date)
+    }
+
+    pub fn read_active(&self) -> Result<Option<ActiveSession>> {
+        self.store.read_active()
+    }
+
+    pub fn read_settings(&self) -> Result<Settings> {
+        self.store.read_settings()
+    }
+
+    pub fn read_project(&self, slug: &ProjectSlug) -> Result<Option<Project>> {
+        self.store.read_project(slug)
+    }
+
+    /// Takes a fully-built project rather than its parts: the caller decides what
+    /// a new project looks like, and the file is written exactly once so its keys
+    /// land in a predictable order.
+    pub fn create_project(&self, project: &Project) -> Result<()> {
+        let path = self.store.project_path(project.slug());
+        if path.exists() {
+            return Err(Error::DuplicateProject(project.slug().to_string()));
+        }
+        write_atomic(&path, &project.render())
+    }
+
+    pub fn update_project<T>(
+        &self,
+        slug: &ProjectSlug,
+        edit: impl FnOnce(&mut Project) -> T,
+    ) -> Result<T> {
+        let path = self.store.project_path(slug);
+        let text = read_to_string(&path)?.ok_or_else(|| Error::UnknownProject(slug.to_string()))?;
+        let mut project =
+            Project::parse(slug.clone(), &text).map_err(|source| Error::Frontmatter {
+                path: path.clone(),
+                source,
+            })?;
+        let outcome = edit(&mut project);
+        write_atomic(&path, &project.render())?;
+        Ok(outcome)
+    }
+
+    /// Logged sessions that reference the slug are left alone: the day files are
+    /// a historical record, and silently rewriting history to tidy up a deletion
+    /// would be the wrong trade.
+    pub fn delete_project(&self, slug: &ProjectSlug) -> Result<bool> {
+        let path = self.store.project_path(slug);
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(source) => Err(Error::Io { path, source }),
+        }
+    }
+
+    pub fn update_day<T>(&self, date: NaiveDate, edit: impl FnOnce(&mut Day) -> T) -> Result<T> {
+        let mut day = self.store.read_day(date)?;
+        let outcome = edit(&mut day);
+        write_atomic(&self.store.day_path(date), &day.render())?;
+        Ok(outcome)
+    }
+
+    pub fn update_settings<T>(&self, edit: impl FnOnce(&mut Settings) -> T) -> Result<T> {
+        let mut settings = self.store.read_settings()?;
+        let outcome = edit(&mut settings);
+        write_atomic(&self.store.settings_path(), &settings.render())?;
+        Ok(outcome)
+    }
+
+    pub fn set_active(&self, session: Option<&ActiveSession>) -> Result<()> {
+        let text = session.map_or_else(|| IDLE.to_owned(), ActiveSession::render);
+        write_atomic(&self.store.active_path(), &text)
     }
 }
 
