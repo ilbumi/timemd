@@ -10,10 +10,13 @@ repository   .workspace = true
 [dependencies]
 timemd-core .workspace = true
 
+chrono     .workspace = true
 serde      .workspace = true
 serde_json .workspace = true
 thiserror  .workspace = true
 tokio      .workspace = true
+rmcp = { version = "3", features = ["server", "transport-io"] }
 
 [dev-dependencies]
+chrono-tz .workspace = true
 tempfile .workspace = true

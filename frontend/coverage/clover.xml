@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1785586608579" clover="3.2.0">
-  <project timestamp="1785586608579" name="All files">
+<coverage generated="1785587050465" clover="3.2.0">
+  <project timestamp="1785587050465" name="All files">
     <metrics statements="109" coveredstatements="108" conditionals="53" coveredconditionals="52" methods="51" coveredmethods="49" elements="213" coveredelements="209" complexity="0" loc="109" ncloc="109" packages="1" files="5" classes="5"/>
     <file name="api.ts" path="/Users/ilbumi/Documents/projects/timemd/frontend/src/lib/api.ts">
       <metrics statements="38" coveredstatements="37" conditionals="10" coveredconditionals="10" methods="27" coveredmethods="25"/>

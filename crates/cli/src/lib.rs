@@ -40,6 +40,9 @@ pub enum Command {
         addr: SocketAddr,
     },
 
+    /// Speak the Model Context Protocol on stdio, for agents.
+    Mcp,
+
     /// Start a focus session.
     Start {
         /// Project slug to track against.
@@ -101,8 +104,9 @@ pub enum Command {
 /// Runs everything except `serve`, which needs the async runtime the binary owns.
 pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String> {
     match command {
-        // Handled by the binary; reaching here would be a wiring mistake.
-        Command::Serve { .. } => Ok(String::new()),
+        // Both are handled by the binary, which owns the async runtime they
+        // need; reaching here would be a wiring mistake.
+        Command::Serve { .. } | Command::Mcp => Ok(String::new()),
 
         Command::Start {
             project,
@@ -670,13 +674,14 @@ mod tests {
     }
 
     #[test]
-    fn serve_produces_no_output_here() {
+    fn the_binary_owned_commands_produce_no_output_here() {
         let (_directory, store) = store();
         let addr = "127.0.0.1:8080".parse().expect("valid address");
         assert_eq!(
             run(&store, Command::Serve { addr }, moment(9, 0)).expect("runs"),
             ""
         );
+        assert_eq!(run(&store, Command::Mcp, moment(9, 0)).expect("runs"), "");
     }
 
     #[test]

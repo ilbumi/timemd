@@ -1,1 +1,936 @@
 //! Model Context Protocol server exposing timemd to agents.
+//!
+//! The tools call `timemd-core` directly, so they work whether or not the web
+//! app is running. They are also deliberately thin: an agent that wants
+//! something not offered here can read and write the markdown tree by hand, and
+//! the app picks the change up on its next read.
+
+use std::sync::Arc;
+
+use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime};
+use rmcp::ServerHandler;
+use rmcp::handler::server::tool::ToolRouter;
+use rmcp::handler::server::wrapper::{Json, Parameters};
+use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
+use rmcp::{ErrorData, schemars, tool, tool_handler, tool_router};
+use serde::{Deserialize, Serialize};
+use timemd_core::active::SessionKind;
+use timemd_core::day::Session;
+use timemd_core::report::{self, GroupBy};
+use timemd_core::schedule::planned;
+use timemd_core::{
+    Color, Minutes, Project, ProjectSlug, ProjectStatus, StartRequest, Stopped, Store, Timer,
+};
+
+/// Matches the HTTP API's bound: a range request is a scan over day files.
+const MAX_RANGE_DAYS: i64 = 366;
+
+/// The MCP server. One store, no other state.
+#[derive(Clone)]
+pub struct TimeMd {
+    store: Arc<Store>,
+    tool_router: ToolRouter<Self>,
+}
+
+// ---- tool parameters -------------------------------------------------------
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct StartParams {
+    /// Project slug to track against. Omit to track untagged time.
+    pub project: Option<String>,
+    /// What you are working on.
+    pub note: Option<String>,
+    /// Length such as `25m` or `1h30m`. Defaults to the configured focus length.
+    pub duration: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct LogParams {
+    /// `YYYY-MM-DD`. Defaults to today.
+    pub date: Option<String>,
+    /// Start time, `HH:MM`.
+    pub start: String,
+    /// End time, `HH:MM`. Earlier than `start` means it crossed midnight.
+    pub end: String,
+    pub project: Option<String>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct DateParams {
+    /// `YYYY-MM-DD`. Defaults to today.
+    pub date: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct RangeParams {
+    /// `YYYY-MM-DD`, inclusive.
+    pub from: String,
+    /// `YYYY-MM-DD`, inclusive.
+    pub to: String,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct ReportParams {
+    pub from: String,
+    pub to: String,
+    /// `project` (default) or `day`.
+    pub group_by: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct UpsertProjectParams {
+    /// Lowercase letters, digits and dashes. Becomes the filename.
+    pub slug: String,
+    pub name: Option<String>,
+    /// `#rrggbb`.
+    pub color: Option<String>,
+    /// `active` or `archived`.
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct NoParams {}
+
+// ---- tool results ----------------------------------------------------------
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Outcome {
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct CurrentSession {
+    pub running: bool,
+    pub kind: Option<String>,
+    pub project: Option<String>,
+    pub note: Option<String>,
+    pub started_at: Option<String>,
+    pub remaining: Option<String>,
+    pub tracked_today: String,
+    pub completed_today: u32,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct LoggedSession {
+    pub start: String,
+    pub end: String,
+    pub duration: String,
+    pub project: Option<String>,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct PlannedBlock {
+    pub date: String,
+    pub start: String,
+    pub end: String,
+    pub duration: String,
+    pub project: Option<String>,
+    pub title: String,
+    /// The repeating block this came from, or null for a one-off.
+    pub block: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct DaySummary {
+    pub date: String,
+    pub tracked: String,
+    pub sessions: Vec<LoggedSession>,
+    pub planned: Vec<PlannedBlock>,
+    /// Lines in the file the parser could not read, kept verbatim.
+    pub problems: Vec<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ProjectSummary {
+    pub slug: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ReportBucket {
+    /// Project slug or date, depending on the grouping. Null means no project.
+    pub key: Option<String>,
+    pub tracked: String,
+    pub sessions: u32,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ReportSummary {
+    pub from: String,
+    pub to: String,
+    pub group_by: String,
+    pub total: String,
+    pub buckets: Vec<ReportBucket>,
+}
+
+#[tool_router]
+impl TimeMd {
+    pub fn new(store: Arc<Store>) -> Self {
+        Self {
+            store,
+            tool_router: Self::tool_router(),
+        }
+    }
+
+    #[tool(
+        name = "start_session",
+        description = "Start a focus session, logging whatever was already running."
+    )]
+    fn start_session(
+        &self,
+        Parameters(params): Parameters<StartParams>,
+    ) -> Result<Json<Outcome>, ErrorData> {
+        let request = StartRequest {
+            kind: SessionKind::Focus,
+            duration: params.duration.as_deref().map(minutes).transpose()?,
+            project: params.project.as_deref().map(slug).transpose()?,
+            note: params.note.unwrap_or_default(),
+        };
+
+        let active = Timer::new(&self.store)
+            .start(self.now()?, request)
+            .map_err(failed)?;
+
+        Ok(Json(Outcome {
+            message: format!(
+                "started {} for {} on {}",
+                active.started.format("%H:%M"),
+                active.duration,
+                active
+                    .project
+                    .as_ref()
+                    .map_or_else(|| "no project".to_owned(), ToString::to_string),
+            ),
+        }))
+    }
+
+    #[tool(
+        name = "stop_session",
+        description = "Stop the running session and log the time worked."
+    )]
+    fn stop_session(&self, _params: Parameters<NoParams>) -> Result<Json<Outcome>, ErrorData> {
+        let message = match Timer::new(&self.store).stop(self.now()?).map_err(failed)? {
+            Stopped::Logged(session) => format!(
+                "logged {} to {}",
+                session.duration(),
+                session
+                    .project
+                    .as_ref()
+                    .map_or_else(|| "no project".to_owned(), ToString::to_string),
+            ),
+            Stopped::TooShort => "stopped; under a minute, so nothing was logged".to_owned(),
+            Stopped::Idle => "nothing was running".to_owned(),
+        };
+        Ok(Json(Outcome { message }))
+    }
+
+    #[tool(
+        name = "current_session",
+        description = "What is running right now, and how much has been tracked today."
+    )]
+    fn current_session(
+        &self,
+        _params: Parameters<NoParams>,
+    ) -> Result<Json<CurrentSession>, ErrorData> {
+        let now = self.now()?;
+        let state = Timer::new(&self.store).state(now).map_err(failed)?;
+
+        Ok(Json(CurrentSession {
+            running: state.active.is_some(),
+            kind: state.active.as_ref().map(|active| match active.kind {
+                SessionKind::Focus => "focus".to_owned(),
+                SessionKind::ShortBreak => "short_break".to_owned(),
+                SessionKind::LongBreak => "long_break".to_owned(),
+            }),
+            project: state
+                .active
+                .as_ref()
+                .and_then(|active| active.project.as_ref().map(ToString::to_string)),
+            note: state.active.as_ref().map(|active| active.note.clone()),
+            started_at: state
+                .active
+                .as_ref()
+                .map(|active| active.started.format("%Y-%m-%dT%H:%M").to_string()),
+            remaining: state
+                .active
+                .as_ref()
+                .map(|active| active.remaining(now).to_string()),
+            tracked_today: state.tracked_today.to_string(),
+            completed_today: state.completed_today,
+        }))
+    }
+
+    #[tool(
+        name = "log_time",
+        description = "Record time that was not tracked live."
+    )]
+    fn log_time(
+        &self,
+        Parameters(params): Parameters<LogParams>,
+    ) -> Result<Json<Outcome>, ErrorData> {
+        let on = match params.date.as_deref() {
+            Some(raw) => date(raw)?,
+            None => self.now()?.date(),
+        };
+        let session = Session::new(
+            time(&params.start)?,
+            time(&params.end)?,
+            params.project.as_deref().map(slug).transpose()?,
+            params.note.unwrap_or_default(),
+        );
+        let logged = session.duration();
+
+        self.store
+            .update_day(on, |day| day.add_session(session))
+            .map_err(failed)?;
+
+        Ok(Json(Outcome {
+            message: format!("logged {logged} on {on}"),
+        }))
+    }
+
+    #[tool(
+        name = "day",
+        description = "A day's tracked sessions and planned blocks."
+    )]
+    fn day(
+        &self,
+        Parameters(params): Parameters<DateParams>,
+    ) -> Result<Json<DaySummary>, ErrorData> {
+        let on = match params.date.as_deref() {
+            Some(raw) => date(raw)?,
+            None => self.now()?.date(),
+        };
+        let day = self.store.read_day(on).map_err(failed)?;
+        let recurring = self.store.read_recurring().map_err(failed)?;
+
+        Ok(Json(DaySummary {
+            date: on.to_string(),
+            tracked: day.total().to_string(),
+            sessions: day.sessions().iter().map(logged).collect(),
+            planned: planned(&day, &recurring).iter().map(block).collect(),
+            problems: day.problems().iter().map(ToString::to_string).collect(),
+        }))
+    }
+
+    #[tool(name = "schedule", description = "Planned blocks over a date range.")]
+    fn schedule(
+        &self,
+        Parameters(params): Parameters<RangeParams>,
+    ) -> Result<Json<Vec<PlannedBlock>>, ErrorData> {
+        let (from, to) = range(&params.from, &params.to)?;
+        let recurring = self.store.read_recurring().map_err(failed)?;
+
+        let mut blocks = Vec::new();
+        for on in from.iter_days().take_while(|date| *date <= to) {
+            let day = self.store.read_day(on).map_err(failed)?;
+            blocks.extend(planned(&day, &recurring).iter().map(block));
+        }
+        Ok(Json(blocks))
+    }
+
+    #[tool(name = "report", description = "Total tracked time over a range.")]
+    fn report(
+        &self,
+        Parameters(params): Parameters<ReportParams>,
+    ) -> Result<Json<ReportSummary>, ErrorData> {
+        let (from, to) = range(&params.from, &params.to)?;
+        let grouping = match params.group_by.as_deref().unwrap_or("project") {
+            "project" => GroupBy::Project,
+            "day" => GroupBy::Day,
+            other => {
+                return Err(invalid(format!(
+                    "unknown grouping {other:?}; expected `project` or `day`"
+                )));
+            }
+        };
+
+        let summary = report::build(&self.store, from, to, grouping).map_err(failed)?;
+
+        Ok(Json(ReportSummary {
+            from: summary.from.to_string(),
+            to: summary.to.to_string(),
+            group_by: match summary.group_by {
+                GroupBy::Project => "project".to_owned(),
+                GroupBy::Day => "day".to_owned(),
+            },
+            total: summary.total.to_string(),
+            buckets: summary
+                .buckets
+                .iter()
+                .map(|bucket| ReportBucket {
+                    key: bucket.key.clone(),
+                    tracked: bucket.tracked.to_string(),
+                    sessions: bucket.sessions,
+                })
+                .collect(),
+        }))
+    }
+
+    #[tool(
+        name = "list_projects",
+        description = "Every project, ordered by slug."
+    )]
+    fn list_projects(
+        &self,
+        _params: Parameters<NoParams>,
+    ) -> Result<Json<Vec<ProjectSummary>>, ErrorData> {
+        let projects = self.store.list_projects().map_err(failed)?;
+        Ok(Json(projects.iter().map(summarise).collect()))
+    }
+
+    #[tool(
+        name = "upsert_project",
+        description = "Create a project, or update only the fields given on an existing one."
+    )]
+    fn upsert_project(
+        &self,
+        Parameters(params): Parameters<UpsertProjectParams>,
+    ) -> Result<Json<ProjectSummary>, ErrorData> {
+        let slug = slug(&params.slug)?;
+        let color = params.color.as_deref().map(colour).transpose()?;
+        let status = params.status.as_deref().map(project_status).transpose()?;
+
+        if self.store.read_project(&slug).map_err(failed)?.is_none() {
+            let mut project = Project::new(
+                slug.clone(),
+                params.name.unwrap_or_else(|| slug.to_string()),
+                self.now()?.date(),
+            );
+            project.color = color;
+            if let Some(status) = status {
+                project.status = status;
+            }
+            self.store.create_project(&project).map_err(failed)?;
+            return Ok(Json(summarise(&project)));
+        }
+
+        let summary = self
+            .store
+            .update_project(&slug, |project| {
+                if let Some(name) = params.name {
+                    project.name = name;
+                }
+                if color.is_some() {
+                    project.color = color;
+                }
+                if let Some(status) = status {
+                    project.status = status;
+                }
+                summarise(&*project)
+            })
+            .map_err(failed)?;
+
+        Ok(Json(summary))
+    }
+
+    /// Now, as wall-clock time in the configured timezone.
+    fn now(&self) -> Result<NaiveDateTime, ErrorData> {
+        let timezone = self.store.read_settings().map_err(failed)?.timezone;
+        Ok(Local::now().with_timezone(&timezone).naive_local())
+    }
+}
+
+/// Instructions the client shows to the agent alongside the tool list.
+///
+/// Worth spending words on: the tools are only half the interface here, and an
+/// agent that knows the files exist can do things no tool exposes.
+const INSTRUCTIONS: &str = "\
+timemd tracks time in markdown files. Every tool here reads and writes that same
+tree, and so can you: projects live in `projects/<slug>.md`, tracked time in
+`days/YYYY/YYYY-MM-DD.md` under a `## Sessions` list, and repeating schedule
+blocks in `schedule/recurring.md`. Editing those files by hand is supported — the
+app re-reads them on the next request, and anything it does not understand
+(prose, your own `##` sections, extra frontmatter keys) is preserved untouched.
+
+Times are local wall-clock with no offsets; the timezone lives in `settings.md`.
+A session whose end is earlier than its start crossed midnight.";
+
+// Points at the stored router so it is built once, at construction, rather
+// than rebuilt on every tools/list and every call.
+#[tool_handler(router = self.tool_router)]
+impl ServerHandler for TimeMd {
+    fn get_info(&self) -> ServerInfo {
+        // Both types are `#[non_exhaustive]`, so they are built from their
+        // defaults rather than a struct literal.
+        let mut implementation = Implementation::default();
+        implementation.name = "timemd".to_owned();
+        implementation.version = env!("CARGO_PKG_VERSION").to_owned();
+
+        let mut info = ServerInfo::default();
+        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info.server_info = implementation;
+        info.instructions = Some(INSTRUCTIONS.to_owned());
+        info
+    }
+}
+
+/// Serves the protocol on stdio until the client disconnects.
+pub async fn serve(store: Arc<Store>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use rmcp::ServiceExt;
+
+    let service = TimeMd::new(store)
+        .serve(rmcp::transport::io::stdio())
+        .await?;
+    service.waiting().await?;
+    Ok(())
+}
+
+fn summarise(project: &Project) -> ProjectSummary {
+    ProjectSummary {
+        slug: project.slug().to_string(),
+        name: project.name.clone(),
+        color: project.color.as_ref().map(ToString::to_string),
+        status: if project.status.is_archived() {
+            "archived".to_owned()
+        } else {
+            "active".to_owned()
+        },
+    }
+}
+
+fn logged(session: &Session) -> LoggedSession {
+    LoggedSession {
+        start: session.start.format("%H:%M").to_string(),
+        end: session.end.format("%H:%M").to_string(),
+        duration: session.duration().to_string(),
+        project: session.project.as_ref().map(ToString::to_string),
+        note: session.note.clone(),
+    }
+}
+
+fn block(occurrence: &timemd_core::Occurrence) -> PlannedBlock {
+    PlannedBlock {
+        date: occurrence.date.to_string(),
+        start: occurrence.start.format("%H:%M").to_string(),
+        end: occurrence.end.format("%H:%M").to_string(),
+        duration: occurrence.duration().to_string(),
+        project: occurrence.project.as_ref().map(ToString::to_string),
+        title: occurrence.title.clone(),
+        block: occurrence.block.as_ref().map(ToString::to_string),
+    }
+}
+
+fn failed(error: timemd_core::Error) -> ErrorData {
+    ErrorData::internal_error(error.to_string(), None)
+}
+
+fn invalid(message: String) -> ErrorData {
+    ErrorData::invalid_params(message, None)
+}
+
+fn slug(raw: &str) -> Result<ProjectSlug, ErrorData> {
+    ProjectSlug::new(raw).map_err(|error| invalid(error.to_string()))
+}
+
+fn colour(raw: &str) -> Result<Color, ErrorData> {
+    Color::new(raw).map_err(|error| invalid(error.to_string()))
+}
+
+fn minutes(raw: &str) -> Result<Minutes, ErrorData> {
+    raw.parse()
+        .map_err(|error: timemd_core::ParseErrorKind| invalid(error.to_string()))
+}
+
+fn project_status(raw: &str) -> Result<ProjectStatus, ErrorData> {
+    match raw {
+        "active" => Ok(ProjectStatus::Active),
+        "archived" => Ok(ProjectStatus::Archived),
+        other => Err(invalid(format!(
+            "unknown status {other:?}; expected `active` or `archived`"
+        ))),
+    }
+}
+
+fn date(raw: &str) -> Result<NaiveDate, ErrorData> {
+    raw.parse()
+        .map_err(|_| invalid(format!("invalid date {raw:?}; expected YYYY-MM-DD")))
+}
+
+fn time(raw: &str) -> Result<NaiveTime, ErrorData> {
+    NaiveTime::parse_from_str(raw, "%H:%M")
+        .or_else(|_| NaiveTime::parse_from_str(raw, "%H:%M:%S"))
+        .map_err(|_| invalid(format!("invalid time {raw:?}; expected HH:MM")))
+}
+
+fn range(from: &str, to: &str) -> Result<(NaiveDate, NaiveDate), ErrorData> {
+    let (from, to) = (date(from)?, date(to)?);
+    if to < from {
+        return Err(invalid("`to` is before `from`".to_owned()));
+    }
+    if (to - from).num_days() > MAX_RANGE_DAYS {
+        return Err(invalid(format!("range longer than {MAX_RANGE_DAYS} days")));
+    }
+    Ok((from, to))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server() -> (tempfile::TempDir, TimeMd) {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = Arc::new(Store::new(directory.path()));
+        store
+            .update_settings(|settings| settings.timezone = chrono_tz::UTC)
+            .expect("writes settings");
+        (directory, TimeMd::new(store))
+    }
+
+    fn log(server: &TimeMd, on: &str, start: &str, end: &str, project: Option<&str>) {
+        server
+            .log_time(Parameters(LogParams {
+                date: Some(on.to_owned()),
+                start: start.to_owned(),
+                end: end.to_owned(),
+                project: project.map(ToOwned::to_owned),
+                note: Some("work".to_owned()),
+            }))
+            .expect("logs");
+    }
+
+    #[test]
+    fn the_server_identifies_itself_and_points_at_the_files() {
+        let (_directory, server) = server();
+        let info = server.get_info();
+
+        assert_eq!(info.server_info.name, "timemd");
+        assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));
+
+        let instructions = info.instructions.expect("instructions are the point");
+        assert!(instructions.contains("days/YYYY"), "{instructions}");
+        assert!(instructions.contains("settings.md"), "{instructions}");
+    }
+
+    #[test]
+    fn every_tool_is_advertised() {
+        let (_directory, server) = server();
+        let names: Vec<String> = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect();
+
+        for expected in [
+            "start_session",
+            "stop_session",
+            "current_session",
+            "log_time",
+            "day",
+            "schedule",
+            "report",
+            "list_projects",
+            "upsert_project",
+        ] {
+            assert!(
+                names.contains(&expected.to_owned()),
+                "{expected} is missing from {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn starting_then_reading_reports_the_running_session() {
+        let (_directory, server) = server();
+
+        let started = server
+            .start_session(Parameters(StartParams {
+                project: Some("timemd".to_owned()),
+                note: Some("file store".to_owned()),
+                duration: Some("50m".to_owned()),
+            }))
+            .expect("starts");
+        assert!(started.0.message.contains("50m"), "{}", started.0.message);
+        assert!(
+            started.0.message.contains("timemd"),
+            "{}",
+            started.0.message
+        );
+
+        let current = server
+            .current_session(Parameters(NoParams {}))
+            .expect("reads");
+        assert!(current.0.running);
+        assert_eq!(current.0.project.as_deref(), Some("timemd"));
+        assert_eq!(current.0.kind.as_deref(), Some("focus"));
+        assert_eq!(current.0.note.as_deref(), Some("file store"));
+    }
+
+    #[test]
+    fn stopping_nothing_says_so() {
+        let (_directory, server) = server();
+        let stopped = server.stop_session(Parameters(NoParams {})).expect("stops");
+        assert_eq!(stopped.0.message, "nothing was running");
+    }
+
+    #[test]
+    fn stopping_straight_away_reports_that_it_was_too_short() {
+        let (_directory, server) = server();
+        server
+            .start_session(Parameters(StartParams::default()))
+            .expect("starts");
+
+        let stopped = server.stop_session(Parameters(NoParams {})).expect("stops");
+        assert!(
+            stopped.0.message.contains("under a minute"),
+            "{}",
+            stopped.0.message
+        );
+    }
+
+    #[test]
+    fn an_idle_server_reports_an_empty_day() {
+        let (_directory, server) = server();
+        let current = server
+            .current_session(Parameters(NoParams {}))
+            .expect("reads");
+
+        assert!(!current.0.running);
+        assert_eq!(current.0.tracked_today, "0m");
+        assert_eq!(current.0.completed_today, 0);
+    }
+
+    #[test]
+    fn logging_time_shows_up_in_the_day() {
+        let (_directory, server) = server();
+        log(&server, "2026-08-05", "09:00", "10:30", Some("timemd"));
+
+        let day = server
+            .day(Parameters(DateParams {
+                date: Some("2026-08-05".to_owned()),
+            }))
+            .expect("reads");
+
+        assert_eq!(day.0.tracked, "1h30m");
+        assert_eq!(day.0.sessions.len(), 1);
+        assert_eq!(day.0.sessions[0].project.as_deref(), Some("timemd"));
+        assert_eq!(day.0.sessions[0].start, "09:00");
+    }
+
+    #[test]
+    fn a_day_reports_lines_it_could_not_read() {
+        let (directory, server) = server();
+        let path = directory.path().join("days/2026/2026-08-05.md");
+        std::fs::create_dir_all(path.parent().expect("has a parent")).expect("creates dir");
+        std::fs::write(
+            &path,
+            "---\ndate: 2026-08-05\n---\n\n## Sessions\n\n- nonsense\n",
+        )
+        .expect("writes");
+
+        let day = server
+            .day(Parameters(DateParams {
+                date: Some("2026-08-05".to_owned()),
+            }))
+            .expect("reads");
+        assert_eq!(day.0.problems.len(), 1);
+    }
+
+    #[test]
+    fn projects_are_created_then_updated_field_by_field() {
+        let (_directory, server) = server();
+
+        let created = server
+            .upsert_project(Parameters(UpsertProjectParams {
+                slug: "timemd".to_owned(),
+                name: Some("timemd".to_owned()),
+                color: Some("#4f46e5".to_owned()),
+                status: None,
+            }))
+            .expect("creates");
+        assert_eq!(created.0.status, "active");
+        assert_eq!(created.0.color.as_deref(), Some("#4f46e5"));
+
+        let updated = server
+            .upsert_project(Parameters(UpsertProjectParams {
+                slug: "timemd".to_owned(),
+                status: Some("archived".to_owned()),
+                ..UpsertProjectParams::default()
+            }))
+            .expect("updates");
+        assert_eq!(updated.0.status, "archived");
+        assert_eq!(
+            updated.0.name, "timemd",
+            "an omitted field must not be cleared"
+        );
+        assert_eq!(updated.0.color.as_deref(), Some("#4f46e5"));
+
+        assert_eq!(
+            server
+                .list_projects(Parameters(NoParams {}))
+                .expect("lists")
+                .0
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn reports_group_by_project_and_by_day() {
+        let (_directory, server) = server();
+        log(&server, "2026-08-05", "09:00", "11:00", Some("timemd"));
+        log(&server, "2026-08-06", "09:00", "09:30", Some("admin"));
+
+        let by_project = server
+            .report(Parameters(ReportParams {
+                from: "2026-08-01".to_owned(),
+                to: "2026-08-31".to_owned(),
+                group_by: None,
+            }))
+            .expect("reads");
+        assert_eq!(by_project.0.total, "2h30m");
+        assert_eq!(by_project.0.group_by, "project");
+        assert_eq!(by_project.0.buckets[0].key.as_deref(), Some("timemd"));
+
+        let by_day = server
+            .report(Parameters(ReportParams {
+                from: "2026-08-01".to_owned(),
+                to: "2026-08-31".to_owned(),
+                group_by: Some("day".to_owned()),
+            }))
+            .expect("reads");
+        assert_eq!(by_day.0.buckets[0].key.as_deref(), Some("2026-08-05"));
+    }
+
+    #[test]
+    fn the_schedule_expands_over_a_range() {
+        let (_directory, server) = server();
+        server
+            .store
+            .update_recurring(|recurring| {
+                recurring.upsert(timemd_core::RecurringBlock {
+                    id: timemd_core::BlockId::new("deep-work").expect("valid id"),
+                    days: timemd_core::DaySet::ALL,
+                    start: NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"),
+                    end: NaiveTime::from_hms_opt(11, 0, 0).expect("valid time"),
+                    project: None,
+                    title: "Deep work".to_owned(),
+                    remind_before: None,
+                });
+            })
+            .expect("writes");
+
+        let blocks = server
+            .schedule(Parameters(RangeParams {
+                from: "2026-08-05".to_owned(),
+                to: "2026-08-07".to_owned(),
+            }))
+            .expect("reads");
+
+        assert_eq!(blocks.0.len(), 3);
+        assert_eq!(blocks.0[0].duration, "2h");
+        assert_eq!(blocks.0[0].block.as_deref(), Some("deep-work"));
+    }
+
+    #[test]
+    fn malformed_input_is_rejected_rather_than_written() {
+        let (_directory, server) = server();
+
+        assert!(
+            server
+                .start_session(Parameters(StartParams {
+                    project: Some("Not A Slug".to_owned()),
+                    ..StartParams::default()
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .start_session(Parameters(StartParams {
+                    duration: Some("ages".to_owned()),
+                    ..StartParams::default()
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .day(Parameters(DateParams {
+                    date: Some("yesterday".to_owned())
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .log_time(Parameters(LogParams {
+                    start: "9am".to_owned(),
+                    end: "10:00".to_owned(),
+                    ..LogParams::default()
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .upsert_project(Parameters(UpsertProjectParams {
+                    slug: "timemd".to_owned(),
+                    color: Some("blurple".to_owned()),
+                    ..UpsertProjectParams::default()
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .upsert_project(Parameters(UpsertProjectParams {
+                    slug: "timemd".to_owned(),
+                    status: Some("hibernating".to_owned()),
+                    ..UpsertProjectParams::default()
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .report(Parameters(ReportParams {
+                    from: "2026-08-01".to_owned(),
+                    to: "2026-08-31".to_owned(),
+                    group_by: Some("colour".to_owned()),
+                }))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_backwards_or_oversized_range_is_rejected() {
+        assert!(range("2026-08-31", "2026-08-01").is_err());
+        assert!(range("2020-01-01", "2026-08-01").is_err());
+        assert!(range("2026-08-01", "2026-08-31").is_ok());
+    }
+
+    #[test]
+    fn a_time_may_carry_seconds_or_not() {
+        let nine = NaiveTime::from_hms_opt(9, 0, 0).expect("valid time");
+        assert_eq!(time("09:00").expect("parses"), nine);
+        assert_eq!(time("09:00:00").expect("parses"), nine);
+        assert!(time("9am").is_err());
+    }
+
+    #[test]
+    fn omitted_dates_fall_back_to_today() {
+        let (_directory, server) = server();
+        let today = server.now().expect("reads").date().to_string();
+
+        let day = server
+            .day(Parameters(DateParams { date: None }))
+            .expect("reads");
+        assert_eq!(day.0.date, today);
+
+        server
+            .log_time(Parameters(LogParams {
+                start: "09:00".to_owned(),
+                end: "09:30".to_owned(),
+                ..LogParams::default()
+            }))
+            .expect("logs");
+        assert_eq!(
+            server
+                .day(Parameters(DateParams { date: None }))
+                .expect("reads")
+                .0
+                .tracked,
+            "30m"
+        );
+    }
+}

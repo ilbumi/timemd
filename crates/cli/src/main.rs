@@ -15,7 +15,10 @@ use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // stderr, always: `timemd mcp` speaks JSON-RPC on stdout, and a stray log
+    // line there corrupts the stream for every client.
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("TIMEMD_LOG")
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
@@ -44,6 +47,12 @@ async fn run(cli: Cli) -> Result<(), String> {
 
             let state = AppState::new(store, Clock::System);
             timemd_server::serve(listener, state)
+                .await
+                .map_err(|error| error.to_string())
+        }
+        Command::Mcp => {
+            // The protocol owns stdout, so nothing else may write to it.
+            timemd_mcp::serve(store)
                 .await
                 .map_err(|error| error.to_string())
         }
