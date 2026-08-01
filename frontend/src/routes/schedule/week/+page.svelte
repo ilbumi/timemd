@@ -278,4 +278,50 @@
 		color: var(--paper);
 		font-weight: 600;
 	}
+
+	/* ---- wide ------------------------------------------------------------ */
+
+	@media (min-width: 900px) {
+		/* The raster is the one thing here that is better the bigger it is. */
+		.raster {
+			min-height: 460px;
+		}
+
+		.columns {
+			gap: 6px;
+		}
+
+		.letter {
+			height: 28px;
+			font-size: 0.8125rem;
+		}
+
+		.foot {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: var(--pad);
+		}
+
+		.key {
+			margin: 0;
+		}
+
+		.foot > .actions {
+			flex: none;
+			min-width: 320px;
+		}
+	}
+
+	@media (hover: hover) {
+		.button:hover {
+			background: var(--ink);
+			color: var(--paper);
+		}
+
+		.chip:hover {
+			outline: var(--rule) solid var(--ink);
+			outline-offset: -2px;
+		}
+	}
 </style>

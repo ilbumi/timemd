@@ -187,12 +187,14 @@
 							style:top="{place.top}%"
 							style:height="{place.height}%"
 							style:background={look.color}
-							style:color={contrastInk(look.color)}
+							style:color={done ? 'var(--ink)' : contrastInk(look.color)}
 							onclick={() => startBlock(block)}
 						>
-							<span class="block-title">{block.title || look.name}</span>
-							<span class="block-when">
-								{clockTime(block.start)}–{clockTime(block.end)}{done ? ' · done' : ''}
+							<span class="block-text">
+								<span class="block-title">{block.title || look.name}</span>
+								<span class="block-when">
+									{clockTime(block.start)}–{clockTime(block.end)}{done ? ' · done' : ''}
+								</span>
 							</span>
 						</button>
 					{/each}
@@ -280,7 +282,7 @@
 
 	.timeline {
 		display: flex;
-		height: 320px;
+		height: clamp(320px, 46vh, 620px);
 		padding: 14px var(--pad) 0;
 	}
 
@@ -308,10 +310,7 @@
 		position: absolute;
 		left: 0;
 		right: 0;
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		gap: 3px;
+		display: block;
 		min-height: 0;
 		padding: 6px 11px;
 		overflow: hidden;
@@ -321,8 +320,21 @@
 		letter-spacing: 0;
 	}
 
+	/*
+	 * The text is its own column rather than the button being one: Chrome centres
+	 * a button's contents itself, so a block shorter than two lines clipped the
+	 * title and kept the time — the wrong way round.
+	 */
+	.block-text {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+	}
+
+	/* A finished block is drawn faded, which is why its text goes back to ink:
+	   paper on a 35%-opacity fill is unreadable. */
 	.block.done {
-		opacity: 0.35;
+		opacity: 0.4;
 		border-style: none;
 	}
 
@@ -427,5 +439,51 @@
 		justify-content: center;
 		gap: 9px;
 		letter-spacing: 0.12em;
+	}
+
+	/* ---- wide ------------------------------------------------------------ */
+
+	@media (min-width: 900px) {
+		/* Timeline beside its own list, rather than above it: the day is short
+		   enough that scrolling past the blocks to read them was the only reason
+		   they were stacked. */
+		.canvas {
+			display: grid;
+			grid-template-columns: 1fr 340px;
+			gap: 0 var(--pad);
+			align-content: start;
+		}
+
+		.canvas > :global(p) {
+			grid-column: 1 / -1;
+		}
+
+		.timeline {
+			height: clamp(360px, 58vh, 700px);
+			padding-right: 0;
+		}
+
+		.legend {
+			margin-top: 14px;
+			padding-left: 0;
+			padding-right: var(--pad);
+		}
+
+		.skipped,
+		.add {
+			grid-column: 1 / -1;
+		}
+
+		/* The bar keeps its full-width rule; only the buttons are capped. */
+		.foot > .actions {
+			max-width: 520px;
+		}
+	}
+
+	@media (hover: hover) {
+		.block:hover {
+			outline: var(--rule) solid var(--ink);
+			outline-offset: -2px;
+		}
 	}
 </style>

@@ -268,4 +268,18 @@
 	.bad {
 		color: var(--red);
 	}
+
+	/* ---- wide ------------------------------------------------------------ */
+
+	@media (min-width: 900px) {
+		/* The sidebar is the way back; a second link would be one too many. */
+		.back {
+			display: none;
+		}
+
+		.body {
+			max-width: 560px;
+			width: 100%;
+		}
+	}
 </style>

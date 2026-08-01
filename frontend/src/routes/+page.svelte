@@ -978,4 +978,69 @@
 		border-top: 10px solid transparent;
 		border-bottom: 10px solid transparent;
 	}
+
+	/* ---- wide ------------------------------------------------------------ */
+
+	@media (min-width: 900px) {
+		/* The sidebar carries it there; two entry points would be one too many. */
+		.settings {
+			display: none;
+		}
+
+		/* On a phone the start button is pushed to the thumb; on a desktop that
+		   just opens a void in the middle of the screen. */
+		.grid + .foot {
+			margin-top: var(--gap);
+		}
+
+		.foot {
+			max-width: 620px;
+		}
+
+		.dial {
+			width: 340px;
+		}
+
+		.ring {
+			width: 300px;
+		}
+
+		.middle {
+			gap: 36px;
+		}
+
+		/* A phone fits two tiles across; a desktop fits four, and the row of them
+		   reads as the shelf of projects the design draws. */
+		.grid {
+			grid-template-columns: repeat(4, 1fr);
+		}
+
+		.hero h1 {
+			font-size: 3.25rem;
+		}
+
+		.pitch h1 {
+			font-size: 3.5rem;
+		}
+
+		/* Nothing on the first-run screen wants the full measure. */
+		.welcome {
+			max-width: 560px;
+		}
+
+		.body {
+			max-width: 620px;
+		}
+	}
+
+	@media (hover: hover) {
+		.start:hover {
+			background: var(--ink);
+			color: var(--yellow);
+		}
+
+		.tile:not(.new):hover {
+			box-shadow: inset 0 0 0 4px currentColor;
+		}
+	}
 </style>

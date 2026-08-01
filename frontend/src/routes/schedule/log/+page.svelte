@@ -270,4 +270,22 @@
 	.foot {
 		border-top: var(--rule) solid var(--ink);
 	}
+
+	/* ---- wide ------------------------------------------------------------ */
+
+	@media (min-width: 900px) {
+		/* A note is prose; past about sixty characters a line stops being one.
+		   The day bands stay full width, because they are the rules that separate
+		   the days. */
+		/* Left-aligned rather than centred, so the day bands start on the same
+		   line as the header's rule and the button below them. */
+		.body {
+			max-width: 720px;
+			width: 100%;
+		}
+
+		.foot > .actions {
+			max-width: 320px;
+		}
+	}
 </style>

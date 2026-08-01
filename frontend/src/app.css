@@ -39,6 +39,20 @@
 	--gap: 16px;
 	--pad: 20px;
 
+	/*
+	 * Layout. The phone column is the design's own 360-wide frame, rounded up.
+	 * `--measure` is how wide the content is allowed to get once there is a
+	 * sidebar: past about 900px a column of rules and 14px text stops being
+	 * readable and starts being a banner.
+	 *
+	 * The breakpoint itself has to be written out in `@media` — custom
+	 * properties are not allowed there — so it lives in one comment instead:
+	 * 900px is where the sidebar replaces the bottom bar.
+	 */
+	--shell: 440px;
+	--measure: 900px;
+	--sidebar: 216px;
+
 	/* The design commits to paper. Telling the browser stops it rendering form
 	   controls for a dark theme the app does not have. */
 	color-scheme: light;
@@ -63,6 +77,19 @@ body {
 	line-height: 1.5;
 	/* Stops iOS from zooming when a form field takes focus. */
 	-webkit-text-size-adjust: 100%;
+}
+
+/* Off-screen but still announced: the tab bar is three shapes by design, and
+   the names have to exist somewhere. */
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 /* ---- type ---------------------------------------------------------------- */
@@ -341,4 +368,54 @@ a {
 code {
 	font-family: ui-monospace, Menlo, monospace;
 	font-size: 0.85em;
+}
+
+/* ---- wide ---------------------------------------------------------------- */
+
+/*
+ * Everything above is the phone. From here the same pieces get the room a
+ * desktop has: nothing is restyled, only re-proportioned.
+ */
+@media (min-width: 900px) {
+	:root {
+		--gap: 20px;
+		--pad: 28px;
+	}
+
+	h1 {
+		font-size: 2.25rem;
+	}
+
+	/* A pointer can hit a smaller target than a thumb, and can hover. */
+	button {
+		min-height: 38px;
+	}
+}
+
+/*
+ * The design has no hover vocabulary — it was drawn for a phone. Rather than
+ * invent one for every control, only the buttons that already carry a fill get
+ * a state, and it is a fill swap rather than a tint. Buttons that strip their
+ * border for a cluster (a stepper, a milestone row) are left alone on purpose:
+ * inverting one draws a black box where there was no box.
+ */
+@media (hover: hover) {
+	button.primary:not(:disabled):hover {
+		background: var(--red);
+	}
+
+	button.accent:not(:disabled):hover {
+		background: var(--ink);
+		color: var(--yellow);
+	}
+
+	button.danger:not(:disabled):hover {
+		border-color: var(--red);
+		background: var(--red);
+		color: var(--paper);
+	}
+
+	button.quiet:not(:disabled):hover {
+		color: var(--red);
+	}
 }

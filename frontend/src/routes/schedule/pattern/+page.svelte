@@ -416,4 +416,24 @@
 		padding: 13px var(--pad) 16px;
 		border-top: var(--rule) solid var(--ink);
 	}
+
+	/* ---- wide ------------------------------------------------------------ */
+
+	@media (min-width: 900px) {
+		/* Each block is a form; the rule between two of them still spans. */
+		article > * {
+			max-width: 620px;
+			width: 100%;
+		}
+
+		/* Seven squares across 620px would be 80px each — bigger than they need
+		   to be, and the row stops reading as a week. */
+		.day {
+			max-width: 64px;
+		}
+
+		.foot > .actions {
+			max-width: 520px;
+		}
+	}
 </style>

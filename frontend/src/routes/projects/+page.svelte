@@ -279,4 +279,48 @@
 		text-transform: uppercase;
 		text-decoration: none;
 	}
+
+	/* ---- wide ------------------------------------------------------------ */
+
+	@media (min-width: 900px) {
+		/*
+		 * Still one column of full-bleed rows — the row is the design's unit and
+		 * two abreast breaks the banding the archived section depends on. What
+		 * changes is that the row now has room to breathe.
+		 */
+		.detail {
+			padding: 18px var(--pad);
+		}
+
+		.swatch {
+			width: 76px;
+		}
+
+		/* Same reason as the timer's start button: nothing needs pinning to the
+		   bottom of a tall screen. */
+		.list {
+			flex: none;
+		}
+
+		/* A target bar nine hundred pixels long stops reading as a quantity. */
+		.detail {
+			max-width: 620px;
+		}
+
+		/* The one action does not need nine hundred pixels of yellow. */
+		.new {
+			max-width: 320px;
+		}
+	}
+
+	@media (hover: hover) {
+		.row:hover {
+			background: var(--paper-sunk);
+		}
+
+		.new:hover {
+			background: var(--ink);
+			color: var(--yellow);
+		}
+	}
 </style>

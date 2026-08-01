@@ -45,6 +45,11 @@ read at a glance, and the tab bar is those same shapes:
 Settings hangs off the timer's header. Nothing is fetched at runtime — the font
 is bundled — so the installed app works with no signal.
 
+It is phone-first but not phone-only: from 900px the tab bar becomes a sidebar
+and the screens use the width — the project detail puts its identity panel beside
+the milestones, the day timeline sits next to its block list, and the week raster
+simply gets bigger. Same rules, same palette, more room.
+
 ## Running it
 
 ```sh

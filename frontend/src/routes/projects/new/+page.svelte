@@ -245,4 +245,16 @@
 	.foot {
 		padding: 12px var(--pad) 16px;
 	}
+
+	/* ---- wide ------------------------------------------------------------ */
+
+	@media (min-width: 900px) {
+		/* A form does not get better by getting wider. The top bar keeps its rule
+		   across the whole measure. */
+		.body,
+		.foot {
+			max-width: 560px;
+			width: 100%;
+		}
+	}
 </style>
