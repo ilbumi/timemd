@@ -21,6 +21,7 @@ timemd-mcp    .workspace = true
 timemd-server .workspace = true
 
 chrono .workspace = true
+chrono-tz .workspace = true
 clap   .workspace = true
 tokio  .workspace = true
 tracing.workspace = true

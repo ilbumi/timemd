@@ -42,6 +42,30 @@ impl StartRequest {
     }
 }
 
+/// What stopping the timer did.
+///
+/// "Nothing was running" and "ran, but rounded to zero minutes" are different
+/// events and read very differently to a user, so they are different variants
+/// rather than a shared `None`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Stopped {
+    /// Nothing was running.
+    Idle,
+    /// A block was running, but was too short to be worth a line in the log.
+    TooShort,
+    /// The session that was written.
+    Logged(Session),
+}
+
+impl Stopped {
+    pub fn session(&self) -> Option<&Session> {
+        match self {
+            Self::Logged(session) => Some(session),
+            Self::Idle | Self::TooShort => None,
+        }
+    }
+}
+
 /// What the timer looks like right now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimerState {
@@ -101,7 +125,7 @@ impl<'store> Timer<'store> {
     }
 
     /// Stops early, logging the part that was actually worked.
-    pub fn stop(&self, now: NaiveDateTime) -> Result<Option<Session>> {
+    pub fn stop(&self, now: NaiveDateTime) -> Result<Stopped> {
         self.store.transaction(|tx| stop_within(tx, now))
     }
 
@@ -145,9 +169,9 @@ impl<'store> Timer<'store> {
 }
 
 /// Ends the running block at `now`, or at its planned end if that has passed.
-fn stop_within(tx: &Tx<'_>, now: NaiveDateTime) -> Result<Option<Session>> {
+fn stop_within(tx: &Tx<'_>, now: NaiveDateTime) -> Result<Stopped> {
     let Some(active) = tx.read_active()? else {
-        return Ok(None);
+        return Ok(Stopped::Idle);
     };
     // Stopping late must not inflate the log: a block whose time is already up
     // is worth its planned length, not however long it sat unattended.
@@ -156,7 +180,10 @@ fn stop_within(tx: &Tx<'_>, now: NaiveDateTime) -> Result<Option<Session>> {
     } else {
         now
     };
-    retire(tx, &active, ended)
+    Ok(match retire(tx, &active, ended)? {
+        Some(session) => Stopped::Logged(session),
+        None => Stopped::TooShort,
+    })
 }
 
 fn retire(tx: &Tx<'_>, active: &ActiveSession, ended: NaiveDateTime) -> Result<Option<Session>> {
@@ -253,7 +280,9 @@ mod tests {
             .start(moment(9, 0), StartRequest::focus(slug("timemd"), "partial"))
             .expect("starts");
 
-        let logged = timer.stop(moment(9, 10)).expect("stops").expect("logged");
+        let Stopped::Logged(logged) = timer.stop(moment(9, 10)).expect("stops") else {
+            panic!("expected a logged session");
+        };
 
         assert_eq!(logged.duration(), Minutes::new(10));
         assert_eq!(store.read_active().expect("reads"), None);
@@ -321,7 +350,9 @@ mod tests {
             .start(moment(9, 0), StartRequest::focus(None, ""))
             .expect("starts");
 
-        let logged = timer.stop(moment(15, 0)).expect("stops").expect("logged");
+        let Stopped::Logged(logged) = timer.stop(moment(15, 0)).expect("stops") else {
+            panic!("expected a logged session");
+        };
         assert_eq!(logged.duration(), Minutes::new(25));
     }
 
@@ -346,6 +377,23 @@ mod tests {
     }
 
     #[test]
+    fn the_stop_outcome_exposes_its_session() {
+        let (_directory, store) = store();
+        let timer = Timer::new(&store);
+        timer
+            .start(moment(9, 0), StartRequest::focus(None, "work"))
+            .expect("starts");
+
+        let outcome = timer.stop(moment(9, 10)).expect("stops");
+        assert_eq!(
+            outcome.session().map(Session::duration),
+            Some(Minutes::new(10))
+        );
+        assert_eq!(Stopped::Idle.session(), None);
+        assert_eq!(Stopped::TooShort.session(), None);
+    }
+
+    #[test]
     fn stopping_after_settling_does_not_log_a_second_time() {
         let (_directory, store) = store();
         let timer = Timer::new(&store);
@@ -354,7 +402,7 @@ mod tests {
             .expect("starts");
 
         timer.settle(moment(9, 25)).expect("settles");
-        assert_eq!(timer.stop(moment(9, 25)).expect("stops"), None);
+        assert_eq!(timer.stop(moment(9, 25)).expect("stops"), Stopped::Idle);
         assert_eq!(
             store
                 .read_day(moment(9, 0).date())
@@ -434,7 +482,7 @@ mod tests {
             .start(moment(9, 0), StartRequest::focus(None, ""))
             .expect("starts");
 
-        assert_eq!(timer.stop(moment(9, 0)).expect("stops"), None);
+        assert_eq!(timer.stop(moment(9, 0)).expect("stops"), Stopped::TooShort);
         assert!(
             store
                 .read_day(moment(9, 0).date())

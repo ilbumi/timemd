@@ -35,4 +35,4 @@ pub use report::{Bucket, GroupBy, Report};
 pub use schedule::{DayBlock, DaySet, Occurrence, Recurring, RecurringBlock, planned};
 pub use settings::Settings;
 pub use store::{Store, Tx};
-pub use timer::{StartRequest, Timer, TimerState};
+pub use timer::{StartRequest, Stopped, Timer, TimerState};

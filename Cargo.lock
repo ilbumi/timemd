@@ -1157,6 +1157,7 @@ name = "timemd"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "chrono-tz",
  "clap",
  "tempfile",
  "timemd-core",
