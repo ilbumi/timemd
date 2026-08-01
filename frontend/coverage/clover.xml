@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1785585570683" clover="3.2.0">
-  <project timestamp="1785585570683" name="All files">
-    <metrics statements="71" coveredstatements="71" conditionals="51" coveredconditionals="40" methods="40" coveredmethods="39" elements="162" coveredelements="150" complexity="0" loc="71" ncloc="71" packages="1" files="4" classes="4"/>
+<coverage generated="1785585622363" clover="3.2.0">
+  <project timestamp="1785585622363" name="All files">
+    <metrics statements="75" coveredstatements="75" conditionals="31" coveredconditionals="31" methods="42" coveredmethods="41" elements="148" coveredelements="147" complexity="0" loc="75" ncloc="75" packages="1" files="4" classes="4"/>
     <file name="api.ts" path="/Users/ilbumi/Documents/projects/timemd/frontend/src/lib/api.ts">
       <metrics statements="35" coveredstatements="35" conditionals="10" coveredconditionals="10" methods="24" coveredmethods="23"/>
       <line num="145" count="3" type="stmt"/>
@@ -58,28 +58,32 @@
       <line num="59" count="5" type="stmt"/>
     </file>
     <file name="dates.ts" path="/Users/ilbumi/Documents/projects/timemd/frontend/src/lib/dates.ts">
-      <metrics statements="21" coveredstatements="21" conditionals="29" coveredconditionals="18" methods="8" coveredmethods="8"/>
-      <line num="5" count="22" type="stmt"/>
-      <line num="6" count="22" type="stmt"/>
-      <line num="7" count="22" type="stmt"/>
-      <line num="8" count="22" type="stmt"/>
-      <line num="12" count="2" type="stmt"/>
-      <line num="17" count="15" type="stmt"/>
-      <line num="18" count="15" type="cond" truecount="3" falsecount="3"/>
-      <line num="19" count="15" type="stmt"/>
-      <line num="24" count="2" type="stmt"/>
-      <line num="29" count="5" type="cond" truecount="2" falsecount="0"/>
-      <line num="30" count="3" type="cond" truecount="2" falsecount="0"/>
-      <line num="31" count="2" type="cond" truecount="2" falsecount="0"/>
-      <line num="33" count="1" type="stmt"/>
-      <line num="34" count="1" type="cond" truecount="3" falsecount="3"/>
-      <line num="43" count="3" type="stmt"/>
-      <line num="44" count="3" type="cond" truecount="3" falsecount="3"/>
-      <line num="46" count="3" type="stmt"/>
-      <line num="47" count="3" type="stmt"/>
-      <line num="52" count="1" type="stmt"/>
-      <line num="57" count="3" type="stmt"/>
-      <line num="59" count="3" type="cond" truecount="2" falsecount="2"/>
+      <metrics statements="25" coveredstatements="25" conditionals="9" coveredconditionals="9" methods="10" coveredmethods="10"/>
+      <line num="3" count="1" type="stmt"/>
+      <line num="12" count="30" type="stmt"/>
+      <line num="13" count="30" type="cond" truecount="2" falsecount="0"/>
+      <line num="14" count="4" type="stmt"/>
+      <line num="16" count="26" type="stmt"/>
+      <line num="21" count="26" type="stmt"/>
+      <line num="22" count="26" type="stmt"/>
+      <line num="23" count="26" type="stmt"/>
+      <line num="24" count="26" type="stmt"/>
+      <line num="28" count="2" type="stmt"/>
+      <line num="33" count="19" type="stmt"/>
+      <line num="34" count="19" type="stmt"/>
+      <line num="35" count="19" type="stmt"/>
+      <line num="40" count="2" type="stmt"/>
+      <line num="45" count="5" type="cond" truecount="2" falsecount="0"/>
+      <line num="46" count="3" type="cond" truecount="2" falsecount="0"/>
+      <line num="47" count="2" type="cond" truecount="2" falsecount="0"/>
+      <line num="49" count="1" type="stmt"/>
+      <line num="59" count="3" type="stmt"/>
+      <line num="60" count="3" type="stmt"/>
+      <line num="65" count="1" type="stmt"/>
+      <line num="70" count="3" type="stmt"/>
+      <line num="72" count="3" type="stmt"/>
+      <line num="77" count="4" type="stmt"/>
+      <line num="78" count="4" type="stmt"/>
     </file>
     <file name="planned.ts" path="/Users/ilbumi/Documents/projects/timemd/frontend/src/lib/planned.ts">
       <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>

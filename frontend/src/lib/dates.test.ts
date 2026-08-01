@@ -6,6 +6,7 @@ import {
 	isoDate,
 	shiftDays,
 	startOfMonth,
+	shiftMonths,
 	startOfWeek,
 	today
 } from './dates';
@@ -86,5 +87,25 @@ describe('week and month boundaries', () => {
 		expect(endOfMonth('2026-08-05')).toBe('2026-08-31');
 		expect(endOfMonth('2026-02-10')).toBe('2026-02-28');
 		expect(endOfMonth('2028-02-10')).toBe('2028-02-29');
+	});
+});
+
+describe('parsing guard', () => {
+	it('rejects anything that is not YYYY-MM-DD', () => {
+		for (const bad of ['2026-8-1', 'yesterday', '', '2026/08/01']) {
+			expect(() => shiftDays(bad, 1)).toThrow(RangeError);
+		}
+	});
+});
+
+describe('shiftMonths', () => {
+	it('lands on the first of the target month', () => {
+		expect(shiftMonths('2026-08-15', 1)).toBe('2026-09-01');
+		expect(shiftMonths('2026-08-15', -1)).toBe('2026-07-01');
+	});
+
+	it('crosses years', () => {
+		expect(shiftMonths('2026-12-31', 1)).toBe('2027-01-01');
+		expect(shiftMonths('2026-01-01', -1)).toBe('2025-12-01');
 	});
 });

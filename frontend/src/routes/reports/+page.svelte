@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { ApiError, api, type GroupBy, type Report } from '$lib/api';
-	import { dayLabel, endOfMonth, shiftDays, startOfMonth, startOfWeek, today } from '$lib/dates';
+	import {
+		dayLabel,
+		endOfMonth,
+		shiftDays,
+		shiftMonths,
+		startOfMonth,
+		startOfWeek,
+		today
+	} from '$lib/dates';
 
 	type Span = 'week' | 'month';
 
@@ -26,14 +34,8 @@
 	}
 
 	const move = (steps: number): void => {
-		anchor = span === 'week' ? shiftDays(anchor, steps * 7) : shiftMonth(anchor, steps);
+		anchor = span === 'week' ? shiftDays(anchor, steps * 7) : shiftMonths(anchor, steps);
 	};
-
-	function shiftMonth(iso: string, steps: number): string {
-		const [year, month] = iso.split('-').map(Number);
-		const shifted = new Date(year ?? 1970, (month ?? 1) - 1 + steps, 1);
-		return `${shifted.getFullYear()}-${`${shifted.getMonth() + 1}`.padStart(2, '0')}-01`;
-	}
 
 	$effect(() => {
 		// Re-runs whenever the range or grouping changes.
