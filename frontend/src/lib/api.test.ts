@@ -127,3 +127,80 @@ describe('timer', () => {
 		expect(calls.every((call) => call.init.body === '{}')).toBe(true);
 	});
 });
+
+describe('days and schedule', () => {
+	const day = {
+		date: '2026-08-05',
+		sessions: [],
+		tracked: '0m',
+		planned: [],
+		skipped: [],
+		problems: []
+	};
+
+	it('reads a day by date', async () => {
+		const calls = mockFetch(200, day);
+		const result = await api.readDay('2026-08-05');
+
+		expect(result.date).toBe('2026-08-05');
+		expect(calls[0]?.url).toBe('/api/days/2026-08-05');
+	});
+
+	it('adds, edits and deletes sessions', async () => {
+		const calls = mockFetch(204, null);
+		await api.addSession('2026-08-05', { start: '09:00:00', end: '10:00:00', note: 'work' });
+		await api.updateSession('2026-08-05', 1, { start: '09:00:00', end: '09:30:00' });
+		await api.deleteSession('2026-08-05', 1);
+
+		expect(calls.map((call) => `${call.init.method} ${call.url}`)).toEqual([
+			'POST /api/days/2026-08-05/sessions',
+			'PATCH /api/days/2026-08-05/sessions/1',
+			'DELETE /api/days/2026-08-05/sessions/1'
+		]);
+	});
+
+	it('adds and deletes one-off blocks', async () => {
+		const calls = mockFetch(204, null);
+		await api.addBlock('2026-08-05', { start: '12:00:00', end: '12:30:00', title: 'Lunch' });
+		await api.deleteBlock('2026-08-05', 0);
+
+		expect(calls[0]?.init.body).toContain('"title":"Lunch"');
+		expect(calls[1]?.url).toBe('/api/days/2026-08-05/blocks/0');
+	});
+
+	it('skips and restores a repeating block', async () => {
+		const calls = mockFetch(204, null);
+		await api.skipBlock('2026-08-05', 'deep-work');
+		await api.unskipBlock('2026-08-05', 'deep-work');
+
+		expect(calls[0]?.init.body).toBe('{"id":"deep-work"}');
+		expect(calls[1]?.url).toBe('/api/days/2026-08-05/skips/deep-work');
+	});
+
+	it('reads an expanded range', async () => {
+		const calls = mockFetch(200, []);
+		await api.readSchedule('2026-08-01', '2026-08-07');
+
+		expect(calls[0]?.url).toBe('/api/schedule?from=2026-08-01&to=2026-08-07');
+	});
+
+	it('reads and replaces the repeating list', async () => {
+		const block = {
+			id: 'deep-work',
+			days: 'mon-fri',
+			start: '09:00:00',
+			end: '11:00:00',
+			project: null,
+			title: 'Deep work',
+			remindBefore: '5m'
+		};
+		const calls = mockFetch(200, [block]);
+
+		await api.readRecurring();
+		await api.writeRecurring([block]);
+
+		expect(calls[0]?.init.method).toBe('GET');
+		expect(calls[1]?.init.method).toBe('PUT');
+		expect(calls[1]?.init.body).toContain('"id":"deep-work"');
+	});
+});

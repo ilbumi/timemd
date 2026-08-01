@@ -10,6 +10,8 @@
 	 */
 	const tabs = [
 		{ href: '/', label: 'Timer', icon: 'M12 7v5l3 2' },
+		{ href: '/today', label: 'Today', icon: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4' },
+		{ href: '/schedule', label: 'Schedule', icon: 'M4 6h16M4 12h16M4 18h10M7 4v4M7 10v4M7 16v4' },
 		{ href: '/projects', label: 'Projects', icon: 'M3 8h18M3 8l2-3h5l2 3M3 8v9h18V8' }
 	];
 

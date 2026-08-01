@@ -1,32 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1785584696082" clover="3.2.0">
-  <project timestamp="1785584696082" name="All files">
-    <metrics statements="37" coveredstatements="37" conditionals="22" coveredconditionals="22" methods="18" coveredmethods="17" elements="77" coveredelements="76" complexity="0" loc="37" ncloc="37" packages="1" files="2" classes="2"/>
+<coverage generated="1785585256479" clover="3.2.0">
+  <project timestamp="1785585256479" name="All files">
+    <metrics statements="63" coveredstatements="63" conditionals="41" coveredconditionals="35" methods="36" coveredmethods="35" elements="140" coveredelements="133" complexity="0" loc="63" ncloc="63" packages="1" files="4" classes="4"/>
     <file name="api.ts" path="/Users/ilbumi/Documents/projects/timemd/frontend/src/lib/api.ts">
-      <metrics statements="23" coveredstatements="23" conditionals="10" coveredconditionals="10" methods="12" coveredmethods="11"/>
-      <line num="67" count="3" type="stmt"/>
-      <line num="68" count="3" type="stmt"/>
-      <line num="69" count="3" type="stmt"/>
-      <line num="79" count="12" type="stmt"/>
-      <line num="80" count="12" type="stmt"/>
-      <line num="88" count="1" type="stmt"/>
-      <line num="91" count="11" type="cond" truecount="2" falsecount="0"/>
-      <line num="92" count="1" type="stmt"/>
-      <line num="96" count="10" type="stmt"/>
-      <line num="98" count="10" type="cond" truecount="2" falsecount="0"/>
-      <line num="99" count="2" type="cond" truecount="2" falsecount="0"/>
-      <line num="100" count="2" type="stmt"/>
-      <line num="103" count="8" type="stmt"/>
-      <line num="106" count="1" type="stmt"/>
-      <line num="107" count="3" type="stmt"/>
-      <line num="110" count="2" type="stmt"/>
-      <line num="113" count="1" type="stmt"/>
-      <line num="116" count="1" type="stmt"/>
-      <line num="119" count="1" type="stmt"/>
-      <line num="121" count="1" type="stmt"/>
-      <line num="124" count="1" type="stmt"/>
-      <line num="126" count="1" type="stmt"/>
-      <line num="128" count="1" type="stmt"/>
+      <metrics statements="34" coveredstatements="34" conditionals="10" coveredconditionals="10" methods="23" coveredmethods="22"/>
+      <line num="128" count="3" type="stmt"/>
+      <line num="129" count="3" type="stmt"/>
+      <line num="130" count="3" type="stmt"/>
+      <line num="140" count="23" type="stmt"/>
+      <line num="141" count="23" type="stmt"/>
+      <line num="149" count="1" type="stmt"/>
+      <line num="152" count="22" type="cond" truecount="2" falsecount="0"/>
+      <line num="153" count="8" type="stmt"/>
+      <line num="157" count="14" type="stmt"/>
+      <line num="159" count="14" type="cond" truecount="2" falsecount="0"/>
+      <line num="160" count="2" type="cond" truecount="2" falsecount="0"/>
+      <line num="161" count="2" type="stmt"/>
+      <line num="164" count="12" type="stmt"/>
+      <line num="167" count="1" type="stmt"/>
+      <line num="168" count="3" type="stmt"/>
+      <line num="171" count="2" type="stmt"/>
+      <line num="174" count="1" type="stmt"/>
+      <line num="177" count="1" type="stmt"/>
+      <line num="180" count="1" type="stmt"/>
+      <line num="182" count="1" type="stmt"/>
+      <line num="185" count="1" type="stmt"/>
+      <line num="187" count="1" type="stmt"/>
+      <line num="189" count="1" type="stmt"/>
+      <line num="191" count="1" type="stmt"/>
+      <line num="194" count="1" type="stmt"/>
+      <line num="197" count="1" type="stmt"/>
+      <line num="200" count="1" type="stmt"/>
+      <line num="203" count="1" type="stmt"/>
+      <line num="206" count="1" type="stmt"/>
+      <line num="209" count="1" type="stmt"/>
+      <line num="212" count="1" type="stmt"/>
+      <line num="215" count="1" type="stmt"/>
+      <line num="217" count="1" type="stmt"/>
+      <line num="220" count="1" type="stmt"/>
     </file>
     <file name="countdown.ts" path="/Users/ilbumi/Documents/projects/timemd/frontend/src/lib/countdown.ts">
       <metrics statements="14" coveredstatements="14" conditionals="12" coveredconditionals="12" methods="6" coveredmethods="6"/>
@@ -44,6 +55,27 @@
       <line num="53" count="8" type="cond" truecount="2" falsecount="0"/>
       <line num="58" count="6" type="cond" truecount="2" falsecount="0"/>
       <line num="59" count="5" type="stmt"/>
+    </file>
+    <file name="dates.ts" path="/Users/ilbumi/Documents/projects/timemd/frontend/src/lib/dates.ts">
+      <metrics statements="14" coveredstatements="14" conditionals="19" coveredconditionals="13" methods="5" coveredmethods="5"/>
+      <line num="5" count="16" type="stmt"/>
+      <line num="6" count="16" type="stmt"/>
+      <line num="7" count="16" type="stmt"/>
+      <line num="8" count="16" type="stmt"/>
+      <line num="12" count="2" type="stmt"/>
+      <line num="17" count="12" type="stmt"/>
+      <line num="18" count="12" type="cond" truecount="3" falsecount="3"/>
+      <line num="19" count="12" type="stmt"/>
+      <line num="24" count="2" type="stmt"/>
+      <line num="29" count="5" type="cond" truecount="2" falsecount="0"/>
+      <line num="30" count="3" type="cond" truecount="2" falsecount="0"/>
+      <line num="31" count="2" type="cond" truecount="2" falsecount="0"/>
+      <line num="33" count="1" type="stmt"/>
+      <line num="34" count="1" type="cond" truecount="3" falsecount="3"/>
+    </file>
+    <file name="planned.ts" path="/Users/ilbumi/Documents/projects/timemd/frontend/src/lib/planned.ts">
+      <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="2" coveredmethods="2"/>
+      <line num="11" count="5" type="stmt"/>
     </file>
   </project>
 </coverage>

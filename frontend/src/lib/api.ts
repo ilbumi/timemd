@@ -53,6 +53,67 @@ export interface StartSession {
 	duration?: string;
 }
 
+export interface Occurrence {
+	date: string;
+	start: string;
+	end: string;
+	duration: string;
+	project: string | null;
+	title: string;
+	remindBefore: string | null;
+	/** The repeating block this came from, or null for a one-off. */
+	block: string | null;
+}
+
+export interface LoggedSession {
+	index: number;
+	start: string;
+	end: string;
+	duration: string;
+	project: string | null;
+	note: string;
+}
+
+export interface DayView {
+	date: string;
+	sessions: LoggedSession[];
+	tracked: string;
+	planned: Occurrence[];
+	skipped: string[];
+	problems: string[];
+}
+
+/**
+ * Declared as a type alias rather than an interface so it is assignable to
+ * `JsonValue` when sent as a request body: TypeScript gives object type aliases
+ * an implicit index signature, and interfaces none. That keeps `writeRecurring`
+ * honest instead of casting through `unknown`.
+ */
+export type RecurringBlock = {
+	id: string;
+	days: string;
+	start: string;
+	end: string;
+	project: string | null;
+	title: string;
+	remindBefore: string | null;
+};
+
+export interface SessionEdit {
+	start: string;
+	end: string;
+	project?: string | null;
+	note?: string;
+}
+
+export interface BlockEdit {
+	start: string;
+	end: string;
+	project?: string | null;
+	title?: string;
+	remindBefore?: string | null;
+}
+
 export interface ProjectPatch {
 	name?: string;
 	color?: string | null;
@@ -125,5 +186,36 @@ export const api = {
 
 	stopSession: (): Promise<TimerState> => request('POST', '/api/timer/stop', {}),
 
-	cancelSession: (): Promise<TimerState> => request('POST', '/api/timer/cancel', {})
+	cancelSession: (): Promise<TimerState> => request('POST', '/api/timer/cancel', {}),
+
+	readDay: (date: string): Promise<DayView> => request('GET', `/api/days/${date}`),
+
+	addSession: (date: string, session: SessionEdit): Promise<void> =>
+		request('POST', `/api/days/${date}/sessions`, { ...session }),
+
+	updateSession: (date: string, index: number, session: SessionEdit): Promise<void> =>
+		request('PATCH', `/api/days/${date}/sessions/${index}`, { ...session }),
+
+	deleteSession: (date: string, index: number): Promise<void> =>
+		request('DELETE', `/api/days/${date}/sessions/${index}`),
+
+	addBlock: (date: string, block: BlockEdit): Promise<void> =>
+		request('POST', `/api/days/${date}/blocks`, { ...block }),
+
+	deleteBlock: (date: string, index: number): Promise<void> =>
+		request('DELETE', `/api/days/${date}/blocks/${index}`),
+
+	skipBlock: (date: string, id: string): Promise<void> =>
+		request('POST', `/api/days/${date}/skips`, { id }),
+
+	unskipBlock: (date: string, id: string): Promise<void> =>
+		request('DELETE', `/api/days/${date}/skips/${encodeURIComponent(id)}`),
+
+	readSchedule: (from: string, to: string): Promise<Occurrence[]> =>
+		request('GET', `/api/schedule?from=${from}&to=${to}`),
+
+	readRecurring: (): Promise<RecurringBlock[]> => request('GET', '/api/schedule/recurring'),
+
+	writeRecurring: (blocks: RecurringBlock[]): Promise<RecurringBlock[]> =>
+		request('PUT', '/api/schedule/recurring', blocks)
 };
