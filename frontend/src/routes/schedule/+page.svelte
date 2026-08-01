@@ -286,7 +286,7 @@
 
 	.timeline {
 		display: flex;
-		height: clamp(320px, 46vh, 620px);
+		height: clamp(320px, 46dvh, 620px);
 		padding: 14px var(--pad) 0;
 	}
 
@@ -479,7 +479,7 @@
 
 	@media (min-width: 700px) {
 		.timeline {
-			height: clamp(360px, 52vh, 620px);
+			height: clamp(360px, 52dvh, 620px);
 		}
 
 		/* The bar keeps its full-width rule; only the buttons are capped. */
@@ -504,7 +504,7 @@
 		}
 
 		.timeline {
-			height: clamp(360px, 58vh, 700px);
+			height: clamp(360px, 58dvh, 700px);
 			padding-right: 0;
 		}
 
