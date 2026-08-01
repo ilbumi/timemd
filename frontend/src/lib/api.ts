@@ -131,6 +131,16 @@ export interface Report {
 	buckets: Bucket[];
 }
 
+export interface PushKey {
+	publicKey: string;
+}
+
+export interface PushSubscriptionInput {
+	endpoint: string;
+	p256dh: string;
+	auth: string;
+}
+
 export interface ProjectPatch {
 	name?: string;
 	color?: string | null;
@@ -237,5 +247,13 @@ export const api = {
 		request('PUT', '/api/schedule/recurring', blocks),
 
 	readReport: (from: string, to: string, groupBy: GroupBy): Promise<Report> =>
-		request('GET', `/api/reports?from=${from}&to=${to}&groupBy=${groupBy}`)
+		request('GET', `/api/reports?from=${from}&to=${to}&groupBy=${groupBy}`),
+
+	pushKey: (): Promise<PushKey> => request('GET', '/api/push/key'),
+
+	subscribePush: (subscription: PushSubscriptionInput): Promise<void> =>
+		request('POST', '/api/push/subscribe', { ...subscription }),
+
+	unsubscribePush: (endpoint: string): Promise<void> =>
+		request('DELETE', '/api/push/subscribe', { endpoint })
 };
