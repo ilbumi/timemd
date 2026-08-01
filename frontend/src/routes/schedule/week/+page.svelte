@@ -327,7 +327,7 @@
 		}
 	}
 
-	@media (min-width: 1000px) {
+	@container screen (min-width: 900px) {
 		.foot {
 			display: flex;
 			align-items: center;

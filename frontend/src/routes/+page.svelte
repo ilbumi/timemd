@@ -1006,9 +1006,16 @@
 			gap: 36px;
 		}
 
-		/* Nothing on the first-run screen wants the full measure. */
+		/* Nothing on the first-run screen wants the full measure. Its headline
+		   grows here rather than at the content breakpoint: the screen is a
+		   560px column on any desktop, so it never has two columns to ask
+		   about, and its size is the one decision this width already makes. */
 		.welcome {
 			max-width: 560px;
+		}
+
+		.pitch h1 {
+			font-size: 3.5rem;
 		}
 
 		/*
@@ -1022,7 +1029,7 @@
 		}
 	}
 
-	@media (min-width: 1000px) {
+	@container screen (min-width: 900px) {
 		.dial {
 			width: 340px;
 		}
@@ -1039,10 +1046,6 @@
 
 		.hero h1 {
 			font-size: 3.25rem;
-		}
-
-		.pitch h1 {
-			font-size: 3.5rem;
 		}
 	}
 

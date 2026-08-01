@@ -199,204 +199,209 @@
 {:else}
 	{@const current = project}
 	<section class="screen">
-		<header
-			class="head"
-			style:background={archived ? 'var(--paper-dim)' : color}
-			style:color={archived ? 'var(--ink)' : ink}
-		>
-			<div class="head-top">
-				<a href="/projects" aria-label="Back" style:color="inherit">←</a>
-				{#if archived}
-					<span class="chip">Archived</span>
-				{:else if editing}
-					<button class="quiet" style:color="inherit" onclick={saveEdits} disabled={busy}>
-						Save
-					</button>
-				{:else}
-					<button class="quiet" style:color="inherit" onclick={startEditing}>Edit</button>
-				{/if}
-			</div>
-
-			{#if editing}
-				<div class="edit">
-					<label class="label" for="edit-name" style:color="inherit">Name</label>
-					<input id="edit-name" type="text" bind:value={draftName} />
-
-					<span class="label" style:color="inherit">Mark</span>
-					<IdentityPicker bind:mark={draftMark} bind:color={draftColor} />
-
-					<label class="label" for="edit-target" style:color="inherit">
-						Weekly target — {draftTarget === 0 ? 'none' : formatHours(draftTarget)}
-					</label>
-					<input
-						id="edit-target"
-						type="range"
-						min="0"
-						max={MAX_TARGET}
-						step={TARGET_STEP}
-						bind:value={draftTarget}
-					/>
-				</div>
-			{:else}
-				<div class="title">
-					<Mark
-						mark={current.mark}
-						color={archived ? 'var(--ink)' : ink}
-						size={38}
-						outline={archived}
-					/>
-					<h1>{current.name}</h1>
-				</div>
-
-				{#if archived}
-					<div class="stats">
-						<div>
-							<strong class="numeric">{formatHours(logged.tracked)}</strong><span>Logged</span>
-						</div>
-						<div><strong class="numeric">{logged.sessions}</strong><span>Sessions</span></div>
-						<div>
-							<strong class="numeric">{doneCount}/{current.milestones.length}</strong>
-							<span>Milestones</span>
-						</div>
-					</div>
-				{:else if target > 0}
-					<p class="progress numeric">
-						{formatHours(tracked.tracked)}
-						<span>/ {formatHours(target)} this week</span>
-					</p>
-					<div class="target header-bar">
-						<span style:width="{fill}%" style:background="var(--yellow)"></span>
-					</div>
-				{/if}
-			{/if}
-		</header>
-
-		<div class="pane">
-			{#if error}
-				<p class="error" role="alert">{error}</p>
-			{/if}
-
-			{#if current.problems.length > 0}
-				<div class="problems" role="status">
-					<strong>{current.problems.length} line(s) in this file could not be read</strong>
-					<ul>
-						{#each current.problems as problem (problem)}
-							<li>{problem}</li>
-						{/each}
-					</ul>
-				</div>
-			{/if}
-
-			<div class="body">
-				<div class="section-head">
-					<span class="label"
-						>Milestones{archived &&
-						doneCount === current.milestones.length &&
-						current.milestones.length > 0
-							? ' — all done'
-							: ''}</span
-					>
-					<span class="meta">{doneCount} / {current.milestones.length}</span>
-				</div>
-
-				<ul class="milestones" class:readonly={archived}>
-					{#each current.milestones as milestone, position (position)}
-						<li>
-							{#if archived}
-								<Mark mark="triangle" color="var(--ink)" size={18} outline={!milestone.done} />
-								<span class:done={milestone.done}>{milestone.title}</span>
-							{:else}
-								<button
-									class="tick"
-									aria-pressed={milestone.done}
-									onclick={() => toggleMilestone(position)}
-									disabled={busy}
-								>
-									<Mark
-										mark="triangle"
-										color={milestone.done ? 'var(--red)' : 'var(--ink)'}
-										size={18}
-										outline={!milestone.done}
-									/>
-									<span class:done={milestone.done}>{milestone.title}</span>
-								</button>
-								<button
-									class="quiet"
-									aria-label="Remove {milestone.title}"
-									onclick={() => removeMilestone(position)}
-									disabled={busy}>×</button
-								>
-							{/if}
-						</li>
-					{/each}
-
-					{#if !archived}
-						<li class="adder">
-							<Mark mark="triangle" color="var(--ink-30)" size={16} outline />
-							<input
-								type="text"
-								placeholder="Add a milestone…"
-								aria-label="New milestone"
-								bind:value={newMilestone}
-								onkeydown={(event) => {
-									if (event.key === 'Enter') {
-										event.preventDefault();
-										void addMilestone();
-									}
-								}}
-							/>
-							<button
-								class="quiet"
-								onclick={addMilestone}
-								disabled={busy || newMilestone.trim() === ''}
-							>
-								Add
-							</button>
-						</li>
-					{/if}
-				</ul>
-
-				{#if archived}
-					<p class="empty">
-						No new sessions can be logged while archived. Restore to schedule it again.
-					</p>
-				{:else}
-					<div class="section-head bordered">
-						<span class="label">This week</span>
-						<span class="meta">{tracked.sessions} sessions</span>
-					</div>
-					{#if recent.length === 0}
-						<p class="empty">Nothing logged against this project this week.</p>
+		<!-- The header and everything else, wrapped so the wide layout has an
+		     element to turn into a row: `.screen` is the query container, and an
+		     element cannot query itself. -->
+		<div class="split">
+			<header
+				class="head"
+				style:background={archived ? 'var(--paper-dim)' : color}
+				style:color={archived ? 'var(--ink)' : ink}
+			>
+				<div class="head-top">
+					<a href="/projects" aria-label="Back" style:color="inherit">←</a>
+					{#if archived}
+						<span class="chip">Archived</span>
+					{:else if editing}
+						<button class="quiet" style:color="inherit" onclick={saveEdits} disabled={busy}>
+							Save
+						</button>
 					{:else}
-						<ul class="sessions">
-							{#each recent as entry (`${entry.date}-${entry.session.index}`)}
-								<li>
-									<span class="when">{dayLabel(entry.date)}</span>
-									<span class="what">{entry.session.note || clockTime(entry.session.start)}</span>
-									<span class="how-long numeric">{entry.session.duration}</span>
-								</li>
+						<button class="quiet" style:color="inherit" onclick={startEditing}>Edit</button>
+					{/if}
+				</div>
+
+				{#if editing}
+					<div class="edit">
+						<label class="label" for="edit-name" style:color="inherit">Name</label>
+						<input id="edit-name" type="text" bind:value={draftName} />
+
+						<span class="label" style:color="inherit">Mark</span>
+						<IdentityPicker bind:mark={draftMark} bind:color={draftColor} />
+
+						<label class="label" for="edit-target" style:color="inherit">
+							Weekly target — {draftTarget === 0 ? 'none' : formatHours(draftTarget)}
+						</label>
+						<input
+							id="edit-target"
+							type="range"
+							min="0"
+							max={MAX_TARGET}
+							step={TARGET_STEP}
+							bind:value={draftTarget}
+						/>
+					</div>
+				{:else}
+					<div class="title">
+						<Mark
+							mark={current.mark}
+							color={archived ? 'var(--ink)' : ink}
+							size={38}
+							outline={archived}
+						/>
+						<h1>{current.name}</h1>
+					</div>
+
+					{#if archived}
+						<div class="stats">
+							<div>
+								<strong class="numeric">{formatHours(logged.tracked)}</strong><span>Logged</span>
+							</div>
+							<div><strong class="numeric">{logged.sessions}</strong><span>Sessions</span></div>
+							<div>
+								<strong class="numeric">{doneCount}/{current.milestones.length}</strong>
+								<span>Milestones</span>
+							</div>
+						</div>
+					{:else if target > 0}
+						<p class="progress numeric">
+							{formatHours(tracked.tracked)}
+							<span>/ {formatHours(target)} this week</span>
+						</p>
+						<div class="target header-bar">
+							<span style:width="{fill}%" style:background="var(--yellow)"></span>
+						</div>
+					{/if}
+				{/if}
+			</header>
+
+			<div class="pane">
+				{#if error}
+					<p class="error" role="alert">{error}</p>
+				{/if}
+
+				{#if current.problems.length > 0}
+					<div class="problems" role="status">
+						<strong>{current.problems.length} line(s) in this file could not be read</strong>
+						<ul>
+							{#each current.problems as problem (problem)}
+								<li>{problem}</li>
 							{/each}
 						</ul>
-					{/if}
-				{/if}
-			</div>
-
-			<div class="foot">
-				{#if archived}
-					<button class="primary wide" onclick={() => setStatus('active')} disabled={busy}>
-						Restore project
-					</button>
-					<button class="danger wide" onclick={() => (confirming = true)} disabled={busy}>
-						Delete permanently
-					</button>
-				{:else}
-					<div class="actions">
-						<button onclick={() => setStatus('archived')} disabled={busy}>Archive</button>
-						<button class="primary grow" onclick={startSession} disabled={busy}
-							>Start session</button
-						>
 					</div>
 				{/if}
+
+				<div class="body">
+					<div class="section-head">
+						<span class="label"
+							>Milestones{archived &&
+							doneCount === current.milestones.length &&
+							current.milestones.length > 0
+								? ' — all done'
+								: ''}</span
+						>
+						<span class="meta">{doneCount} / {current.milestones.length}</span>
+					</div>
+
+					<ul class="milestones" class:readonly={archived}>
+						{#each current.milestones as milestone, position (position)}
+							<li>
+								{#if archived}
+									<Mark mark="triangle" color="var(--ink)" size={18} outline={!milestone.done} />
+									<span class:done={milestone.done}>{milestone.title}</span>
+								{:else}
+									<button
+										class="tick"
+										aria-pressed={milestone.done}
+										onclick={() => toggleMilestone(position)}
+										disabled={busy}
+									>
+										<Mark
+											mark="triangle"
+											color={milestone.done ? 'var(--red)' : 'var(--ink)'}
+											size={18}
+											outline={!milestone.done}
+										/>
+										<span class:done={milestone.done}>{milestone.title}</span>
+									</button>
+									<button
+										class="quiet"
+										aria-label="Remove {milestone.title}"
+										onclick={() => removeMilestone(position)}
+										disabled={busy}>×</button
+									>
+								{/if}
+							</li>
+						{/each}
+
+						{#if !archived}
+							<li class="adder">
+								<Mark mark="triangle" color="var(--ink-30)" size={16} outline />
+								<input
+									type="text"
+									placeholder="Add a milestone…"
+									aria-label="New milestone"
+									bind:value={newMilestone}
+									onkeydown={(event) => {
+										if (event.key === 'Enter') {
+											event.preventDefault();
+											void addMilestone();
+										}
+									}}
+								/>
+								<button
+									class="quiet"
+									onclick={addMilestone}
+									disabled={busy || newMilestone.trim() === ''}
+								>
+									Add
+								</button>
+							</li>
+						{/if}
+					</ul>
+
+					{#if archived}
+						<p class="empty">
+							No new sessions can be logged while archived. Restore to schedule it again.
+						</p>
+					{:else}
+						<div class="section-head bordered">
+							<span class="label">This week</span>
+							<span class="meta">{tracked.sessions} sessions</span>
+						</div>
+						{#if recent.length === 0}
+							<p class="empty">Nothing logged against this project this week.</p>
+						{:else}
+							<ul class="sessions">
+								{#each recent as entry (`${entry.date}-${entry.session.index}`)}
+									<li>
+										<span class="when">{dayLabel(entry.date)}</span>
+										<span class="what">{entry.session.note || clockTime(entry.session.start)}</span>
+										<span class="how-long numeric">{entry.session.duration}</span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					{/if}
+				</div>
+
+				<div class="foot">
+					{#if archived}
+						<button class="primary wide" onclick={() => setStatus('active')} disabled={busy}>
+							Restore project
+						</button>
+						<button class="danger wide" onclick={() => (confirming = true)} disabled={busy}>
+							Delete permanently
+						</button>
+					{:else}
+						<div class="actions">
+							<button onclick={() => setStatus('archived')} disabled={busy}>Archive</button>
+							<button class="primary grow" onclick={startSession} disabled={busy}
+								>Start session</button
+							>
+						</div>
+					{/if}
+				</div>
 			</div>
 		</div>
 	</section>
@@ -544,6 +549,15 @@
 
 	.edit .label {
 		margin-bottom: 0;
+	}
+
+	/* Carries the screen's whole column so the wide layout has something to turn
+	   into a row. `.screen` cannot do it itself: it is the query container, and
+	   an element cannot query its own container. */
+	.split {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
 	}
 
 	/* Wraps everything that is not the header, so the desktop grid has two
@@ -771,13 +785,13 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 1000px) {
+	@container screen (min-width: 900px) {
 		/*
 		 * The header stops being a banner and becomes a panel beside the lists:
 		 * the identity and the week's progress stay in view while you work down
 		 * the milestones, which is the whole point of having the width.
 		 */
-		.screen {
+		.split {
 			flex-direction: row;
 			align-items: stretch;
 		}

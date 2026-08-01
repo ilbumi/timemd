@@ -45,16 +45,27 @@
 	 * sidebar: past about 900px a column of rules and 14px text stops being
 	 * readable and starts being a banner.
 	 *
-	 * Breakpoints cannot use custom properties, so they are written out in every
-	 * `@media` and documented here instead. There are two, and they answer
-	 * different questions:
+	 * There are two breakpoints, and they answer different questions — which is
+	 * why only one of them is a `@media` query:
 	 *
 	 *   700px — is there room beside the content for a sidebar? A portrait
 	 *           tablet and a landscape phone both say yes, and both are worse
-	 *           off with a bar across the bottom.
-	 *   1000px — is there room for two columns *of content*? Only then does the
+	 *           off with a bar across the bottom. A question about the window,
+	 *           because the sidebar lives in the shell, above any screen.
+	 *   900px — is there room for two columns *of content*? Only then does the
 	 *           project detail put its panel beside the milestones and the day
-	 *           timeline sit next to its list.
+	 *           timeline sit next to its list. A question about the content
+	 *           column, so it is a `@container screen` query and 900px is
+	 *           `--measure` itself: the column at its full documented width.
+	 *
+	 * It used to be a 1000px `@media`, which measured the wrong thing. From
+	 * 700px the sidebar takes `--sidebar` off the window and `main` caps what is
+	 * left at `--measure`, so a 1000px window leaves a 784px column — and the
+	 * column can never reach 1000px at all, at any window size. Every screen
+	 * split its content at a width the design says is too narrow to split.
+	 *
+	 * Breakpoints cannot use custom properties, so both numbers are written out
+	 * at each site and documented here instead.
 	 */
 	--shell: 440px;
 	--measure: 900px;
@@ -163,12 +174,26 @@ h2 {
 	background: var(--ink-15);
 }
 
-/* Every screen is a column that fills the shell: content, then a footer that
-   sits at the bottom whether or not the content reaches it. */
+/*
+ * Every screen is a column that fills the shell: content, then a footer that
+ * sits at the bottom whether or not the content reaches it.
+ *
+ * It is also the query container for the second breakpoint, because "is there
+ * room for two columns of content" is a question about the content column and
+ * nothing else — see the note on `--measure` above. Named, so a route file
+ * asking `@container screen` says out loud what it is measuring.
+ *
+ * Not on `main`: `container-type` brings `contain: layout` with it, which would
+ * make its element the containing block for `position: fixed` descendants. The
+ * only one in the app is the delete sheet's backdrop, and it is a sibling of
+ * `.screen` rather than a child — so putting the container here leaves the
+ * modal covering the viewport, which is the whole of its job.
+ */
 .screen {
 	display: flex;
 	flex-direction: column;
 	min-height: 100%;
+	container: screen / inline-size;
 }
 
 /* Not `.screen > .foot`: the project detail wraps everything below its header

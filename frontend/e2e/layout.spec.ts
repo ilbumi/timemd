@@ -82,6 +82,20 @@ test.describe('adaptive behaviour', () => {
 		expect(await columnCount(page, '.canvas'), 'timeline at 1120px').toBe(2);
 	});
 
+	/**
+	 * The split is a question about the content column, not the window. The
+	 * sidebar takes 216px off the top, so the column reaches its 900px measure
+	 * at a 1116px window — and never reaches 1000px at any window size, which
+	 * is what the old `@media (min-width: 1000px)` was asking for.
+	 */
+	test('the split is decided by the content column, not the window', async ({ page }) => {
+		await open(page, '/schedule', 1100);
+		expect(await columnCount(page, '.canvas'), '884px of content is not two columns').toBe(1);
+
+		await open(page, '/schedule', 1120);
+		expect(await columnCount(page, '.canvas'), '904px of content is').toBe(2);
+	});
+
 	test('the project header becomes a side panel when wide', async ({ page }) => {
 		await open(page, '/projects/thesis', WIDTHS.sidebar);
 		let head = (await page.locator('.head').boundingBox())!;

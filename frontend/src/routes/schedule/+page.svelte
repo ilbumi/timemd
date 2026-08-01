@@ -490,7 +490,7 @@
 		}
 	}
 
-	@media (min-width: 1000px) {
+	@container screen (min-width: 900px) {
 		/* Timeline beside its own list, rather than above it: the day is short
 		   enough that scrolling past the blocks to read them was the only reason
 		   they were stacked. */
