@@ -29,7 +29,7 @@ function timerState(active: Record<string, unknown> | null, completedToday: numb
 	};
 }
 
-function running(kind: 'focus' | 'short_break') {
+function running(kind: 'focus' | 'short_break', remainingSeconds = 900) {
 	return {
 		kind,
 		project: kind === 'focus' ? 'thesis' : null,
@@ -38,7 +38,7 @@ function running(kind: 'focus' | 'short_break') {
 		endsAt: '2026-08-01T09:25:00',
 		duration: '25m',
 		durationSeconds: 1500,
-		remainingSeconds: 900
+		remainingSeconds
 	};
 }
 
@@ -77,9 +77,13 @@ for (const width of [WIDTHS.phone, WIDTHS.sidebar, WIDTHS.desktop]) {
 		// transition into one. The client shows it when a focus block that *was*
 		// running has gone, and `completedToday` has grown: read that way so the
 		// server's own tick counts, not only a stop the tab asked for.
+		//
+		// The block has a second left, so the countdown runs out and the screen
+		// re-asks the server by itself. Waiting for the 20s poll instead made
+		// this the slowest test in the suite by a factor of ten.
 		let completed = false;
 		await stubTimer(page, () =>
-			completed ? timerState(null, 4) : timerState(running('focus'), 3)
+			completed ? timerState(null, 4) : timerState(running('focus', 1), 3)
 		);
 		await page.goto('/');
 		await page.locator('.dial').waitFor({ state: 'visible' });
