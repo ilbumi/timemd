@@ -430,7 +430,6 @@
 	}
 
 	.foot {
-		padding: 13px var(--pad) 16px;
 		border-top: var(--rule) solid var(--ink);
 	}
 

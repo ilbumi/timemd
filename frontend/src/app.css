@@ -171,7 +171,12 @@ h2 {
 	min-height: 100%;
 }
 
-.screen > .foot {
+/* Not `.screen > .foot`: the project detail wraps everything below its header
+   in a `.pane` so the wide layout has two children to place, which put its
+   footer one level down and out of the child combinator's reach. It lost its
+   padding silently — the action bar's rule landed on the footer's own, drawing
+   4px where the sheet has only 2. A foot is a foot wherever it sits. */
+.foot {
 	padding: 13px var(--pad) 16px;
 }
 
