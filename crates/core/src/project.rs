@@ -161,11 +161,20 @@ pub struct Milestone {
 }
 
 impl Milestone {
-    pub fn new(done: bool, title: impl Into<String>) -> Self {
-        Self {
-            done,
-            title: title.into(),
+    /// The one way to build a milestone, and so the one place the write-side
+    /// rule lives: a title that is blank or spans lines could not be rendered
+    /// and read back, so it is refused rather than written.
+    pub fn new(done: bool, title: impl AsRef<str>) -> Result<Self, ParseErrorKind> {
+        let title = title.as_ref().trim();
+        if title.is_empty() || title.contains(['\n', '\r']) {
+            return Err(ParseErrorKind::MissingCheckbox {
+                found: title.to_owned(),
+            });
         }
+        Ok(Self {
+            done,
+            title: title.to_owned(),
+        })
     }
 
     /// Reads `[x] Title` or `[ ] Title`, the bullet already stripped.
@@ -180,16 +189,12 @@ impl Milestone {
             "[ ]" => false,
             _ => return Err(invalid()),
         };
-
-        let title = title.trim();
-        if title.is_empty() {
-            return Err(invalid());
-        }
-        Ok(Self::new(done, title))
+        Self::new(done, title).map_err(|_| invalid())
     }
 
     fn render(&self) -> String {
-        format!("- [{}] {}", if self.done { "x" } else { " " }, self.title)
+        let line = format!("- [{}] {}", if self.done { "x" } else { " " }, self.title);
+        line.trim_end().to_owned()
     }
 }
 
@@ -309,6 +314,10 @@ mod tests {
         NaiveDate::from_ymd_opt(2026, 8, 1).expect("valid date")
     }
 
+    fn milestone(done: bool, title: &str) -> Milestone {
+        Milestone::new(done, title).expect("valid milestone")
+    }
+
     const SAMPLE: &str = "---\nname: timemd\ncolor: '#4f46e5'\nmark: square\ntarget: 10h\nstatus: active\ncreated: 2026-08-01\n---\n\n# timemd\n\nFree-form project notes.\n\n## Milestones\n\n- [x] Ch. 1 — lit review\n- [ ] Ch. 4 — first draft\n";
 
     #[test]
@@ -329,8 +338,8 @@ mod tests {
         assert_eq!(
             project.milestones,
             vec![
-                Milestone::new(true, "Ch. 1 — lit review"),
-                Milestone::new(false, "Ch. 4 — first draft"),
+                milestone(true, "Ch. 1 — lit review"),
+                milestone(false, "Ch. 4 — first draft"),
             ]
         );
         assert!(project.problems().is_empty());
@@ -341,7 +350,7 @@ mod tests {
         let source = "---\nname: timemd\n---\n\n## Milestones\n\n- [x] done\n- forgot the box\n";
         let project = Project::parse(slug(), source).expect("parses");
 
-        assert_eq!(project.milestones, vec![Milestone::new(true, "done")]);
+        assert_eq!(project.milestones, vec![milestone(true, "done")]);
         assert_eq!(project.problems().len(), 1);
         assert!(
             project.render().contains("- forgot the box"),
@@ -353,7 +362,7 @@ mod tests {
     #[test]
     fn writing_milestones_leaves_the_prose_alone() {
         let mut project = Project::parse(slug(), SAMPLE).expect("parses");
-        project.milestones.push(Milestone::new(false, "Ch. 5"));
+        project.milestones.push(milestone(false, "Ch. 5"));
 
         let rendered = project.render();
         assert!(rendered.contains("- [ ] Ch. 5"), "{rendered}");
@@ -388,21 +397,34 @@ mod tests {
 
     #[test]
     fn milestones_round_trip_through_their_line() {
-        for milestone in [Milestone::new(true, "done"), Milestone::new(false, "todo")] {
-            let line = milestone.render();
+        for entry in [milestone(true, "done"), milestone(false, "todo")] {
+            let line = entry.render();
             let content = crate::grammar::list_item(&line).expect("is a list item");
-            assert_eq!(Milestone::parse(content), Ok(milestone));
+            assert_eq!(Milestone::parse(content), Ok(entry));
         }
     }
 
     #[test]
-    fn rejects_a_milestone_with_no_title() {
+    fn rejects_a_milestone_line_with_no_checkbox_or_no_title() {
         for candidate in ["[x]", "[ ]", "[x] ", "[y] mistyped", "no box at all"] {
             assert!(
                 Milestone::parse(candidate).is_err(),
                 "{candidate:?} should be rejected"
             );
         }
+    }
+
+    /// Writes are strict, and this is where that is enforced for milestones: a
+    /// title the reader could not get back must never reach a file.
+    #[test]
+    fn refuses_to_build_a_milestone_it_could_not_write() {
+        for candidate in ["", "   ", "two\nlines", "carriage\rreturn"] {
+            assert!(
+                Milestone::new(false, candidate).is_err(),
+                "{candidate:?} should be rejected"
+            );
+        }
+        assert_eq!(milestone(true, "  padded  ").title, "padded");
     }
 
     #[test]

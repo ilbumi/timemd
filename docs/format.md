@@ -53,6 +53,7 @@ Every structured line is a markdown list item built from the same pieces:
 | Project | `[[slug]]` | Slug is `[a-z0-9]` and dashes, no leading or trailing dash. |
 | Reminder | `!5m` | Lead time, at the end of the line. `!0m` disables. |
 | Block id | `` `deep-work` `` | Backtick-quoted. |
+| Checkbox | `[x]` or `[ ]` | Opens a milestone line. `[X]` is read, `[x]` written. |
 
 **One `##` section, one line grammar.** A parser never has to guess what a line
 inside a section is meant to be.
@@ -127,20 +128,39 @@ expanding into a list.
 
 ```markdown
 ---
-name: timemd
-color: '#4f46e5'
+name: Thesis
+color: '#245a8d'
+mark: square
+target: 10h
 status: active
 created: 2026-08-01
 ---
 
-# timemd
+# Thesis
 
 Free-form project notes.
+
+## Milestones
+
+- [x] Ch. 1 — lit review
+- [ ] Ch. 4 — first draft
 ```
 
 The filename stem is the canonical identity; `name` is only for display. `status`
 is `active` or `archived`. Any value that is missing or unreadable falls back to a
 default rather than failing the file.
+
+`mark` is the shape the project is drawn as — `square`, `circle`, `triangle`,
+`diamond` or `bar`, defaulting to `square`. It carries the project's identity
+alongside `color`, so two projects stay distinguishable at a glance and in
+greyscale. `target` is how many hours a week you mean to spend on it, in the usual
+duration form, and is absent when there is no target.
+
+`## Milestones` is a list section like `## Sessions`: one `- [x] Title` or
+`- [ ] Title` per line, in whatever order you keep them. A line the app cannot
+read is preserved and reported, as everywhere else. The app writes a title back
+exactly as given, so it must be non-empty and on one line — anything else is
+refused at the point of writing rather than silently mangled.
 
 ## Settings — `settings.md`
 

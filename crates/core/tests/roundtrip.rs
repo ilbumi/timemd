@@ -62,11 +62,11 @@ fn session() -> impl Strategy<Value = Session> {
 fn milestone() -> impl Strategy<Value = Milestone> {
     (
         any::<bool>(),
-        r"[a-zA-Z0-9 .,'—-]{1,40}"
-            .prop_map(|title| title.trim().to_owned())
-            .prop_filter("a milestone needs a title", |title| !title.is_empty()),
+        r"[a-zA-Z0-9 .,'—-]{1,40}".prop_filter("a milestone needs a title", |title| {
+            !title.trim().is_empty()
+        }),
     )
-        .prop_map(|(done, title)| Milestone::new(done, title))
+        .prop_map(|(done, title)| Milestone::new(done, title).expect("valid milestone"))
 }
 
 /// Lines a hand-edited file might realistically contain, valid or not.

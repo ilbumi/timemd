@@ -3,7 +3,7 @@
 //! Shared because the same four conversions were being written out per handler,
 //! and had already diverged over whether an empty string means "absent".
 
-use timemd_core::{BlockId, Color, Minutes, ProjectSlug};
+use timemd_core::{BlockId, Color, Mark, Minutes, ProjectSlug};
 
 use crate::error::{ApiError, ApiResult};
 
@@ -26,6 +26,14 @@ pub fn optional_minutes(raw: Option<String>) -> ApiResult<Option<Minutes>> {
 pub fn optional_color(raw: Option<String>) -> ApiResult<Option<Color>> {
     present(raw)
         .map(|value| Color::new(value).map_err(bad_request))
+        .transpose()
+}
+
+/// Core rejects an unknown mark with `Error::Invalid`, which `ApiError` already
+/// maps to a 400 — so the message and the status stay in one place.
+pub fn optional_mark(raw: Option<String>) -> ApiResult<Option<Mark>> {
+    present(raw)
+        .map(|value| value.parse::<Mark>().map_err(ApiError::from))
         .transpose()
 }
 

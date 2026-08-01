@@ -19,8 +19,8 @@ use timemd_core::day::Session;
 use timemd_core::report::{self, GroupBy};
 use timemd_core::schedule::{planned, planned_range};
 use timemd_core::{
-    Color, DateRange, Minutes, Project, ProjectSlug, ProjectStatus, StartRequest, Stopped, Store,
-    Timer,
+    Color, DateRange, Mark, Milestone, Minutes, Project, ProjectSlug, ProjectStatus, StartRequest,
+    Stopped, Store, Timer,
 };
 
 /// The MCP server. One store, no other state.
@@ -83,8 +83,21 @@ pub struct UpsertProjectParams {
     pub name: Option<String>,
     /// `#rrggbb`.
     pub color: Option<String>,
+    /// `square`, `circle`, `triangle`, `diamond` or `bar` — the shape the
+    /// project is drawn as.
+    pub mark: Option<String>,
+    /// Hours to spend on this each week, as `10h` or `1h30m`.
+    pub target: Option<String>,
     /// `active` or `archived`.
     pub status: Option<String>,
+    /// Replaces the whole list when given. Omit to leave it alone.
+    pub milestones: Option<Vec<MilestoneParam>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MilestoneParam {
+    pub done: bool,
+    pub title: String,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -145,7 +158,16 @@ pub struct ProjectSummary {
     pub slug: String,
     pub name: String,
     pub color: Option<String>,
+    pub mark: String,
+    pub target: Option<String>,
     pub status: String,
+    pub milestones: Vec<MilestoneSummary>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct MilestoneSummary {
+    pub done: bool,
+    pub title: String,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -367,10 +389,28 @@ impl TimeMd {
     ) -> Result<Json<ProjectSummary>, ErrorData> {
         let slug = slug(&params.slug)?;
         let color = params.color.as_deref().map(colour).transpose()?;
+        let mark = params
+            .mark
+            .as_deref()
+            .map(|raw| raw.parse::<Mark>().map_err(failed))
+            .transpose()?;
+        let target = params.target.as_deref().map(minutes).transpose()?;
         let status = params
             .status
             .as_deref()
             .map(|raw| raw.parse::<ProjectStatus>().map_err(failed))
+            .transpose()?;
+        let milestones = params
+            .milestones
+            .map(|entries| {
+                entries
+                    .into_iter()
+                    .map(|entry| {
+                        Milestone::new(entry.done, entry.title)
+                            .map_err(|error| invalid(error.to_string()))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
             .transpose()?;
         let today = self.now()?.date();
 
@@ -394,8 +434,17 @@ impl TimeMd {
                 if color.is_some() {
                     project.color = color;
                 }
+                if let Some(mark) = mark {
+                    project.mark = mark;
+                }
+                if target.is_some() {
+                    project.target = target;
+                }
                 if let Some(status) = status {
                     project.status = status;
+                }
+                if let Some(milestones) = milestones {
+                    project.milestones = milestones;
                 }
 
                 tx.write_project(&project)?;
@@ -418,7 +467,8 @@ impl TimeMd {
 /// agent that knows the files exist can do things no tool exposes.
 const INSTRUCTIONS: &str = "\
 timemd tracks time in markdown files. Every tool here reads and writes that same
-tree, and so can you: projects live in `projects/<slug>.md`, tracked time in
+tree, and so can you: projects live in `projects/<slug>.md` (frontmatter plus a
+`## Milestones` list of `- [x] Title` lines), tracked time in
 `days/YYYY/YYYY-MM-DD.md` under a `## Sessions` list, and repeating schedule
 blocks in `schedule/recurring.md`. Editing those files by hand is supported — the
 app re-reads them on the next request, and anything it does not understand
@@ -462,7 +512,17 @@ fn summarise(project: &Project) -> ProjectSummary {
         slug: project.slug().to_string(),
         name: project.name.clone(),
         color: project.color.as_ref().map(ToString::to_string),
+        mark: project.mark.to_string(),
+        target: project.target.map(|target| target.to_string()),
         status: project.status.to_string(),
+        milestones: project
+            .milestones
+            .iter()
+            .map(|milestone| MilestoneSummary {
+                done: milestone.done,
+                title: milestone.title.clone(),
+            })
+            .collect(),
     }
 }
 
@@ -696,11 +756,20 @@ mod tests {
                 slug: "timemd".to_owned(),
                 name: Some("timemd".to_owned()),
                 color: Some("#4f46e5".to_owned()),
+                mark: Some("triangle".to_owned()),
+                target: Some("10h".to_owned()),
+                milestones: Some(vec![MilestoneParam {
+                    done: false,
+                    title: "Ship it".to_owned(),
+                }]),
                 status: None,
             }))
             .expect("creates");
         assert_eq!(created.0.status, "active");
         assert_eq!(created.0.color.as_deref(), Some("#4f46e5"));
+        assert_eq!(created.0.mark, "triangle");
+        assert_eq!(created.0.target.as_deref(), Some("10h"));
+        assert_eq!(created.0.milestones[0].title, "Ship it");
 
         let updated = server
             .upsert_project(Parameters(UpsertProjectParams {
@@ -715,6 +784,9 @@ mod tests {
             "an omitted field must not be cleared"
         );
         assert_eq!(updated.0.color.as_deref(), Some("#4f46e5"));
+        assert_eq!(updated.0.mark, "triangle");
+        assert_eq!(updated.0.target.as_deref(), Some("10h"));
+        assert_eq!(updated.0.milestones.len(), 1);
 
         assert_eq!(
             server

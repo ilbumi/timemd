@@ -59,6 +59,131 @@ async fn accepts_an_explicit_colour_on_create() {
 }
 
 #[tokio::test]
+async fn a_new_project_is_a_square_with_no_target_or_milestones() {
+    let harness = Harness::new();
+    let (_, body) = harness
+        .post("/api/projects", json!({ "name": "timemd" }))
+        .await;
+
+    assert_eq!(body["mark"], "square");
+    assert_eq!(body["target"], serde_json::Value::Null);
+    assert_eq!(body["milestones"], json!([]));
+    assert_eq!(body["problems"], json!([]));
+}
+
+#[tokio::test]
+async fn accepts_a_mark_and_a_weekly_target_on_create() {
+    let harness = Harness::new();
+    let (status, body) = harness
+        .post(
+            "/api/projects",
+            json!({ "name": "Thesis", "mark": "triangle", "target": "10h" }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["mark"], "triangle");
+    assert_eq!(body["target"], "10h");
+
+    let path = harness.store.root().join("projects/thesis.md");
+    let text = std::fs::read_to_string(&path).expect("project file exists");
+    assert!(text.contains("mark: triangle"), "{text}");
+    assert!(text.contains("target: 10h"), "{text}");
+}
+
+#[tokio::test]
+async fn rejects_an_unknown_mark_and_an_unreadable_target() {
+    let harness = Harness::new();
+    for body in [
+        json!({ "name": "timemd", "mark": "hexagon" }),
+        json!({ "name": "timemd", "target": "loads" }),
+    ] {
+        let (status, _) = harness.post("/api/projects", body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+}
+
+#[tokio::test]
+async fn replaces_the_whole_milestone_list_on_patch() {
+    let harness = Harness::new();
+    harness
+        .post("/api/projects", json!({ "name": "Thesis" }))
+        .await;
+
+    let (status, body) = harness
+        .patch(
+            "/api/projects/thesis",
+            json!({ "milestones": [
+                { "done": true, "title": "Ch. 1 — lit review" },
+                { "done": false, "title": "Ch. 4 — first draft" },
+            ] }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["milestones"][0]["done"], true);
+    assert_eq!(body["milestones"][1]["title"], "Ch. 4 — first draft");
+
+    let path = harness.store.root().join("projects/thesis.md");
+    let text = std::fs::read_to_string(&path).expect("reads");
+    assert!(text.contains("## Milestones"), "{text}");
+    assert!(text.contains("- [x] Ch. 1 — lit review"), "{text}");
+    assert!(text.contains("- [ ] Ch. 4 — first draft"), "{text}");
+}
+
+#[tokio::test]
+async fn rejects_a_milestone_with_a_blank_title() {
+    let harness = Harness::new();
+    harness
+        .post("/api/projects", json!({ "name": "Thesis" }))
+        .await;
+
+    let (status, _) = harness
+        .patch(
+            "/api/projects/thesis",
+            json!({ "milestones": [{ "done": false, "title": "  " }] }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn clears_a_target_with_an_explicit_null() {
+    let harness = Harness::new();
+    harness
+        .post(
+            "/api/projects",
+            json!({ "name": "Thesis", "target": "10h" }),
+        )
+        .await;
+
+    let (_, body) = harness
+        .patch("/api/projects/thesis", json!({ "target": null }))
+        .await;
+
+    assert_eq!(body["target"], serde_json::Value::Null);
+}
+
+#[tokio::test]
+async fn reports_a_milestone_line_it_could_not_read() {
+    let harness = Harness::new();
+    let directory = harness.store.root().join("projects");
+    std::fs::create_dir_all(&directory).expect("creates dir");
+    std::fs::write(
+        directory.join("thesis.md"),
+        "---\nname: Thesis\n---\n\n## Milestones\n\n- [x] done\n- forgot the box\n",
+    )
+    .expect("writes");
+
+    let (status, body) = harness.get("/api/projects/thesis").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["milestones"][0]["title"], "done");
+    assert_eq!(body["problems"].as_array().expect("an array").len(), 1);
+}
+
+#[tokio::test]
 async fn rejects_a_name_that_yields_no_slug() {
     let harness = Harness::new();
     let (status, _) = harness

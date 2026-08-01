@@ -204,8 +204,21 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
             Ok(projects
                 .iter()
                 .map(|project| {
+                    let target = project
+                        .target
+                        .map_or_else(String::new, |target| format!("  {target}/wk"));
+                    let milestones = if project.milestones.is_empty() {
+                        String::new()
+                    } else {
+                        let done = project
+                            .milestones
+                            .iter()
+                            .filter(|milestone| milestone.done)
+                            .count();
+                        format!("  {done}/{} done", project.milestones.len())
+                    };
                     format!(
-                        "{:<24} {}{}",
+                        "{:<24} {}{target}{milestones}{}",
                         project.slug().as_str(),
                         project.name,
                         if project.status.is_archived() {
@@ -536,6 +549,26 @@ mod tests {
         let output = run(&store, Command::Projects, moment(9, 0)).expect("reads");
         assert!(output.contains("timemd"), "{output}");
         assert!(output.contains("(archived)"), "{output}");
+    }
+
+    #[test]
+    fn projects_shows_the_weekly_target_and_milestone_progress() {
+        let (_directory, store) = store();
+        let today = moment(9, 0).date();
+        create_project(&store, "thesis", "Thesis", today).expect("creates");
+        store
+            .update_project(&ProjectSlug::new("thesis").expect("valid"), |project| {
+                project.target = Some(Minutes::new(600));
+                project.milestones = vec![
+                    timemd_core::Milestone::new(true, "Ch. 1").expect("valid"),
+                    timemd_core::Milestone::new(false, "Ch. 2").expect("valid"),
+                ];
+            })
+            .expect("updates");
+
+        let output = run(&store, Command::Projects, moment(9, 0)).expect("reads");
+        assert!(output.contains("10h/wk"), "{output}");
+        assert!(output.contains("1/2 done"), "{output}");
     }
 
     #[test]
