@@ -862,8 +862,13 @@
 		color: var(--ink-60);
 	}
 
+	/*
+	 * Pulled out to the hero's edges so it lines up with the project grid below,
+	 * which is full-bleed. Inset by the padding it stopped a little short of the
+	 * grid on both sides, which reads worse than either extreme.
+	 */
 	.hero .rule {
-		margin-top: 14px;
+		margin: 14px calc(-1 * var(--pad)) 0;
 	}
 
 	/*
@@ -985,32 +990,39 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 900px) {
+	@media (min-width: 700px) {
 		/* The sidebar carries it there; two entry points would be one too many. */
 		.settings {
 			display: none;
 		}
 
-		/* On a phone the start button is pushed to the thumb; on a desktop that
-		   just opens a void in the middle of the screen. */
+		/* On a phone the start button is pushed to the thumb; on anything taller
+		   that just opens a void down the middle of the screen. */
 		.grid + .foot {
 			margin-top: var(--gap);
 		}
 
-		.foot {
-			max-width: 620px;
+		.middle {
+			gap: 36px;
 		}
 
+		/* Nothing on the first-run screen wants the full measure. */
+		.welcome {
+			max-width: 560px;
+		}
+
+		.body {
+			max-width: 620px;
+		}
+	}
+
+	@media (min-width: 1000px) {
 		.dial {
 			width: 340px;
 		}
 
 		.ring {
 			width: 300px;
-		}
-
-		.middle {
-			gap: 36px;
 		}
 
 		/* A phone fits two tiles across; a desktop fits four, and the row of them
@@ -1025,15 +1037,6 @@
 
 		.pitch h1 {
 			font-size: 3.5rem;
-		}
-
-		/* Nothing on the first-run screen wants the full measure. */
-		.welcome {
-			max-width: 560px;
-		}
-
-		.body {
-			max-width: 620px;
 		}
 	}
 

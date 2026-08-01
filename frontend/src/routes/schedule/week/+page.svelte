@@ -307,7 +307,7 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 900px) {
+	@media (min-width: 700px) {
 		/* The raster is the one thing here that is better the bigger it is. */
 		.raster {
 			min-height: 460px;
@@ -321,7 +321,9 @@
 			height: 28px;
 			font-size: 0.8125rem;
 		}
+	}
 
+	@media (min-width: 1000px) {
 		.foot {
 			display: flex;
 			align-items: center;

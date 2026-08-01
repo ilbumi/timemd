@@ -273,7 +273,7 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 900px) {
+	@media (min-width: 700px) {
 		/* A note is prose; past about sixty characters a line stops being one.
 		   The day bands stay full width, because they are the rules that separate
 		   the days. */

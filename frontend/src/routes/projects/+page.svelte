@@ -282,7 +282,7 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 900px) {
+	@media (min-width: 700px) {
 		/*
 		 * Still one column of full-bleed rows — the row is the design's unit and
 		 * two abreast breaks the banding the archived section depends on. What

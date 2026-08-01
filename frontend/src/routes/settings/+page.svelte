@@ -275,7 +275,7 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 900px) {
+	@media (min-width: 700px) {
 		/* The sidebar is the way back; a second link would be one too many. */
 		.back {
 			display: none;

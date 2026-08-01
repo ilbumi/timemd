@@ -479,7 +479,18 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 900px) {
+	@media (min-width: 700px) {
+		.timeline {
+			height: clamp(360px, 52vh, 620px);
+		}
+
+		/* The bar keeps its full-width rule; only the buttons are capped. */
+		.foot > .actions {
+			max-width: 520px;
+		}
+	}
+
+	@media (min-width: 1000px) {
 		/* Timeline beside its own list, rather than above it: the day is short
 		   enough that scrolling past the blocks to read them was the only reason
 		   they were stacked. */
@@ -508,11 +519,6 @@
 		.skipped,
 		.add {
 			grid-column: 1 / -1;
-		}
-
-		/* The bar keeps its full-width rule; only the buttons are capped. */
-		.foot > .actions {
-			max-width: 520px;
 		}
 	}
 

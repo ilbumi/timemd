@@ -252,7 +252,7 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 900px) {
+	@media (min-width: 700px) {
 		/* A form does not get better by getting wider — and the bar above it
 		   should not either, or its rule hangs out past the fields. */
 		.screen {

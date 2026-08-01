@@ -436,7 +436,7 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 900px) {
+	@media (min-width: 700px) {
 		/* The rule between two blocks ends where the fields do. */
 		.screen {
 			max-width: 620px;

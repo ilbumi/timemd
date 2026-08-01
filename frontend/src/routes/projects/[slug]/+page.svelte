@@ -771,7 +771,7 @@
 
 	/* ---- wide ------------------------------------------------------------ */
 
-	@media (min-width: 900px) {
+	@media (min-width: 1000px) {
 		/*
 		 * The header stops being a banner and becomes a panel beside the lists:
 		 * the identity and the week's progress stay in view while you work down
