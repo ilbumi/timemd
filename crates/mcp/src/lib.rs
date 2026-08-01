@@ -147,6 +147,18 @@ pub struct DaySummary {
     pub problems: Vec<String>,
 }
 
+/// A list on its own is not a legal tool result: MCP requires structured
+/// content, and its schema, to be an object. Lists travel wrapped in one.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Schedule {
+    pub blocks: Vec<PlannedBlock>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ProjectList {
+    pub projects: Vec<ProjectSummary>,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ProjectSummary {
     pub slug: String,
@@ -334,10 +346,12 @@ impl TimeMd {
     fn schedule(
         &self,
         Parameters(params): Parameters<RangeParams>,
-    ) -> Result<Json<Vec<PlannedBlock>>, ErrorData> {
+    ) -> Result<Json<Schedule>, ErrorData> {
         let occurrences =
             planned_range(&self.store, range(&params.from, &params.to)?).map_err(failed)?;
-        Ok(Json(occurrences.iter().map(block).collect()))
+        Ok(Json(Schedule {
+            blocks: occurrences.iter().map(block).collect(),
+        }))
     }
 
     #[tool(name = "report", description = "Total tracked time over a range.")]
@@ -376,12 +390,11 @@ impl TimeMd {
         name = "list_projects",
         description = "Every project, ordered by slug."
     )]
-    fn list_projects(
-        &self,
-        _params: Parameters<NoParams>,
-    ) -> Result<Json<Vec<ProjectSummary>>, ErrorData> {
+    fn list_projects(&self, _params: Parameters<NoParams>) -> Result<Json<ProjectList>, ErrorData> {
         let projects = self.store.list_projects().map_err(failed)?;
-        Ok(Json(projects.iter().map(summarise).collect()))
+        Ok(Json(ProjectList {
+            projects: projects.iter().map(summarise).collect(),
+        }))
     }
 
     #[tool(
@@ -648,6 +661,23 @@ mod tests {
         }
     }
 
+    /// A tool that answers with a bare array is rejected by the client at
+    /// connect time, taking every other tool down with it.
+    #[test]
+    fn every_result_schema_describes_an_object() {
+        let (_directory, server) = server();
+
+        for tool in server.tool_router.list_all() {
+            let schema = tool.output_schema.as_ref().expect("a result schema");
+            assert_eq!(
+                schema.get("type").and_then(serde_json::Value::as_str),
+                Some("object"),
+                "{} answers with a {schema:?}",
+                tool.name
+            );
+        }
+    }
+
     #[test]
     fn starting_then_reading_reports_the_running_session() {
         let (_directory, server) = server();
@@ -791,6 +821,7 @@ mod tests {
                 .list_projects(Parameters(NoParams {}))
                 .expect("lists")
                 .0
+                .projects
                 .len(),
             1
         );
@@ -848,9 +879,9 @@ mod tests {
             }))
             .expect("reads");
 
-        assert_eq!(blocks.0.len(), 3);
-        assert_eq!(blocks.0[0].duration, "2h");
-        assert_eq!(blocks.0[0].block.as_deref(), Some("deep-work"));
+        assert_eq!(blocks.0.blocks.len(), 3);
+        assert_eq!(blocks.0.blocks[0].duration, "2h");
+        assert_eq!(blocks.0.blocks[0].block.as_deref(), Some("deep-work"));
     }
 
     #[test]
