@@ -90,3 +90,40 @@ describe('api', () => {
 		expect(calls[0]?.init.body).toBe('{"status":"archived"}');
 	});
 });
+
+describe('timer', () => {
+	const idle = {
+		active: null,
+		completedToday: 0,
+		trackedToday: '0m',
+		nextBreak: '5m',
+		nextBreakKind: 'short_break',
+		serverNow: '2026-08-01T09:00:00'
+	};
+
+	it('reads the current state', async () => {
+		const calls = mockFetch(200, idle);
+		const state = await api.readTimer();
+
+		expect(state.active).toBeNull();
+		expect(state.nextBreak).toBe('5m');
+		expect(calls[0]?.url).toBe('/api/timer');
+	});
+
+	it('starts a session with the given shape', async () => {
+		const calls = mockFetch(200, idle);
+		await api.startSession({ kind: 'focus', project: 'timemd', note: 'file store' });
+
+		expect(calls[0]?.url).toBe('/api/timer/start');
+		expect(calls[0]?.init.body).toBe('{"kind":"focus","project":"timemd","note":"file store"}');
+	});
+
+	it('stops and cancels with an empty body', async () => {
+		const calls = mockFetch(200, idle);
+		await api.stopSession();
+		await api.cancelSession();
+
+		expect(calls.map((call) => call.url)).toEqual(['/api/timer/stop', '/api/timer/cancel']);
+		expect(calls.every((call) => call.init.body === '{}')).toBe(true);
+	});
+});

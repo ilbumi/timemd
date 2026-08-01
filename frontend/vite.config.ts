@@ -18,6 +18,9 @@ export default defineConfig({
 		coverage: {
 			provider: 'v8',
 			include: ['src/lib/**'],
+			// The text table omits files at 100%, so a module missing from it has
+			// been measured, not skipped — the totals and thresholds include it.
+			// `coverage-final.json` lists every file if you need to confirm.
 			thresholds: {
 				lines: 85,
 				functions: 85,

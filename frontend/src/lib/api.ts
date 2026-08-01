@@ -24,6 +24,35 @@ export interface NewProject {
 	color?: string | null;
 }
 
+export type SessionKind = 'focus' | 'short_break' | 'long_break';
+
+export interface Running {
+	kind: SessionKind;
+	project: string | null;
+	note: string;
+	startedAt: string;
+	endsAt: string;
+	duration: string;
+	/** Seconds left at `serverNow`. */
+	remainingSeconds: number;
+}
+
+export interface TimerState {
+	active: Running | null;
+	completedToday: number;
+	trackedToday: string;
+	nextBreak: string;
+	nextBreakKind: SessionKind;
+	serverNow: string;
+}
+
+export interface StartSession {
+	kind?: SessionKind;
+	project?: string | null;
+	note?: string;
+	duration?: string;
+}
+
 export interface ProjectPatch {
 	name?: string;
 	color?: string | null;
@@ -87,5 +116,14 @@ export const api = {
 		request('PATCH', `/api/projects/${encodeURIComponent(slug)}`, { ...patch }),
 
 	deleteProject: (slug: string): Promise<void> =>
-		request('DELETE', `/api/projects/${encodeURIComponent(slug)}`)
+		request('DELETE', `/api/projects/${encodeURIComponent(slug)}`),
+
+	readTimer: (): Promise<TimerState> => request('GET', '/api/timer'),
+
+	startSession: (session: StartSession): Promise<TimerState> =>
+		request('POST', '/api/timer/start', { ...session }),
+
+	stopSession: (): Promise<TimerState> => request('POST', '/api/timer/stop', {}),
+
+	cancelSession: (): Promise<TimerState> => request('POST', '/api/timer/cancel', {})
 };
