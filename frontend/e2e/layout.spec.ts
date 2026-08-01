@@ -72,14 +72,46 @@ test.describe('adaptive behaviour', () => {
 
 	test('two columns of content appear only once there is room for them', async ({ page }) => {
 		await open(page, '/', WIDTHS.sidebar);
-		expect(await columnCount(page, '.grid'), 'tiles at 760px').toBe(2);
+		expect(await tilesPerRow(page), 'tiles at 760px').toBe(2);
 		await open(page, '/schedule', WIDTHS.sidebar);
 		expect(await columnCount(page, '.canvas'), 'timeline at 760px').toBe(1);
 
 		await open(page, '/', WIDTHS.wide);
-		expect(await columnCount(page, '.grid'), 'tiles at 1120px').toBe(4);
+		expect(await tilesPerRow(page), 'tiles at 1120px').toBe(4);
 		await open(page, '/schedule', WIDTHS.wide);
 		expect(await columnCount(page, '.canvas'), 'timeline at 1120px').toBe(2);
+	});
+
+	/**
+	 * The shelf wraps rather than being a grid, so an odd number of projects
+	 * cannot leave a reserved cell with the black background showing through.
+	 * The fixture has two projects plus the "new" tile, which is exactly the odd
+	 * count that used to draw a tile-sized black square.
+	 */
+	test('the tile shelf never ends on a hole', async ({ page }) => {
+		for (const width of [WIDTHS.phone, WIDTHS.sidebar, WIDTHS.wide, WIDTHS.desktop]) {
+			await open(page, '/', width);
+			const covered = await page.evaluate(() => {
+				const grid = document.querySelector('.grid')!;
+				const box = grid.getBoundingClientRect();
+				const tiles = [...grid.children].map((el) => el.getBoundingClientRect());
+				const rows = new Map<number, number>();
+				for (const tile of tiles) {
+					const row = Math.round(tile.top);
+					rows.set(row, (rows.get(row) ?? 0) + tile.width);
+				}
+				// Every row's tiles, plus the 2px gaps between them, must span the
+				// shelf. A short row means background showing where a tile is not.
+				return [...rows.entries()].map(([row, filled]) => ({
+					row,
+					short:
+						box.width - filled - 2 * (tiles.filter((t) => Math.round(t.top) === row).length - 1)
+				}));
+			});
+			for (const row of covered) {
+				expect(row.short, `row at ${row.row} on a ${width}px viewport`).toBeLessThan(1);
+			}
+		}
 	});
 
 	/**
@@ -126,6 +158,15 @@ test.describe('adaptive behaviour', () => {
 		expect(box.width).toBeCloseTo(viewport.width, 0);
 	});
 });
+
+/** The shelf wraps, so its width is counted from where the tiles actually sit. */
+async function tilesPerRow(page: Page): Promise<number> {
+	return page.evaluate(() => {
+		const tiles = [...document.querySelector('.grid')!.children];
+		const first = Math.round(tiles[0].getBoundingClientRect().top);
+		return tiles.filter((el) => Math.round(el.getBoundingClientRect().top) === first).length;
+	});
+}
 
 async function columnCount(page: Page, selector: string): Promise<number> {
 	return page.evaluate((sel) => {

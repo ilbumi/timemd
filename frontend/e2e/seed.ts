@@ -127,6 +127,30 @@ created: ${isoDay(daysAgo(20))}
 `
 	);
 
+	// Enough active projects that the tile shelf has both a full row of four and
+	// a short row after it, which is where a reserved empty cell used to show.
+	for (const [slug, name, mark, color] of [
+		['notes', 'Notes', 'circle', '#8a5a2b'],
+		['admin', 'Admin', 'triangle', '#6b4a8a'],
+		['reading', 'Reading', 'diamond', '#2b6b7a']
+	]) {
+		write(
+			root,
+			`projects/${slug}.md`,
+			`
+---
+name: ${name}
+color: '${color}'
+mark: ${mark}
+status: active
+created: ${isoDay(daysAgo(15))}
+---
+
+# ${name}
+`
+		);
+	}
+
 	write(
 		root,
 		'projects/masters-course.md',

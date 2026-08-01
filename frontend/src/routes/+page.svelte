@@ -872,12 +872,18 @@
 	}
 
 	/*
-	 * The 2px black gap is the grid's own background showing through, which is
+	 * The 2px black gap is the shelf's own background showing through, which is
 	 * why the tiles carry no borders of their own.
+	 *
+	 * It wraps rather than being a grid, because a grid reserves the cells it
+	 * does not fill and the background shows through those too — an odd number
+	 * of projects drew a tile-sized black square at the end of the shelf. Here
+	 * the tiles on a short last row grow into the space instead, so the only
+	 * black is between them. Their height is fixed, so the rows stay even.
 	 */
 	.grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
+		display: flex;
+		flex-wrap: wrap;
 		gap: var(--rule);
 		margin-top: 18px;
 		background: var(--ink);
@@ -891,6 +897,8 @@
 		justify-content: space-between;
 		align-items: flex-start;
 		gap: 10px;
+		/* Two across: two halves either side of one 2px gap. */
+		flex: 1 1 calc(50% - 1px);
 		height: 118px;
 		padding: 16px 14px;
 		border: none;
@@ -904,6 +912,13 @@
 		box-shadow: inset 0 0 0 4px currentColor;
 	}
 
+	/*
+	 * Always the last tile, and it runs to the end of its row so the shelf never
+	 * ends on an empty cell. The 2px gaps are the grid's black background
+	 * showing through, so an unfilled cell is not a gap — it is a tile-sized
+	 * black square, which is what an odd number of projects used to draw.
+	 * Closing the row with the invitation to add one reads better than a hole.
+	 */
 	.tile.new {
 		background: var(--paper);
 		color: var(--ink);
@@ -1039,9 +1054,10 @@
 		}
 
 		/* A phone fits two tiles across; a desktop fits four, and the row of them
-		   reads as the shelf of projects the design draws. */
-		.grid {
-			grid-template-columns: repeat(4, 1fr);
+		   reads as the shelf of projects the design draws. Four quarters either
+		   side of three 2px gaps. */
+		.tile {
+			flex-basis: calc(25% - 1.5px);
 		}
 
 		.hero h1 {
