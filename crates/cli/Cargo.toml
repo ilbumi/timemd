@@ -1,0 +1,26 @@
+[package]
+name         = "timemd"
+description  = "Phone-first time tracker whose database is a tree of markdown files."
+version      .workspace = true
+edition      .workspace = true
+license      .workspace = true
+rust-version .workspace = true
+repository   .workspace = true
+
+[[bin]]
+name = "timemd"
+path = "src/main.rs"
+
+[dependencies]
+timemd-core   .workspace = true
+timemd-mcp    .workspace = true
+timemd-server .workspace = true
+
+chrono .workspace = true
+clap   .workspace = true
+tokio  .workspace = true
+tracing.workspace = true
+tracing-subscriber .workspace = true
+
+[dev-dependencies]
+tempfile .workspace = true

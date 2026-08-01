@@ -1,0 +1,16 @@
+/target
+/data
+node_modules/
+.DS_Store
+
+# SvelteKit / Vite
+frontend/.svelte-kit/
+frontend/build/
+frontend/dist/
+
+# the server embeds this at compile time; it is a build artifact
+crates/server/assets/
+
+# coverage
+lcov.info
+*.profraw
