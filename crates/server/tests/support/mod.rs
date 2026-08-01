@@ -10,7 +10,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tempfile::TempDir;
@@ -20,15 +20,23 @@ use tower::ServiceExt;
 
 pub struct Harness {
     pub router: Router,
+    pub clock: Clock,
     pub store: Arc<Store>,
     _directory: TempDir,
 }
 
 impl Harness {
-    /// Starts at 2026-08-01T09:00:00Z so dates in assertions are stable.
+    /// Starts at 2026-08-01T09:00:00Z, with the timezone pinned to UTC.
+    ///
+    /// Settings otherwise default to the host's timezone, which would make every
+    /// wall-clock assertion here depend on where the machine running the tests
+    /// happens to be.
     pub fn new() -> Self {
         let directory = tempfile::tempdir().expect("temp dir");
         let store = Arc::new(Store::new(directory.path()));
+        store
+            .update_settings(|settings| settings.timezone = chrono_tz::UTC)
+            .expect("writes settings");
         let clock = Clock::fixed(
             Utc.with_ymd_and_hms(2026, 8, 1, 9, 0, 0)
                 .single()
@@ -37,6 +45,7 @@ impl Harness {
         let state = AppState::new(Arc::clone(&store), clock.clone());
         Self {
             router: timemd_server::router(state),
+            clock,
             store,
             _directory: directory,
         }
@@ -93,4 +102,12 @@ impl Harness {
     pub async fn delete(&self, uri: &str) -> (StatusCode, Value) {
         self.request("DELETE", uri, None).await
     }
+}
+
+/// A UTC instant. The harness pins the timezone to UTC, so these are also the
+/// wall-clock times that end up in the files.
+pub fn instant(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(year, month, day, hour, minute, 0)
+        .single()
+        .expect("valid instant")
 }

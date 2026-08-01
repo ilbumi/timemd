@@ -13,6 +13,8 @@ mod error;
 mod health;
 mod projects;
 pub mod state;
+mod ticker;
+mod timer;
 
 use axum::Router;
 use axum::extract::OriginalUri;
@@ -31,6 +33,7 @@ pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(health::health))
         .merge(projects::routes())
+        .merge(timer::routes())
         .fallback(unknown_endpoint);
 
     Router::new()
@@ -51,5 +54,11 @@ async fn unknown_endpoint(OriginalUri(uri): OriginalUri) -> crate::error::ApiErr
 /// The caller binds so that it owns the address-resolution failure mode, and so
 /// tests can serve on an ephemeral port.
 pub async fn serve(listener: TcpListener, state: AppState) -> std::io::Result<()> {
-    axum::serve(listener, router(state)).await
+    // Owned here rather than detached, so the ticker's lifetime is exactly the
+    // server's — a stray task outliving its store would be writing into a
+    // directory nobody is watching any more.
+    let ticker = tokio::spawn(ticker::run(state.clone()));
+    let outcome = axum::serve(listener, router(state)).await;
+    ticker.abort();
+    outcome
 }
