@@ -46,9 +46,11 @@ pub fn format_time(value: NaiveTime) -> String {
 /// Consumes a leading `HH:MM-HH:MM`, returning the range and the remainder.
 pub fn time_range(text: &str) -> Result<((NaiveTime, NaiveTime), &str), ParseErrorKind> {
     let (head, rest) = split_token(text);
-    let (start, end) = head.split_once('-').ok_or_else(|| ParseErrorKind::MissingTimeRange {
-        found: text.to_owned(),
-    })?;
+    let (start, end) = head
+        .split_once('-')
+        .ok_or_else(|| ParseErrorKind::MissingTimeRange {
+            found: text.to_owned(),
+        })?;
     Ok(((time(start)?, time(end)?), rest))
 }
 
@@ -184,22 +186,34 @@ mod tests {
     #[test]
     fn consumes_a_wikilink_when_the_slug_is_valid() {
         let (project, rest) = wikilink("[[timemd]] file store");
-        assert_eq!(project.map(|slug| slug.to_string()), Some("timemd".to_owned()));
+        assert_eq!(
+            project.map(|slug| slug.to_string()),
+            Some("timemd".to_owned())
+        );
         assert_eq!(rest, "file store");
     }
 
     #[test]
     fn leaves_an_invalid_or_absent_wikilink_as_note_text() {
-        assert_eq!(wikilink("[[Not A Slug]] rest"), (None, "[[Not A Slug]] rest"));
+        assert_eq!(
+            wikilink("[[Not A Slug]] rest"),
+            (None, "[[Not A Slug]] rest")
+        );
         assert_eq!(wikilink("[[unclosed rest"), (None, "[[unclosed rest"));
         assert_eq!(wikilink("plain note"), (None, "plain note"));
     }
 
     #[test]
     fn consumes_a_trailing_reminder_lead() {
-        assert_eq!(reminder_suffix("Deep work !5m"), (Some(Minutes::new(5)), "Deep work"));
+        assert_eq!(
+            reminder_suffix("Deep work !5m"),
+            (Some(Minutes::new(5)), "Deep work")
+        );
         assert_eq!(reminder_suffix("!15m"), (Some(Minutes::new(15)), ""));
         assert_eq!(reminder_suffix("Deep work"), (None, "Deep work"));
-        assert_eq!(reminder_suffix("Deep work !soon"), (None, "Deep work !soon"));
+        assert_eq!(
+            reminder_suffix("Deep work !soon"),
+            (None, "Deep work !soon")
+        );
     }
 }

@@ -29,9 +29,9 @@ fn validate(candidate: &str) -> bool {
         && candidate.len() <= MAX_LEN
         && !candidate.starts_with('-')
         && !candidate.ends_with('-')
-        && candidate
-            .chars()
-            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-')
+        && candidate.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        })
 }
 
 /// Best-effort conversion of a human display name into a valid identifier.
@@ -91,9 +91,7 @@ macro_rules! identifier {
         impl<'de> Deserialize<'de> for $type {
             fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 let raw = String::deserialize(deserializer)?;
-                Self::new(raw).map_err(|_| {
-                    serde::de::Error::custom(concat!("invalid ", $label))
-                })
+                Self::new(raw).map_err(|_| serde::de::Error::custom(concat!("invalid ", $label)))
             }
         }
     };

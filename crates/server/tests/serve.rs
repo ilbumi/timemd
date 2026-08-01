@@ -10,7 +10,7 @@ use tokio::net::{TcpListener, TcpStream};
 async fn serves_over_a_real_socket() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("binds");
     let address = listener.local_addr().expect("has an address");
-    let server = tokio::spawn(timemd_server::serve(listener));
+    let server = tokio::spawn(timemd_server::serve(listener, state()));
 
     let mut stream = TcpStream::connect(address).await.expect("connects");
     stream
@@ -28,4 +28,13 @@ async fn serves_over_a_real_socket() {
     assert!(response.contains(r#""status":"ok""#), "{response}");
 
     server.abort();
+}
+
+/// A router needs a store; these tests do not care what is in it.
+fn state() -> timemd_server::state::AppState {
+    let directory = Box::leak(Box::new(tempfile::tempdir().expect("temp dir")));
+    timemd_server::state::AppState::new(
+        std::sync::Arc::new(timemd_core::Store::new(directory.path())),
+        timemd_server::state::Clock::System,
+    )
 }

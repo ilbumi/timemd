@@ -157,7 +157,10 @@ mod tests {
     fn an_idle_file_parses_as_nothing_running() {
         assert_eq!(ActiveSession::parse(IDLE).expect("parses"), None);
         assert_eq!(ActiveSession::parse("").expect("parses"), None);
-        assert_eq!(ActiveSession::parse("---\nkind: focus\n---\n").expect("parses"), None);
+        assert_eq!(
+            ActiveSession::parse("---\nkind: focus\n---\n").expect("parses"),
+            None
+        );
     }
 
     #[test]
@@ -177,11 +180,20 @@ mod tests {
 
     #[test]
     fn omits_absent_project_and_note() {
-        let session = ActiveSession::new(moment(9, 0), SessionKind::ShortBreak, Minutes::new(5), None, "");
+        let session = ActiveSession::new(
+            moment(9, 0),
+            SessionKind::ShortBreak,
+            Minutes::new(5),
+            None,
+            "",
+        );
         let rendered = session.render();
         assert!(!rendered.contains("project:"), "{rendered}");
         assert!(!rendered.contains("note:"), "{rendered}");
-        assert_eq!(ActiveSession::parse(&rendered).expect("parses"), Some(session));
+        assert_eq!(
+            ActiveSession::parse(&rendered).expect("parses"),
+            Some(session)
+        );
     }
 
     #[test]
@@ -215,7 +227,13 @@ mod tests {
 
     #[test]
     fn breaks_and_zero_length_blocks_are_never_logged() {
-        let rest = ActiveSession::new(moment(9, 0), SessionKind::ShortBreak, Minutes::new(5), None, "");
+        let rest = ActiveSession::new(
+            moment(9, 0),
+            SessionKind::ShortBreak,
+            Minutes::new(5),
+            None,
+            "",
+        );
         assert_eq!(rest.to_session(moment(9, 5)), None);
         assert_eq!(running().to_session(moment(9, 0)), None);
     }

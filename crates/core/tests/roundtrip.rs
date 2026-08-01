@@ -34,16 +34,24 @@ fn project() -> impl Strategy<Value = Option<ProjectSlug>> {
 }
 
 fn session() -> impl Strategy<Value = Session> {
-    (0_u32..24, 0_u32..60, 0_u32..24, 0_u32..60, project(), note()).prop_map(
-        |(start_hour, start_minute, end_hour, end_minute, project, note)| {
-            Session::new(
-                NaiveTime::from_hms_opt(start_hour, start_minute, 0).expect("valid time"),
-                NaiveTime::from_hms_opt(end_hour, end_minute, 0).expect("valid time"),
-                project,
-                note,
-            )
-        },
+    (
+        0_u32..24,
+        0_u32..60,
+        0_u32..24,
+        0_u32..60,
+        project(),
+        note(),
     )
+        .prop_map(
+            |(start_hour, start_minute, end_hour, end_minute, project, note)| {
+                Session::new(
+                    NaiveTime::from_hms_opt(start_hour, start_minute, 0).expect("valid time"),
+                    NaiveTime::from_hms_opt(end_hour, end_minute, 0).expect("valid time"),
+                    project,
+                    note,
+                )
+            },
+        )
 }
 
 /// Lines a hand-edited file might realistically contain, valid or not.
@@ -142,7 +150,10 @@ fn a_note_opening_with_a_wikilink_is_read_as_the_project() {
     let reparsed = Day::parse(date(), &day.render()).expect("parses");
     let session = &reparsed.sessions()[0];
 
-    assert_eq!(session.project.as_ref().map(ProjectSlug::as_str), Some("timemd"));
+    assert_eq!(
+        session.project.as_ref().map(ProjectSlug::as_str),
+        Some("timemd")
+    );
     assert_eq!(session.note, "see also");
 }
 

@@ -175,6 +175,9 @@ mod tests {
             .into_iter()
             .sum();
         assert_eq!(total, Minutes::new(90));
-        assert_eq!(Minutes::new(u32::MAX) + Minutes::new(10), Minutes::new(u32::MAX));
+        assert_eq!(
+            Minutes::new(u32::MAX) + Minutes::new(10),
+            Minutes::new(u32::MAX)
+        );
     }
 }

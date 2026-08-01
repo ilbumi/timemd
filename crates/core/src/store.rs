@@ -109,16 +109,18 @@ impl Store {
         }
     }
 
-    /// Creates a project file, refusing to overwrite an existing one.
-    pub fn create_project(&self, slug: ProjectSlug, name: &str, today: NaiveDate) -> Result<Project> {
+    /// Writes a new project file, refusing to overwrite an existing one.
+    ///
+    /// Takes a fully-built project rather than its parts: the caller decides what
+    /// a new project looks like, and the file is written exactly once so its keys
+    /// land in a predictable order.
+    pub fn create_project(&self, project: &Project) -> Result<()> {
         let _guard = self.lock();
-        let path = self.project_path(&slug);
+        let path = self.project_path(project.slug());
         if path.exists() {
-            return Err(Error::DuplicateProject(slug.to_string()));
+            return Err(Error::DuplicateProject(project.slug().to_string()));
         }
-        let project = Project::new(slug, name, today);
-        write_atomic(&path, &project.render())?;
-        Ok(project)
+        write_atomic(&path, &project.render())
     }
 
     /// Applies an edit to an existing project, holding the write lock across the
@@ -131,10 +133,11 @@ impl Store {
         let _guard = self.lock();
         let path = self.project_path(slug);
         let text = read_to_string(&path)?.ok_or_else(|| Error::UnknownProject(slug.to_string()))?;
-        let mut project = Project::parse(slug.clone(), &text).map_err(|source| Error::Frontmatter {
-            path: path.clone(),
-            source,
-        })?;
+        let mut project =
+            Project::parse(slug.clone(), &text).map_err(|source| Error::Frontmatter {
+                path: path.clone(),
+                source,
+            })?;
         let outcome = edit(&mut project);
         write_atomic(&path, &project.render())?;
         Ok(outcome)
@@ -210,7 +213,9 @@ impl Store {
     pub fn read_settings(&self) -> Result<Settings> {
         let path = self.settings_path();
         match read_to_string(&path)? {
-            Some(text) => Settings::parse(&text).map_err(|source| Error::Frontmatter { path, source }),
+            Some(text) => {
+                Settings::parse(&text).map_err(|source| Error::Frontmatter { path, source })
+            }
             None => Ok(Settings::default()),
         }
     }
@@ -247,7 +252,9 @@ impl Store {
     fn lock(&self) -> std::sync::MutexGuard<'_, ()> {
         // A panic elsewhere cannot corrupt the invariant this lock protects —
         // it only orders file writes — so recovering beats propagating.
-        self.write_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.write_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -324,32 +331,52 @@ mod tests {
         assert!(store.list_projects().expect("lists").is_empty());
         assert!(store.read_day(date()).expect("reads").sessions().is_empty());
         assert_eq!(store.read_active().expect("reads"), None);
-        assert_eq!(store.read_settings().expect("reads").focus, Minutes::new(25));
+        assert_eq!(
+            store.read_settings().expect("reads").focus,
+            Minutes::new(25)
+        );
     }
 
     #[test]
     fn creates_reads_and_lists_projects() {
         let (_directory, store) = store();
-        store.create_project(slug("timemd"), "timemd", date()).expect("creates");
-        store.create_project(slug("admin"), "Admin", date()).expect("creates");
+        store
+            .create_project(&Project::new(slug("timemd"), "timemd", date()))
+            .expect("creates");
+        store
+            .create_project(&Project::new(slug("admin"), "Admin", date()))
+            .expect("creates");
 
         let projects = store.list_projects().expect("lists");
         assert_eq!(
-            projects.iter().map(|p| p.slug().as_str()).collect::<Vec<_>>(),
+            projects
+                .iter()
+                .map(|p| p.slug().as_str())
+                .collect::<Vec<_>>(),
             vec!["admin", "timemd"]
         );
 
-        let project = store.read_project(&slug("admin")).expect("reads").expect("present");
+        let project = store
+            .read_project(&slug("admin"))
+            .expect("reads")
+            .expect("present");
         assert_eq!(project.name, "Admin");
-        assert!(store.read_project(&slug("missing")).expect("reads").is_none());
+        assert!(
+            store
+                .read_project(&slug("missing"))
+                .expect("reads")
+                .is_none()
+        );
     }
 
     #[test]
     fn refuses_to_overwrite_an_existing_project() {
         let (_directory, store) = store();
-        store.create_project(slug("timemd"), "timemd", date()).expect("creates");
+        store
+            .create_project(&Project::new(slug("timemd"), "timemd", date()))
+            .expect("creates");
         assert!(matches!(
-            store.create_project(slug("timemd"), "again", date()),
+            store.create_project(&Project::new(slug("timemd"), "again", date())),
             Err(Error::DuplicateProject(_))
         ));
     }
@@ -357,14 +384,19 @@ mod tests {
     #[test]
     fn updates_a_project_in_place() {
         let (_directory, store) = store();
-        store.create_project(slug("timemd"), "timemd", date()).expect("creates");
+        store
+            .create_project(&Project::new(slug("timemd"), "timemd", date()))
+            .expect("creates");
         store
             .update_project(&slug("timemd"), |project| {
                 project.name = "Time MD".to_owned();
             })
             .expect("updates");
 
-        let project = store.read_project(&slug("timemd")).expect("reads").expect("present");
+        let project = store
+            .read_project(&slug("timemd"))
+            .expect("reads")
+            .expect("present");
         assert_eq!(project.name, "Time MD");
     }
 
@@ -378,7 +410,9 @@ mod tests {
     #[test]
     fn deletes_projects_idempotently() {
         let (_directory, store) = store();
-        store.create_project(slug("timemd"), "timemd", date()).expect("creates");
+        store
+            .create_project(&Project::new(slug("timemd"), "timemd", date()))
+            .expect("creates");
         assert!(store.delete_project(&slug("timemd")).expect("deletes"));
         assert!(!store.delete_project(&slug("timemd")).expect("deletes"));
     }
@@ -390,7 +424,9 @@ mod tests {
         fs::create_dir_all(&projects).expect("creates dir");
         fs::write(projects.join("Not A Slug.md"), "---\n---\n").expect("writes");
         fs::write(projects.join("notes.txt"), "ignored").expect("writes");
-        store.create_project(slug("timemd"), "timemd", date()).expect("creates");
+        store
+            .create_project(&Project::new(slug("timemd"), "timemd", date()))
+            .expect("creates");
 
         let listed = store.list_projects().expect("lists");
         assert_eq!(listed.len(), 1);
@@ -402,14 +438,22 @@ mod tests {
         let (directory, store) = store();
         store
             .update_day(date(), |day| {
-                day.add_session(Session::new(at(9, 0), at(9, 25), Some(slug("timemd")), "work"));
+                day.add_session(Session::new(
+                    at(9, 0),
+                    at(9, 25),
+                    Some(slug("timemd")),
+                    "work",
+                ));
             })
             .expect("updates");
 
         let path = directory.path().join("days/2026/2026-08-01.md");
         assert!(path.exists(), "expected {path:?}");
         let text = fs::read_to_string(&path).expect("reads");
-        assert!(text.contains("- 09:00-09:25 (25m) [[timemd]] work"), "{text}");
+        assert!(
+            text.contains("- 09:00-09:25 (25m) [[timemd]] work"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -423,7 +467,10 @@ mod tests {
                 .expect("updates");
         }
         assert_eq!(store.read_day(date()).expect("reads").sessions().len(), 3);
-        assert_eq!(store.read_day(date()).expect("reads").total(), Minutes::new(75));
+        assert_eq!(
+            store.read_day(date()).expect("reads").total(),
+            Minutes::new(75)
+        );
     }
 
     #[test]
@@ -450,9 +497,14 @@ mod tests {
                 .expect("updates");
         }
 
-        let recorded = store.recorded_days(date(), NaiveDate::from_ymd_opt(2026, 8, 31).expect("valid"));
+        let recorded =
+            store.recorded_days(date(), NaiveDate::from_ymd_opt(2026, 8, 31).expect("valid"));
         assert_eq!(recorded, vec![date(), later]);
-        assert!(store.recorded_days(date(), date().pred_opt().expect("valid")).is_empty());
+        assert!(
+            store
+                .recorded_days(date(), date().pred_opt().expect("valid"))
+                .is_empty()
+        );
     }
 
     #[test]
@@ -478,13 +530,18 @@ mod tests {
         store
             .update_settings(|settings| settings.focus = Minutes::new(50))
             .expect("updates");
-        assert_eq!(store.read_settings().expect("reads").focus, Minutes::new(50));
+        assert_eq!(
+            store.read_settings().expect("reads").focus,
+            Minutes::new(50)
+        );
     }
 
     #[test]
     fn leaves_no_temporary_files_behind() {
         let (directory, store) = store();
-        store.create_project(slug("timemd"), "timemd", date()).expect("creates");
+        store
+            .create_project(&Project::new(slug("timemd"), "timemd", date()))
+            .expect("creates");
         store.set_active(None).expect("writes");
 
         // Match on the file name only: the enclosing temp directory is itself
@@ -532,15 +589,23 @@ mod tests {
 
         let text = fs::read_to_string(&path).expect("reads");
         assert!(text.contains("mood: focused"), "{text}");
-        assert!(text.contains("## Retrospective\n\nWritten by an agent.\n"), "{text}");
-        assert!(text.contains("- 08:00-08:30 (30m) [[timemd]] by hand"), "{text}");
+        assert!(
+            text.contains("## Retrospective\n\nWritten by an agent.\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("- 08:00-08:30 (30m) [[timemd]] by hand"),
+            "{text}"
+        );
         assert!(text.contains("- 09:00-09:25 (25m) by the app"), "{text}");
     }
 
     #[test]
     fn writes_are_visible_to_a_second_store_on_the_same_root() {
         let (directory, store) = store();
-        store.create_project(slug("timemd"), "timemd", date()).expect("creates");
+        store
+            .create_project(&Project::new(slug("timemd"), "timemd", date()))
+            .expect("creates");
 
         // Proves the no-cache design: a separate reader sees the write at once.
         let observer = Store::new(directory.path());

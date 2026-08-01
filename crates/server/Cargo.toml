@@ -9,9 +9,12 @@ repository   .workspace = true
 
 [dependencies]
 timemd-core .workspace = true
+chrono-tz   .workspace = true
 
 axum       .workspace = true
 chrono     .workspace = true
+mime_guess .workspace = true
+rust-embed .workspace = true
 serde      .workspace = true
 serde_json .workspace = true
 thiserror  .workspace = true

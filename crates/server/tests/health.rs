@@ -8,7 +8,7 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn health_reports_ok_and_version() {
-    let response = timemd_server::router()
+    let response = timemd_server::router(state())
         .oneshot(
             Request::builder()
                 .uri("/api/health")
@@ -34,7 +34,7 @@ async fn health_reports_ok_and_version() {
 
 #[tokio::test]
 async fn unknown_api_route_is_not_found() {
-    let response = timemd_server::router()
+    let response = timemd_server::router(state())
         .oneshot(
             Request::builder()
                 .uri("/api/nope")
@@ -45,4 +45,13 @@ async fn unknown_api_route_is_not_found() {
         .expect("router responds");
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+/// A router needs a store; these tests do not care what is in it.
+fn state() -> timemd_server::state::AppState {
+    let directory = Box::leak(Box::new(tempfile::tempdir().expect("temp dir")));
+    timemd_server::state::AppState::new(
+        std::sync::Arc::new(timemd_core::Store::new(directory.path())),
+        timemd_server::state::Clock::System,
+    )
 }

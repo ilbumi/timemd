@@ -220,10 +220,14 @@ mod tests {
 
     #[test]
     fn recomputes_the_display_duration_from_the_times() {
-        let text = "---\ndate: 2026-08-01\n---\n\n## Sessions\n\n- 09:00-09:25 (99m) [[timemd]] wrong\n";
+        let text =
+            "---\ndate: 2026-08-01\n---\n\n## Sessions\n\n- 09:00-09:25 (99m) [[timemd]] wrong\n";
         let day = Day::parse(date(), text).expect("parses");
         assert_eq!(day.sessions()[0].duration(), Minutes::new(25));
-        assert!(day.render().contains("- 09:00-09:25 (25m) [[timemd]] wrong"));
+        assert!(
+            day.render()
+                .contains("- 09:00-09:25 (25m) [[timemd]] wrong")
+        );
     }
 
     #[test]
@@ -250,8 +254,14 @@ mod tests {
 
         let rendered = day.render();
         assert!(rendered.contains("- this line is nonsense"), "{rendered}");
-        assert!(rendered.contains("- 9:00-10:00 bad time format"), "{rendered}");
-        assert!(rendered.contains("- 09:00-09:25 (25m) [[timemd]] good"), "{rendered}");
+        assert!(
+            rendered.contains("- 9:00-10:00 bad time format"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("- 09:00-09:25 (25m) [[timemd]] good"),
+            "{rendered}"
+        );
     }
 
     #[test]
@@ -262,8 +272,14 @@ mod tests {
 
         let rendered = day.render();
         assert!(rendered.contains("mood: focused"), "{rendered}");
-        assert!(rendered.contains("## Retrospective\n\nWrote by an agent.\n"), "{rendered}");
-        assert!(rendered.contains("- 11:00-11:25 (25m) [[timemd]] more"), "{rendered}");
+        assert!(
+            rendered.contains("## Retrospective\n\nWrote by an agent.\n"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("- 11:00-11:25 (25m) [[timemd]] more"),
+            "{rendered}"
+        );
     }
 
     #[test]
@@ -308,17 +324,24 @@ mod tests {
         let mut day = Day::parse(date(), SAMPLE).expect("parses");
 
         let replaced = day.replace_session(1, Session::new(at(11, 0), at(11, 30), None, "swapped"));
-        assert_eq!(replaced.map(|session| session.note), Some("email".to_owned()));
+        assert_eq!(
+            replaced.map(|session| session.note),
+            Some("email".to_owned())
+        );
         assert_eq!(day.sessions()[1].note, "swapped");
 
         let removed = day.remove_session(0);
-        assert_eq!(removed.map(|session| session.note), Some("file store layer".to_owned()));
+        assert_eq!(
+            removed.map(|session| session.note),
+            Some("file store layer".to_owned())
+        );
         assert_eq!(day.sessions().len(), 1);
 
         assert!(day.remove_session(9).is_none());
-        assert!(day
-            .replace_session(9, Session::new(at(1, 0), at(2, 0), None, ""))
-            .is_none());
+        assert!(
+            day.replace_session(9, Session::new(at(1, 0), at(2, 0), None, ""))
+                .is_none()
+        );
     }
 
     #[test]
@@ -334,7 +357,10 @@ mod tests {
         let text = "---\ndate: 2026-08-01\n---\n\n## Sessions\n\n- 09:00-09:25 (draft) rewrite the intro\n";
         let day = Day::parse(date(), text).expect("parses");
         assert_eq!(day.sessions()[0].note, "(draft) rewrite the intro");
-        assert!(day.render().contains("- 09:00-09:25 (25m) (draft) rewrite the intro"));
+        assert!(
+            day.render()
+                .contains("- 09:00-09:25 (25m) (draft) rewrite the intro")
+        );
     }
 
     #[test]

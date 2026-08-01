@@ -38,8 +38,12 @@ impl Settings {
                 .and_then(|raw| raw.parse().ok())
                 .unwrap_or_else(system_timezone),
             focus: document.front_key("focus").unwrap_or(DEFAULT_FOCUS),
-            short_break: document.front_key("short_break").unwrap_or(DEFAULT_SHORT_BREAK),
-            long_break: document.front_key("long_break").unwrap_or(DEFAULT_LONG_BREAK),
+            short_break: document
+                .front_key("short_break")
+                .unwrap_or(DEFAULT_SHORT_BREAK),
+            long_break: document
+                .front_key("long_break")
+                .unwrap_or(DEFAULT_LONG_BREAK),
             long_break_every: document
                 .front_key::<u32>("long_break_every")
                 .filter(|every| *every > 0)
@@ -130,7 +134,8 @@ mod tests {
 
     #[test]
     fn falls_back_for_missing_and_unreadable_values() {
-        let settings = Settings::parse("---\ntimezone: Not/AZone\nfocus: banana\n---\n").expect("parses");
+        let settings =
+            Settings::parse("---\ntimezone: Not/AZone\nfocus: banana\n---\n").expect("parses");
         assert_eq!(settings.focus, DEFAULT_FOCUS);
         assert_eq!(settings.short_break, DEFAULT_SHORT_BREAK);
         assert_eq!(settings.long_break_every, DEFAULT_LONG_BREAK_EVERY);
@@ -173,6 +178,9 @@ mod tests {
     #[test]
     fn defaults_render_and_reparse_identically() {
         let settings = Settings::default();
-        assert_eq!(Settings::parse(&settings.render()).expect("parses"), settings);
+        assert_eq!(
+            Settings::parse(&settings.render()).expect("parses"),
+            settings
+        );
     }
 }

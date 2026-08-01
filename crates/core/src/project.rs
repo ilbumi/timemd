@@ -23,7 +23,9 @@ impl Color {
         let candidate = candidate.into();
         let valid = candidate.len() == 7
             && candidate.starts_with('#')
-            && candidate[1..].chars().all(|character| character.is_ascii_hexdigit());
+            && candidate[1..]
+                .chars()
+                .all(|character| character.is_ascii_hexdigit());
         if valid {
             Ok(Self(candidate.to_ascii_lowercase()))
         } else {
@@ -215,7 +217,10 @@ mod tests {
         assert!(Color::new("#4F46E5").is_ok());
         assert_eq!(Color::new("#4F46E5").expect("valid").as_str(), "#4f46e5");
         for candidate in ["4f46e5", "#4f46e", "#gggggg", "", "#4f46e55"] {
-            assert!(Color::new(candidate).is_err(), "{candidate:?} should be rejected");
+            assert!(
+                Color::new(candidate).is_err(),
+                "{candidate:?} should be rejected"
+            );
         }
     }
 
