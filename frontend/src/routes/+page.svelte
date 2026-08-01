@@ -1043,8 +1043,8 @@
 			color: var(--yellow);
 		}
 
-		.tile:not(.new):hover {
-			box-shadow: inset 0 0 0 4px currentColor;
-		}
+		/* No hover ring on the tiles. `currentColor` there is paper, so it drew a
+		   white border — and it was the same ring that means "selected", which
+		   made hovering an unchosen project look like choosing it. */
 	}
 </style>

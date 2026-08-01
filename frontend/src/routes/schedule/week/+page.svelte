@@ -343,9 +343,9 @@
 			color: var(--paper);
 		}
 
+		/* Chips can be three pixels tall; a ring inside one is noise. */
 		.chip:hover {
-			outline: var(--rule) solid var(--ink);
-			outline-offset: -2px;
+			filter: brightness(0.75);
 		}
 	}
 </style>

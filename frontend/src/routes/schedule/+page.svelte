@@ -190,11 +190,12 @@
 							class:done
 							style:top="{place.top}%"
 							style:height="{place.height}%"
-							style:background={done ? 'var(--paper)' : look.color}
-							style:border-color={done ? look.color : 'var(--ink)'}
+							style:--fill={done ? 'var(--paper)' : look.color}
+							style:--edge={done ? look.color : 'var(--ink)'}
+							style:--text={done ? 'var(--ink)' : contrastInk(look.color)}
 							onclick={() => startBlock(block)}
 						>
-							<span class="block-text" style:color={done ? 'var(--ink)' : contrastInk(look.color)}>
+							<span class="block-text">
 								<span class="block-title">{block.title || look.name}</span>
 								<span class="block-when">
 									{clockTime(block.start)}–{clockTime(block.end)}{done ? ' · done' : ''}
@@ -326,7 +327,15 @@
 		container-type: size;
 		padding: 5px 11px;
 		overflow: hidden;
-		border: var(--rule) solid var(--ink);
+		/*
+		 * Fill, edge and text arrive as custom properties rather than as inline
+		 * `background`/`color`, so a state like `:hover` can still override them.
+		 * Set inline directly they won the cascade, which left an outline as the
+		 * only way to show hover — and that drew a second line inside the border.
+		 */
+		background: var(--fill);
+		border: var(--rule) solid var(--edge);
+		color: var(--text);
 		text-align: left;
 		text-transform: none;
 		letter-spacing: 0;
@@ -347,12 +356,8 @@
 	 * A finished block is drawn rather than filled — the same way an archived
 	 * project's mark is. Fading it instead mixed the fill, the text and the
 	 * lane's rule showing through into one muddy colour, and nothing else in
-	 * this design is a tint.
+	 * this design is a tint. That is what `--fill` carries.
 	 */
-	.block.done {
-		background: var(--paper);
-	}
-
 	/* Two lines need about 44px. Below that the time goes and the title stays,
 	   which is the half worth keeping. */
 	@container (max-height: 43px) {
@@ -506,9 +511,19 @@
 	}
 
 	@media (hover: hover) {
+		/*
+		 * Inverts rather than gaining a ring: another line inside the border is
+		 * exactly the doubling this screen just lost.
+		 *
+		 * Sets the properties, not the variables — the variables arrive inline,
+		 * and inline wins over a stylesheet whatever the selector. What this rule
+		 * competes with is the base `background: var(--fill)` beside it, which it
+		 * beats on specificity.
+		 */
 		.block:hover {
-			outline: var(--rule) solid var(--ink);
-			outline-offset: -2px;
+			background: var(--ink);
+			border-color: var(--ink);
+			color: var(--paper);
 		}
 	}
 </style>
