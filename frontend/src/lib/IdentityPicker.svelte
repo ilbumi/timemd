@@ -37,9 +37,16 @@
 </div>
 
 <style>
+	/*
+	 * The selection rule hangs 9px below the swatches and is absolutely
+	 * positioned, so it takes no space of its own. The padding gives it some:
+	 * without it the bar landed on whatever followed the picker — in the project
+	 * detail's edit form, right on top of the "Weekly target" label.
+	 */
 	.picker {
 		display: flex;
 		gap: 9px;
+		padding-bottom: 9px;
 	}
 
 	button {
