@@ -21,14 +21,29 @@ before pointing an agent at the tree.
 
 ## What it does
 
-- **Projects** — create, rename, colour, archive, delete.
+- **Projects** — each with a shape, a colour, a weekly hour target and a
+  milestone list. Create, edit, archive, delete.
 - **Pomodoro timer** — server-authoritative, so a session completes, gets logged
   and notifies even while your phone is asleep. Assign a project and a note.
 - **Schedule** — weekly-repeating blocks plus one-offs, with per-day skips.
 - **Reminders** — web push before a block starts, and when a session completes.
-- **Reports** — totals by project or by day, over a week or a month.
+- **Log** — every session with its note, banded by day, with weekly totals.
 - **CLI** — `timemd start`, `stop`, `today`, `log`, `report` for shell use.
 - **MCP server** — nine tools so Claude and other agents get first-class tooling.
+
+### The app is three screens
+
+A project is drawn as a shape as well as a colour, so the running timer can be
+read at a glance, and the tab bar is those same shapes:
+
+| Tab | Screen |
+|---|---|
+| ● | **Timer** — pick a project, run a session, log what got done and tick a milestone |
+| ■ | **Projects** — targets and milestones; archived projects collapse into a footer |
+| ▲ | **Schedule** — `Day` timeline · `Week` raster · `Log`, with the repeating pattern behind the week |
+
+Settings hangs off the timer's header. Nothing is fetched at runtime — the font
+is bundled — so the installed app works with no signal.
 
 ## Running it
 
