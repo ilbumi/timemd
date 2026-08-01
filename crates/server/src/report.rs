@@ -5,15 +5,11 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use timemd_core::Minutes;
 use timemd_core::report::{self, GroupBy, Report};
+use timemd_core::{Bucket, DateRange, Minutes};
 
-use crate::error::{ApiError, ApiResult};
+use crate::error::ApiResult;
 use crate::state::AppState;
-
-/// Matches the schedule's bound: a report is a scan over day files, so the same
-/// "do not walk a decade" rule applies.
-const MAX_RANGE_DAYS: i64 = 366;
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/reports", get(read))
@@ -28,17 +24,9 @@ pub struct ReportView {
     to: NaiveDate,
     group_by: GroupBy,
     total: Minutes,
-    buckets: Vec<BucketView>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BucketView {
-    /// The project slug or the date, depending on the grouping. `null` is time
-    /// tracked against no project.
-    key: Option<String>,
-    tracked: Minutes,
-    sessions: u32,
+    /// Core's `Bucket` serialises correctly as-is: its field names are single
+    /// words, so there is no camelCase to apply and nothing to restate here.
+    buckets: Vec<Bucket>,
 }
 
 impl From<Report> for ReportView {
@@ -48,15 +36,7 @@ impl From<Report> for ReportView {
             to: report.to,
             group_by: report.group_by,
             total: report.total,
-            buckets: report
-                .buckets
-                .into_iter()
-                .map(|bucket| BucketView {
-                    key: bucket.key,
-                    tracked: bucket.tracked,
-                    sessions: bucket.sessions,
-                })
-                .collect(),
+            buckets: report.buckets,
         }
     }
 }
@@ -78,15 +58,7 @@ async fn read(
     State(state): State<AppState>,
     Query(query): Query<ReportQuery>,
 ) -> ApiResult<Json<ReportView>> {
-    if query.to < query.from {
-        return Err(ApiError::bad_request("`to` is before `from`"));
-    }
-    if (query.to - query.from).num_days() > MAX_RANGE_DAYS {
-        return Err(ApiError::bad_request(format!(
-            "range longer than {MAX_RANGE_DAYS} days"
-        )));
-    }
-
-    let report = report::build(state.store(), query.from, query.to, query.group_by)?;
+    let range = DateRange::new(query.from, query.to)?;
+    let report = report::build(state.store(), range, query.group_by)?;
     Ok(Json(ReportView::from(report)))
 }

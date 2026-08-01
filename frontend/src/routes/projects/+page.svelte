@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { ApiError, api, type Project, type ProjectStatus } from '$lib/api';
+	import { api, type Project, type ProjectStatus } from '$lib/api';
+	import { attempt } from '$lib/attempt';
 
 	let projects = $state<Project[]>([]);
 	let loading = $state(true);
@@ -13,17 +14,12 @@
 		showArchived ? projects : projects.filter((project) => project.status === 'active')
 	);
 
-	async function attempt(work: () => Promise<void>): Promise<void> {
-		error = null;
-		try {
-			await work();
-		} catch (failure) {
-			error = failure instanceof ApiError ? failure.message : 'Something went wrong';
-		}
+	async function run(work: () => Promise<void>): Promise<void> {
+		error = await attempt(work);
 	}
 
 	async function load(): Promise<void> {
-		await attempt(async () => {
+		await run(async () => {
 			projects = await api.listProjects();
 		});
 		loading = false;
@@ -34,7 +30,7 @@
 		const name = newName.trim();
 		if (name === '') return;
 
-		await attempt(async () => {
+		await run(async () => {
 			const created = await api.createProject({ name, color: newColor });
 			projects = [...projects, created].sort((left, right) => left.slug.localeCompare(right.slug));
 			newName = '';
@@ -47,26 +43,26 @@
 			editing = null;
 			return;
 		}
-		await attempt(async () => {
+		await run(async () => {
 			replace(await api.updateProject(project.slug, { name: trimmed }));
 			editing = null;
 		});
 	}
 
 	async function recolor(project: Project, color: string): Promise<void> {
-		await attempt(async () => {
+		await run(async () => {
 			replace(await api.updateProject(project.slug, { color }));
 		});
 	}
 
 	async function setStatus(project: Project, status: ProjectStatus): Promise<void> {
-		await attempt(async () => {
+		await run(async () => {
 			replace(await api.updateProject(project.slug, { status }));
 		});
 	}
 
 	async function remove(project: Project): Promise<void> {
-		await attempt(async () => {
+		await run(async () => {
 			await api.deleteProject(project.slug);
 			projects = projects.filter((candidate) => candidate.slug !== project.slug);
 		});
@@ -220,17 +216,6 @@
 	.name small {
 		color: var(--text-muted);
 		font-size: 0.72rem;
-	}
-
-	.muted {
-		color: var(--text-muted);
-	}
-
-	.error {
-		padding: 10px 12px;
-		border-radius: var(--radius);
-		background: color-mix(in srgb, var(--danger) 12%, transparent);
-		color: var(--danger);
 	}
 
 	code {

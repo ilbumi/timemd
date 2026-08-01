@@ -19,12 +19,30 @@ pub struct Subscription {
 }
 
 /// The push state: one server keypair, many subscribed browsers.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PushState {
     /// VAPID private key, base64url of the raw 32-byte scalar.
     pub private_key: Option<String>,
     pub subscriptions: Vec<Subscription>,
-    document: Option<Document>,
+    document: Document,
+}
+
+impl Default for PushState {
+    fn default() -> Self {
+        let mut document = Document::new();
+        document.set_preamble(vec![
+            String::new(),
+            "# Push".to_owned(),
+            String::new(),
+            "Contains a private key. Do not commit or share this file.".to_owned(),
+            String::new(),
+        ]);
+        Self {
+            private_key: None,
+            subscriptions: Vec::new(),
+            document,
+        }
+    }
 }
 
 impl PushState {
@@ -33,22 +51,12 @@ impl PushState {
         Ok(Self {
             private_key: document.front_key("vapid_private"),
             subscriptions: document.front_key("subscriptions").unwrap_or_default(),
-            document: Some(document),
+            document,
         })
     }
 
     pub fn render(&self) -> String {
-        let mut document = self.document.clone().unwrap_or_else(|| {
-            let mut fresh = Document::new();
-            fresh.set_preamble(vec![
-                String::new(),
-                "# Push".to_owned(),
-                String::new(),
-                "Contains a private key. Do not commit or share this file.".to_owned(),
-                String::new(),
-            ]);
-            fresh
-        });
+        let mut document = self.document.clone();
 
         match &self.private_key {
             Some(key) => document.set_front_key("vapid_private", key),

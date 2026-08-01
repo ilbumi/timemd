@@ -96,11 +96,6 @@
 		margin: 0 0 var(--gap);
 	}
 
-	.muted {
-		color: var(--text-muted);
-		font-size: 0.9rem;
-	}
-
 	.notice {
 		padding: 10px 12px;
 		margin-bottom: var(--gap);

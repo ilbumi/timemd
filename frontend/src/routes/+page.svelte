@@ -1,11 +1,14 @@
 <script lang="ts">
-	import { ApiError, api, type Project, type SessionKind, type TimerState } from '$lib/api';
+	import { api, type Project, type SessionKind, type TimerState } from '$lib/api';
+	import { describe } from '$lib/attempt';
 	import { Countdown, formatClock, progress } from '$lib/countdown';
 
 	/** How often to re-ask the server while the screen is visible. */
 	const POLL_MS = 20_000;
 	/** Circumference of the dial at r=54, for the sweep. */
 	const DIAL_LENGTH = 339.29;
+	/** How often to redraw the countdown between polls. */
+	const TICK_MS = 250;
 
 	const countdown = new Countdown();
 
@@ -18,28 +21,24 @@
 	let note = $state('');
 
 	const running = $derived(timer?.active ?? null);
-	const totalSeconds = $derived(running ? durationToSeconds(running.duration) : 0);
-	const spent = $derived(progress(seconds, totalSeconds));
+	const spent = $derived(progress(seconds, running?.durationSeconds ?? 0));
 	const kindLabel = $derived(
 		running
 			? { focus: 'Focus', short_break: 'Short break', long_break: 'Long break' }[running.kind]
 			: 'Ready'
 	);
 
-	/** `1h30m` / `25m` as seconds, for the dial. */
-	function durationToSeconds(duration: string): number {
-		const match = /^(?:(\d+)h)?(?:(\d+)m)?$/.exec(duration);
-		if (!match) return 0;
-		return (Number(match[1] ?? 0) * 60 + Number(match[2] ?? 0)) * 60;
-	}
-
-	async function attempt(work: () => Promise<TimerState>): Promise<void> {
+	async function run(work: () => Promise<TimerState>): Promise<void> {
 		busy = true;
 		error = null;
 		try {
 			apply(await work());
 		} catch (failure) {
-			error = failure instanceof ApiError ? failure.message : 'Something went wrong';
+			error = describe(failure);
+			// Drop the anchor: otherwise `elapsed()` stays true against a deadline
+			// the server never confirmed, and the tick re-polls every 250ms forever.
+			countdown.sync(null, performance.now());
+			seconds = 0;
 		} finally {
 			busy = false;
 		}
@@ -55,26 +54,25 @@
 		}
 	}
 
-	const refresh = (): Promise<void> => attempt(() => api.readTimer());
+	const refresh = (): Promise<void> => run(() => api.readTimer());
 
 	const startFocus = (): Promise<void> =>
-		attempt(() =>
+		run(() =>
 			api.startSession({ kind: 'focus', project: chosenProject || null, note: note.trim() })
 		);
 
-	const startBreak = (kind: SessionKind): Promise<void> =>
-		attempt(() => api.startSession({ kind }));
+	const startBreak = (kind: SessionKind): Promise<void> => run(() => api.startSession({ kind }));
 
-	const stop = (): Promise<void> => attempt(() => api.stopSession());
+	const stop = (): Promise<void> => run(() => api.stopSession());
 
-	const cancel = (): Promise<void> => attempt(() => api.cancelSession());
+	const cancel = (): Promise<void> => run(() => api.cancelSession());
 
 	$effect(() => {
 		void refresh();
 		api
-			.listProjects()
-			.then((all) => {
-				projects = all.filter((project) => project.status === 'active');
+			.listActiveProjects()
+			.then((active) => {
+				projects = active;
 			})
 			.catch(() => {
 				// The timer is usable without the project list, so a failure here
@@ -87,11 +85,16 @@
 		// passes so the finished session is picked up promptly.
 		const tick = setInterval(() => {
 			seconds = countdown.remaining(performance.now());
-			if (countdown.elapsed(performance.now())) void refresh();
-		}, 250);
+			// Clear the anchor before re-polling, so one refresh is dispatched per
+			// completed session rather than one per tick until it returns.
+			if (!busy && countdown.elapsed(performance.now())) {
+				countdown.sync(null, performance.now());
+				void refresh();
+			}
+		}, TICK_MS);
 
 		const poll = setInterval(() => {
-			if (document.visibilityState === 'visible') void refresh();
+			if (!busy && document.visibilityState === 'visible') void refresh();
 		}, POLL_MS);
 
 		// A phone that has been asleep needs a fresh answer the instant it is
@@ -278,17 +281,5 @@
 
 	.breaks {
 		margin-top: 8px;
-	}
-
-	.muted {
-		color: var(--text-muted);
-		margin: 4px 0 0;
-	}
-
-	.error {
-		padding: 10px 12px;
-		border-radius: var(--radius);
-		background: color-mix(in srgb, var(--danger) 12%, transparent);
-		color: var(--danger);
 	}
 </style>

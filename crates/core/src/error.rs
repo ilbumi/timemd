@@ -17,29 +17,33 @@ pub enum Error {
         source: yaml_serde::Error,
     },
 
-    #[error("{path}: {source}")]
-    Parse {
-        path: PathBuf,
-        #[source]
-        source: ParseError,
-    },
+    /// The caller supplied something the domain rejects — a malformed slug, an
+    /// unparseable duration, a backwards date range.
+    ///
+    /// Distinct from [`Error::UnknownProject`] so that "you typed this wrong"
+    /// and "that does not exist" do not render as each other.
+    #[error("{0}")]
+    Invalid(String),
 
     #[error("no project named {0:?}")]
     UnknownProject(String),
 
     #[error("a project named {0:?} already exists")]
     DuplicateProject(String),
+}
 
-    #[error("no session at index {index} for {date}")]
-    UnknownSession { date: String, index: usize },
+impl From<ParseErrorKind> for Error {
+    fn from(kind: ParseErrorKind) -> Self {
+        Self::Invalid(kind.to_string())
+    }
 }
 
 /// A grammar violation, carrying the line it was found on.
 ///
 /// Reads are lenient — a line the app cannot parse is preserved verbatim rather
 /// than rejected, because a single typo in a hand-edited file must never make
-/// the day unreadable. These errors surface from the strict entry points
-/// (writes, and the API that reports unparsed lines back to the UI).
+/// the day unreadable. These errors are collected and reported alongside the
+/// data rather than replacing it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("line {line}: {kind}")]
 pub struct ParseError {
@@ -75,9 +79,6 @@ pub enum ParseErrorKind {
 
     #[error("expected a backtick-quoted block id, found {found:?}")]
     MissingBlockId { found: String },
-
-    #[error("invalid date {found:?}; expected YYYY-MM-DD")]
-    InvalidDate { found: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

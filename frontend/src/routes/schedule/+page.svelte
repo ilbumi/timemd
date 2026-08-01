@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ApiError, api, type Project, type RecurringBlock } from '$lib/api';
+	import { attempt } from '$lib/attempt';
 	import { clockTime } from '$lib/dates';
 
 	let blocks = $state<RecurringBlock[]>([]);
@@ -18,17 +19,12 @@
 		remindBefore: '5m'
 	});
 
-	async function attempt(work: () => Promise<void>): Promise<void> {
-		error = null;
-		try {
-			await work();
-		} catch (failure) {
-			error = failure instanceof ApiError ? failure.message : 'Something went wrong';
-		}
+	async function run(work: () => Promise<void>): Promise<void> {
+		error = await attempt(work);
 	}
 
 	async function load(): Promise<void> {
-		await attempt(async () => {
+		await run(async () => {
 			blocks = await api.readRecurring();
 		});
 		loading = false;
@@ -45,7 +41,7 @@
 	};
 
 	const save = (): Promise<void> =>
-		attempt(async () => {
+		run(async () => {
 			// Blocks with no id would be dropped by the server anyway; refusing here
 			// gives a clearer message than a validation error from the grammar.
 			const unnamed = blocks.findIndex((block) => block.id.trim() === '');
@@ -59,9 +55,9 @@
 	$effect(() => {
 		void load();
 		api
-			.listProjects()
-			.then((all) => {
-				projects = all.filter((project) => project.status === 'active');
+			.listActiveProjects()
+			.then((active) => {
+				projects = active;
 			})
 			.catch(() => {
 				// Editing works without the project list; the field just stays empty.
@@ -207,19 +203,7 @@
 		min-width: 0;
 	}
 
-	.muted {
-		color: var(--text-muted);
-	}
-
 	code {
 		font-size: 0.85em;
-	}
-
-	.error {
-		padding: 10px 12px;
-		margin-bottom: var(--gap);
-		border-radius: var(--radius);
-		background: color-mix(in srgb, var(--danger) 12%, transparent);
-		color: var(--danger);
 	}
 </style>

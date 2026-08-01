@@ -10,13 +10,13 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use clap::{Parser, Subcommand};
 use timemd_core::active::SessionKind;
 use timemd_core::day::Session;
 use timemd_core::report::{self, GroupBy};
 use timemd_core::{
-    Error, Minutes, Project, ProjectSlug, Result, StartRequest, Stopped, Store, Timer,
+    DateRange, Minutes, Project, ProjectSlug, Result, StartRequest, Stopped, Store, Timer,
 };
 
 #[derive(Parser, Debug)]
@@ -115,8 +115,8 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
         } => {
             let request = StartRequest {
                 kind: SessionKind::Focus,
-                duration: duration.map(|raw| parse_duration(&raw)).transpose()?,
-                project: project.map(|raw| parse_slug(&raw)).transpose()?,
+                duration: duration.map(|raw| raw.parse::<Minutes>()).transpose()?,
+                project: project.map(ProjectSlug::new).transpose()?,
                 note,
             };
             let active = Timer::new(store).start(now, request)?;
@@ -149,7 +149,7 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
             Ok(match state.active {
                 Some(active) => format!(
                     "{} on {} — {} left{}",
-                    kind_name(active.kind),
+                    active.kind,
                     name_or_dash(active.project.as_ref()),
                     active.remaining(now),
                     suffix(&active.note),
@@ -190,12 +190,7 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
             date,
         } => {
             let date = date.unwrap_or_else(|| now.date());
-            let session = Session::new(
-                from,
-                to,
-                project.map(|raw| parse_slug(&raw)).transpose()?,
-                note,
-            );
+            let session = Session::new(from, to, project.map(ProjectSlug::new).transpose()?, note);
             let logged = session.duration();
             store.update_day(date, |day| day.add_session(session))?;
             Ok(format!("logged {logged} on {date}"))
@@ -227,9 +222,11 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
         Command::Report { from, to, group_by } => {
             let to = to.unwrap_or_else(|| now.date());
             let from = from.unwrap_or_else(|| to - chrono::TimeDelta::days(6));
-            let grouping = parse_grouping(&group_by)?;
+            // Core validates the span, so the CLI inherits the same bound the
+            // HTTP API and the MCP server enforce.
+            let range = DateRange::new(from, to)?;
 
-            let report = report::build(store, from, to, grouping)?;
+            let report = report::build(store, range, group_by.parse::<GroupBy>()?)?;
             let mut lines = vec![format!("{from} → {to} — {} total", report.total)];
             for bucket in &report.buckets {
                 lines.push(format!(
@@ -251,22 +248,13 @@ pub fn open(root: &Path) -> Store {
 
 /// Now, as wall-clock time in the configured timezone.
 pub fn local_now(store: &Store) -> Result<NaiveDateTime> {
-    let timezone = store.read_settings()?.timezone;
-    Ok(Local::now().with_timezone(&timezone).naive_local())
+    store.wall_clock(Utc::now())
 }
 
 /// Creates a project file. Used by tests and available to callers that want to
 /// seed a tree without the HTTP API.
 pub fn create_project(store: &Store, slug: &str, name: &str, today: NaiveDate) -> Result<()> {
-    store.create_project(&Project::new(parse_slug(slug)?, name, today))
-}
-
-fn kind_name(kind: SessionKind) -> &'static str {
-    match kind {
-        SessionKind::Focus => "focus",
-        SessionKind::ShortBreak => "short break",
-        SessionKind::LongBreak => "long break",
-    }
+    store.create_project(&Project::new(ProjectSlug::new(slug)?, name, today))
 }
 
 fn name_or_dash(project: Option<&ProjectSlug>) -> String {
@@ -279,25 +267,6 @@ fn suffix(note: &str) -> String {
     } else {
         format!("  {note}")
     }
-}
-
-fn parse_grouping(raw: &str) -> Result<GroupBy> {
-    match raw {
-        "project" => Ok(GroupBy::Project),
-        "day" => Ok(GroupBy::Day),
-        other => Err(Error::UnknownProject(format!(
-            "unknown grouping {other:?}; expected `project` or `day`"
-        ))),
-    }
-}
-
-fn parse_slug(raw: &str) -> Result<ProjectSlug> {
-    ProjectSlug::new(raw).map_err(|error| Error::UnknownProject(error.to_string()))
-}
-
-fn parse_duration(raw: &str) -> Result<Minutes> {
-    raw.parse()
-        .map_err(|error: timemd_core::ParseErrorKind| Error::UnknownProject(error.to_string()))
 }
 
 #[cfg(test)]
@@ -559,7 +528,7 @@ mod tests {
         create_project(&store, "timemd", "timemd", today).expect("creates");
         create_project(&store, "admin", "Admin", today).expect("creates");
         store
-            .update_project(&parse_slug("admin").expect("valid"), |project| {
+            .update_project(&ProjectSlug::new("admin").expect("valid"), |project| {
                 project.status = timemd_core::ProjectStatus::Archived;
             })
             .expect("updates");
@@ -664,13 +633,6 @@ mod tests {
             )
             .is_err()
         );
-    }
-
-    #[test]
-    fn breaks_are_named_in_full() {
-        assert_eq!(kind_name(SessionKind::Focus), "focus");
-        assert_eq!(kind_name(SessionKind::ShortBreak), "short break");
-        assert_eq!(kind_name(SessionKind::LongBreak), "long break");
     }
 
     #[test]

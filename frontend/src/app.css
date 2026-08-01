@@ -148,3 +148,17 @@ a {
 	outline: 2px solid var(--accent);
 	outline-offset: 2px;
 }
+
+/* Shared by every screen. These lived in five scoped <style> blocks and had
+   already drifted apart on margin. */
+.muted {
+	color: var(--text-muted);
+}
+
+.error {
+	padding: 10px 12px;
+	margin-bottom: var(--gap);
+	border-radius: var(--radius);
+	background: color-mix(in srgb, var(--danger) 12%, transparent);
+	color: var(--danger);
+}

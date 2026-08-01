@@ -44,11 +44,12 @@ impl IntoResponse for ApiError {
 impl From<Error> for ApiError {
     fn from(error: Error) -> Self {
         let status = match &error {
-            Error::UnknownProject(_) | Error::UnknownSession { .. } => StatusCode::NOT_FOUND,
+            // Core rejects bad input with `Invalid`, which is a 400 by any other
+            // name — the domain rule and the status code stay in one place.
+            Error::Invalid(_) => StatusCode::BAD_REQUEST,
+            Error::UnknownProject(_) => StatusCode::NOT_FOUND,
             Error::DuplicateProject(_) => StatusCode::CONFLICT,
-            Error::Io { .. } | Error::Frontmatter { .. } | Error::Parse { .. } => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            Error::Io { .. } | Error::Frontmatter { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self::new(status, error.to_string())
     }

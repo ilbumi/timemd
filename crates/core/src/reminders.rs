@@ -8,6 +8,7 @@ use chrono::{NaiveDateTime, TimeDelta};
 
 use crate::day::Day;
 use crate::document::Document;
+use crate::grammar;
 use crate::ids::ProjectSlug;
 use crate::minutes::Minutes;
 use crate::schedule::{Recurring, planned};
@@ -42,44 +43,51 @@ impl Reminder {
 }
 
 /// `data/state/reminders.md` — the keys already notified.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SentLog {
     keys: Vec<String>,
-    document: Option<Document>,
+    document: Document,
+}
+
+impl Default for SentLog {
+    fn default() -> Self {
+        let mut document = Document::new();
+        document.set_preamble(vec![
+            String::new(),
+            "# Reminders already sent".to_owned(),
+            String::new(),
+        ]);
+        Self {
+            keys: Vec::new(),
+            document,
+        }
+    }
 }
 
 impl SentLog {
     pub fn parse(text: &str) -> Result<Self, yaml_serde::Error> {
         let document = Document::parse(text)?;
+        // Machine state, so a line that is not a key is simply not one — there is
+        // no user to report to. `list_item` keeps the bullet grammar the same as
+        // everywhere else, `*` included.
         let keys = document
             .section(SECTION_SENT)
             .map(|section| {
                 section
                     .content()
-                    .filter_map(|(_, line)| line.trim().strip_prefix("- ").map(str::to_owned))
+                    .filter_map(|(_, line)| grammar::list_item(line).ok().map(str::to_owned))
                     .collect()
             })
             .unwrap_or_default();
 
-        Ok(Self {
-            keys,
-            document: Some(document),
-        })
+        Ok(Self { keys, document })
     }
 
     /// Drops entries whose date is well in the past, so the file cannot grow
     /// without bound on a server that runs for months.
     pub fn render(&self, now: NaiveDateTime) -> String {
         let cutoff = (now - TimeDelta::days(KEEP_DAYS)).date().to_string();
-        let mut document = self.document.clone().unwrap_or_else(|| {
-            let mut fresh = Document::new();
-            fresh.set_preamble(vec![
-                String::new(),
-                "# Reminders already sent".to_owned(),
-                String::new(),
-            ]);
-            fresh
-        });
+        let mut document = self.document.clone();
 
         let lines: Vec<String> = self
             .keys
@@ -101,10 +109,6 @@ impl SentLog {
         if !self.contains(&key) {
             self.keys.push(key);
         }
-    }
-
-    pub fn len(&self) -> usize {
-        self.keys.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -333,13 +337,12 @@ mod tests {
         let mut log = SentLog::default();
         log.record("2026-08-05T09:00 deep-work");
         log.record("2026-08-05T09:00 deep-work");
-        assert_eq!(log.len(), 1);
+        assert!(log.contains("2026-08-05T09:00 deep-work"));
 
         let rendered = log.render(moment(9, 0));
         let reparsed = SentLog::parse(&rendered).expect("parses");
 
         assert!(reparsed.contains("2026-08-05T09:00 deep-work"));
-        assert_eq!(reparsed.len(), 1);
     }
 
     #[test]

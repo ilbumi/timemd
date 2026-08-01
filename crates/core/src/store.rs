@@ -14,7 +14,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 
 use crate::active::{ActiveSession, IDLE};
 use crate::day::Day;
@@ -54,6 +54,17 @@ impl Store {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// An instant as the wall-clock time the file grammar stores.
+    ///
+    /// The single point where an offset becomes a bare `HH:MM`. The server, the
+    /// CLI and the MCP server all go through here rather than each reading the
+    /// timezone themselves.
+    pub fn wall_clock(&self, instant: DateTime<Utc>) -> Result<NaiveDateTime> {
+        Ok(instant
+            .with_timezone(&self.read_settings()?.timezone)
+            .naive_local())
     }
 
     // ---- projects ----------------------------------------------------------
@@ -321,10 +332,6 @@ pub struct Tx<'store> {
 }
 
 impl Tx<'_> {
-    pub fn read_day(&self, date: NaiveDate) -> Result<Day> {
-        self.store.read_day(date)
-    }
-
     pub fn read_active(&self) -> Result<Option<ActiveSession>> {
         self.store.read_active()
     }
@@ -341,11 +348,19 @@ impl Tx<'_> {
     /// a new project looks like, and the file is written exactly once so its keys
     /// land in a predictable order.
     pub fn create_project(&self, project: &Project) -> Result<()> {
-        let path = self.store.project_path(project.slug());
-        if path.exists() {
+        if self.store.project_path(project.slug()).exists() {
             return Err(Error::DuplicateProject(project.slug().to_string()));
         }
-        write_atomic(&path, &project.render())
+        self.write_project(project)
+    }
+
+    /// Writes a project whether or not it already exists.
+    ///
+    /// The upsert primitive: paired with [`Tx::read_project`] inside one
+    /// transaction it gives "create or update" without a gap between the check
+    /// and the write.
+    pub fn write_project(&self, project: &Project) -> Result<()> {
+        write_atomic(&self.store.project_path(project.slug()), &project.render())
     }
 
     pub fn update_project<T>(
@@ -394,10 +409,6 @@ impl Tx<'_> {
     pub fn set_active(&self, session: Option<&ActiveSession>) -> Result<()> {
         let text = session.map_or_else(|| IDLE.to_owned(), ActiveSession::render);
         write_atomic(&self.store.active_path(), &text)
-    }
-
-    pub fn read_recurring(&self) -> Result<Recurring> {
-        self.store.read_recurring()
     }
 
     pub fn update_recurring<T>(&self, edit: impl FnOnce(&mut Recurring) -> T) -> Result<T> {

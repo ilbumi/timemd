@@ -11,6 +11,7 @@
 mod assets;
 mod error;
 mod health;
+mod parse;
 mod projects;
 pub mod push;
 mod report;

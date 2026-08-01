@@ -44,11 +44,23 @@ impl Clock {
 pub struct AppState {
     store: Arc<Store>,
     clock: Clock,
+    /// Shared so push delivery reuses TLS connections instead of paying a fresh
+    /// handshake per notification. Cloning is cheap — the client is internally
+    /// reference-counted.
+    http: reqwest::Client,
 }
 
 impl AppState {
     pub fn new(store: Arc<Store>, clock: Clock) -> Self {
-        Self { store, clock }
+        Self {
+            store,
+            clock,
+            http: reqwest::Client::new(),
+        }
+    }
+
+    pub fn http(&self) -> &reqwest::Client {
+        &self.http
     }
 
     pub fn store(&self) -> &Store {

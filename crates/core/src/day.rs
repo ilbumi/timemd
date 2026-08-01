@@ -84,11 +84,12 @@ pub struct Day {
     /// Repeating blocks suppressed for this day.
     skipped: Vec<BlockId>,
     sessions: Vec<Session>,
-    /// Session lines that failed to parse. Preserved verbatim and re-emitted at
-    /// the end of the section, so a typo costs the user one misplaced line
-    /// rather than the whole day.
-    unparsed: Vec<String>,
+    /// Lines that failed to parse, per owned section. Preserved verbatim and
+    /// re-emitted at the end of their section, so a typo costs the user one
+    /// misplaced line rather than the whole day.
+    unparsed_sessions: Vec<String>,
     unparsed_schedule: Vec<String>,
+    unparsed_skipped: Vec<String>,
     problems: Vec<ParseError>,
     document: Document,
 }
@@ -104,8 +105,9 @@ impl Day {
             schedule: Vec::new(),
             skipped: Vec::new(),
             sessions: Vec::new(),
-            unparsed: Vec::new(),
+            unparsed_sessions: Vec::new(),
             unparsed_schedule: Vec::new(),
+            unparsed_skipped: Vec::new(),
             problems: Vec::new(),
             document,
         }
@@ -114,57 +116,27 @@ impl Day {
     /// Reads a day file. Only malformed YAML frontmatter fails.
     pub fn parse(date: NaiveDate, text: &str) -> Result<Self, yaml_serde::Error> {
         let document = Document::parse(text)?;
-
-        let mut sessions = Vec::new();
-        let mut unparsed = Vec::new();
         let mut problems = Vec::new();
 
-        if let Some(section) = document.section(SECTION_SESSIONS) {
-            for (line_number, line) in section.content() {
-                match grammar::list_item(line).and_then(Session::parse) {
-                    Ok(session) => sessions.push(session),
-                    Err(kind) => {
-                        problems.push(ParseError::new(line_number, kind));
-                        unparsed.push(line.to_owned());
-                    }
-                }
-            }
-        }
-
+        let (mut sessions, unparsed_sessions) =
+            document.parse_list_section(SECTION_SESSIONS, Session::parse, &mut problems);
         sessions.sort_by_key(|session| session.start);
 
-        let mut schedule = Vec::new();
-        let mut unparsed_schedule = Vec::new();
-        if let Some(section) = document.section(SECTION_SCHEDULE) {
-            for (line_number, line) in section.content() {
-                match grammar::list_item(line).and_then(DayBlock::parse) {
-                    Ok(block) => schedule.push(block),
-                    Err(kind) => {
-                        problems.push(ParseError::new(line_number, kind));
-                        unparsed_schedule.push(line.to_owned());
-                    }
-                }
-            }
-        }
+        let (mut schedule, unparsed_schedule) =
+            document.parse_list_section(SECTION_SCHEDULE, DayBlock::parse, &mut problems);
         schedule.sort_by_key(|block| block.start);
 
-        let mut skipped = Vec::new();
-        if let Some(section) = document.section(SECTION_SKIPPED) {
-            for (line_number, line) in section.content() {
-                match grammar::list_item(line).and_then(parse_skip) {
-                    Ok(id) => skipped.push(id),
-                    Err(kind) => problems.push(ParseError::new(line_number, kind)),
-                }
-            }
-        }
+        let (skipped, unparsed_skipped) =
+            document.parse_list_section(SECTION_SKIPPED, grammar::backtick_id, &mut problems);
 
         Ok(Self {
             date,
             schedule,
             skipped,
             sessions,
-            unparsed,
+            unparsed_sessions,
             unparsed_schedule,
+            unparsed_skipped,
             problems,
             document,
         })
@@ -174,16 +146,27 @@ impl Day {
     pub fn render(&self) -> String {
         let mut document = self.document.clone();
 
-        let mut blocks: Vec<String> = self.schedule.iter().map(DayBlock::render).collect();
-        blocks.extend(self.unparsed_schedule.iter().cloned());
-        document.upsert_section(SECTION_SCHEDULE, blocks, &[]);
-
-        let skips: Vec<String> = self.skipped.iter().map(|id| format!("- `{id}`")).collect();
-        document.upsert_section(SECTION_SKIPPED, skips, BEFORE_SKIPPED);
-
-        let mut lines: Vec<String> = self.sessions.iter().map(Session::render).collect();
-        lines.extend(self.unparsed.iter().cloned());
-        document.upsert_section(SECTION_SESSIONS, lines, BEFORE_SESSIONS);
+        document.write_list_section(
+            SECTION_SCHEDULE,
+            &self.schedule,
+            &self.unparsed_schedule,
+            &[],
+            DayBlock::render,
+        );
+        document.write_list_section(
+            SECTION_SKIPPED,
+            &self.skipped,
+            &self.unparsed_skipped,
+            BEFORE_SKIPPED,
+            |id| format!("- `{id}`"),
+        );
+        document.write_list_section(
+            SECTION_SESSIONS,
+            &self.sessions,
+            &self.unparsed_sessions,
+            BEFORE_SESSIONS,
+            Session::render,
+        );
 
         document.render()
     }
@@ -259,18 +242,6 @@ impl Day {
         self.skipped.retain(|candidate| candidate != id);
         self.skipped.len() != before
     }
-}
-
-/// A `## Skipped` entry: a backtick-quoted block id and nothing else.
-fn parse_skip(content: &str) -> Result<BlockId, ParseErrorKind> {
-    let missing = || ParseErrorKind::MissingBlockId {
-        found: content.to_owned(),
-    };
-    let inner = content
-        .strip_prefix('`')
-        .and_then(|rest| rest.strip_suffix('`'))
-        .ok_or_else(missing)?;
-    BlockId::new(inner).map_err(|_| missing())
 }
 
 #[cfg(test)]
@@ -525,13 +496,22 @@ mod tests {
         assert!(!day.render().contains("## Skipped"));
     }
 
+    /// Guarantee 1 in docs/format.md, for the section that used to break it:
+    /// `## Skipped` reported a malformed line and then erased it on the next
+    /// write, because its parse loop was hand-rolled separately from the others.
     #[test]
-    fn an_unreadable_skip_entry_is_reported_rather_than_dropped_silently() {
-        let text = "---\ndate: 2026-08-01\n---\n\n## Skipped\n\n- not-backticked\n";
-        let day = Day::parse(date(), text).expect("parses");
+    fn an_unreadable_skip_entry_is_reported_and_kept() {
+        let text = "---\ndate: 2026-08-01\n---\n\n## Skipped\n\n- `deep-work`\n- not-backticked\n";
+        let mut day = Day::parse(date(), text).expect("parses");
 
-        assert!(day.skipped().is_empty());
+        assert_eq!(day.skipped().len(), 1);
         assert_eq!(day.problems().len(), 1);
+
+        day.skip(BlockId::new("review").expect("valid id"));
+        let rendered = day.render();
+
+        assert!(rendered.contains("- not-backticked"), "{rendered}");
+        assert!(rendered.contains("- `review`"), "{rendered}");
     }
 
     #[test]

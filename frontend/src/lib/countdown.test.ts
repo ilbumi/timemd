@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Countdown, formatClock, progress } from './countdown';
+import { Countdown, formatClock, parseMinutes, progress } from './countdown';
 
 describe('Countdown', () => {
 	it('reports nothing before a sync', () => {
@@ -87,5 +87,21 @@ describe('progress', () => {
 		expect(progress(-100, 1500)).toBe(1);
 		expect(progress(2000, 1500)).toBe(0);
 		expect(progress(10, 0)).toBe(0);
+	});
+});
+
+describe('parseMinutes', () => {
+	it('reads the canonical forms', () => {
+		expect(parseMinutes('25m')).toBe(25);
+		expect(parseMinutes('1h')).toBe(60);
+		expect(parseMinutes('1h30m')).toBe(90);
+		expect(parseMinutes('0m')).toBe(0);
+	});
+
+	/** Matches core's `Minutes`, which rejects an unlabelled number. */
+	it('returns zero for anything the server would not have written', () => {
+		for (const bad of ['', '90', 'ages', '1h30', '1.5h']) {
+			expect(parseMinutes(bad)).toBe(0);
+		}
 	});
 });

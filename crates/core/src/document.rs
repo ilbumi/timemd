@@ -10,6 +10,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use yaml_serde::{Mapping, Value};
 
+use crate::error::{ParseError, ParseErrorKind};
+use crate::grammar;
+
 const FENCE: &str = "---";
 
 /// A `##` section: its title and its raw body lines, heading excluded.
@@ -97,17 +100,25 @@ impl Document {
             output.push('\n');
         }
 
-        let mut lines: Vec<&str> = self.preamble.iter().map(String::as_str).collect();
-        let mut headings = Vec::with_capacity(self.sections.len());
-        for section in &self.sections {
-            headings.push(format!("## {}", section.title));
+        let mut first = true;
+        let mut line = |text: &str, output: &mut String| {
+            if !first {
+                output.push('\n');
+            }
+            first = false;
+            output.push_str(text);
+        };
+
+        for text in &self.preamble {
+            line(text, &mut output);
         }
-        for (section, heading) in self.sections.iter().zip(&headings) {
-            lines.push(heading);
-            lines.extend(section.lines.iter().map(String::as_str));
+        for section in &self.sections {
+            line(&format!("## {}", section.title), &mut output);
+            for text in &section.lines {
+                line(text, &mut output);
+            }
         }
 
-        output.push_str(&lines.join("\n"));
         output
     }
 
@@ -153,7 +164,7 @@ impl Document {
         }
     }
 
-    pub fn remove_section(&mut self, title: &str) {
+    fn remove_section(&mut self, title: &str) {
         if let Some(index) = self.position(title) {
             self.sections.remove(index);
         }
@@ -182,6 +193,58 @@ impl Document {
 
     pub fn remove_front_key(&mut self, key: &str) {
         self.front.remove(Value::from(key));
+    }
+
+    /// Reads a section of list items leniently.
+    ///
+    /// This is the one implementation of the crate's central rule: a line that
+    /// does not parse is preserved verbatim and reported, never dropped. Every
+    /// owned section goes through here so that no future section can forget —
+    /// which is exactly how `## Skipped` once lost its malformed lines.
+    ///
+    /// Returns the parsed items and the lines that failed, in file order.
+    pub fn parse_list_section<T>(
+        &self,
+        title: &str,
+        parse: impl Fn(&str) -> std::result::Result<T, ParseErrorKind>,
+        problems: &mut Vec<ParseError>,
+    ) -> (Vec<T>, Vec<String>) {
+        let mut items = Vec::new();
+        let mut unparsed = Vec::new();
+
+        let Some(section) = self.section(title) else {
+            return (items, unparsed);
+        };
+
+        for (line_number, line) in section.content() {
+            match grammar::list_item(line).and_then(&parse) {
+                Ok(item) => items.push(item),
+                Err(kind) => {
+                    problems.push(ParseError::new(line_number, kind));
+                    unparsed.push(line.to_owned());
+                }
+            }
+        }
+
+        (items, unparsed)
+    }
+
+    /// Writes a section of list items back, re-emitting anything unparsed.
+    ///
+    /// The counterpart to [`Document::parse_list_section`]: unparsed lines land
+    /// at the end of the section, which is where a user looking for what went
+    /// wrong will find them.
+    pub fn write_list_section<T>(
+        &mut self,
+        title: &str,
+        items: &[T],
+        unparsed: &[String],
+        after: &[&str],
+        render: impl Fn(&T) -> String,
+    ) {
+        let mut lines: Vec<String> = items.iter().map(render).collect();
+        lines.extend(unparsed.iter().cloned());
+        self.upsert_section(title, lines, after);
     }
 
     /// Replaces the preamble, used when creating a file from a template.

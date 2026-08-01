@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use rmcp::ServerHandler;
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::{Json, Parameters};
@@ -17,13 +17,11 @@ use serde::{Deserialize, Serialize};
 use timemd_core::active::SessionKind;
 use timemd_core::day::Session;
 use timemd_core::report::{self, GroupBy};
-use timemd_core::schedule::planned;
+use timemd_core::schedule::{planned, planned_range};
 use timemd_core::{
-    Color, Minutes, Project, ProjectSlug, ProjectStatus, StartRequest, Stopped, Store, Timer,
+    Color, DateRange, Minutes, Project, ProjectSlug, ProjectStatus, StartRequest, Stopped, Store,
+    Timer,
 };
-
-/// Matches the HTTP API's bound: a range request is a scan over day files.
-const MAX_RANGE_DAYS: i64 = 366;
 
 /// The MCP server. One store, no other state.
 #[derive(Clone)]
@@ -238,27 +236,15 @@ impl TimeMd {
     ) -> Result<Json<CurrentSession>, ErrorData> {
         let now = self.now()?;
         let state = Timer::new(&self.store).state(now).map_err(failed)?;
+        let active = state.active.as_ref();
 
         Ok(Json(CurrentSession {
-            running: state.active.is_some(),
-            kind: state.active.as_ref().map(|active| match active.kind {
-                SessionKind::Focus => "focus".to_owned(),
-                SessionKind::ShortBreak => "short_break".to_owned(),
-                SessionKind::LongBreak => "long_break".to_owned(),
-            }),
-            project: state
-                .active
-                .as_ref()
-                .and_then(|active| active.project.as_ref().map(ToString::to_string)),
-            note: state.active.as_ref().map(|active| active.note.clone()),
-            started_at: state
-                .active
-                .as_ref()
-                .map(|active| active.started.format("%Y-%m-%dT%H:%M").to_string()),
-            remaining: state
-                .active
-                .as_ref()
-                .map(|active| active.remaining(now).to_string()),
+            running: active.is_some(),
+            kind: active.map(|active| active.kind.to_string()),
+            project: active.and_then(|active| active.project.as_ref().map(ToString::to_string)),
+            note: active.map(|active| active.note.clone()),
+            started_at: active.map(|active| active.started.format("%Y-%m-%dT%H:%M").to_string()),
+            remaining: active.map(|active| active.remaining(now).to_string()),
             tracked_today: state.tracked_today.to_string(),
             completed_today: state.completed_today,
         }))
@@ -322,15 +308,9 @@ impl TimeMd {
         &self,
         Parameters(params): Parameters<RangeParams>,
     ) -> Result<Json<Vec<PlannedBlock>>, ErrorData> {
-        let (from, to) = range(&params.from, &params.to)?;
-        let recurring = self.store.read_recurring().map_err(failed)?;
-
-        let mut blocks = Vec::new();
-        for on in from.iter_days().take_while(|date| *date <= to) {
-            let day = self.store.read_day(on).map_err(failed)?;
-            blocks.extend(planned(&day, &recurring).iter().map(block));
-        }
-        Ok(Json(blocks))
+        let occurrences =
+            planned_range(&self.store, range(&params.from, &params.to)?).map_err(failed)?;
+        Ok(Json(occurrences.iter().map(block).collect()))
     }
 
     #[tool(name = "report", description = "Total tracked time over a range.")]
@@ -338,26 +318,20 @@ impl TimeMd {
         &self,
         Parameters(params): Parameters<ReportParams>,
     ) -> Result<Json<ReportSummary>, ErrorData> {
-        let (from, to) = range(&params.from, &params.to)?;
-        let grouping = match params.group_by.as_deref().unwrap_or("project") {
-            "project" => GroupBy::Project,
-            "day" => GroupBy::Day,
-            other => {
-                return Err(invalid(format!(
-                    "unknown grouping {other:?}; expected `project` or `day`"
-                )));
-            }
-        };
+        let range = range(&params.from, &params.to)?;
+        let grouping: GroupBy = params
+            .group_by
+            .as_deref()
+            .unwrap_or("project")
+            .parse()
+            .map_err(failed)?;
 
-        let summary = report::build(&self.store, from, to, grouping).map_err(failed)?;
+        let summary = report::build(&self.store, range, grouping).map_err(failed)?;
 
         Ok(Json(ReportSummary {
             from: summary.from.to_string(),
             to: summary.to.to_string(),
-            group_by: match summary.group_by {
-                GroupBy::Project => "project".to_owned(),
-                GroupBy::Day => "day".to_owned(),
-            },
+            group_by: summary.group_by.to_string(),
             total: summary.total.to_string(),
             buckets: summary
                 .buckets
@@ -393,25 +367,27 @@ impl TimeMd {
     ) -> Result<Json<ProjectSummary>, ErrorData> {
         let slug = slug(&params.slug)?;
         let color = params.color.as_deref().map(colour).transpose()?;
-        let status = params.status.as_deref().map(project_status).transpose()?;
+        let status = params
+            .status
+            .as_deref()
+            .map(|raw| raw.parse::<ProjectStatus>().map_err(failed))
+            .transpose()?;
+        let today = self.now()?.date();
 
-        if self.store.read_project(&slug).map_err(failed)?.is_none() {
-            let mut project = Project::new(
-                slug.clone(),
-                params.name.unwrap_or_else(|| slug.to_string()),
-                self.now()?.date(),
-            );
-            project.color = color;
-            if let Some(status) = status {
-                project.status = status;
-            }
-            self.store.create_project(&project).map_err(failed)?;
-            return Ok(Json(summarise(&project)));
-        }
-
+        // One transaction, so the file is read once and cannot be created
+        // between the existence check and the write.
         let summary = self
             .store
-            .update_project(&slug, |project| {
+            .transaction(|tx| {
+                let existing = tx.read_project(&slug)?;
+                let mut project = existing.unwrap_or_else(|| {
+                    Project::new(
+                        slug.clone(),
+                        params.name.clone().unwrap_or_else(|| slug.to_string()),
+                        today,
+                    )
+                });
+
                 if let Some(name) = params.name {
                     project.name = name;
                 }
@@ -421,7 +397,9 @@ impl TimeMd {
                 if let Some(status) = status {
                     project.status = status;
                 }
-                summarise(&*project)
+
+                tx.write_project(&project)?;
+                Ok(summarise(&project))
             })
             .map_err(failed)?;
 
@@ -430,8 +408,7 @@ impl TimeMd {
 
     /// Now, as wall-clock time in the configured timezone.
     fn now(&self) -> Result<NaiveDateTime, ErrorData> {
-        let timezone = self.store.read_settings().map_err(failed)?.timezone;
-        Ok(Local::now().with_timezone(&timezone).naive_local())
+        self.store.wall_clock(Utc::now()).map_err(failed)
     }
 }
 
@@ -485,11 +462,7 @@ fn summarise(project: &Project) -> ProjectSummary {
         slug: project.slug().to_string(),
         name: project.name.clone(),
         color: project.color.as_ref().map(ToString::to_string),
-        status: if project.status.is_archived() {
-            "archived".to_owned()
-        } else {
-            "active".to_owned()
-        },
+        status: project.status.to_string(),
     }
 }
 
@@ -536,16 +509,6 @@ fn minutes(raw: &str) -> Result<Minutes, ErrorData> {
         .map_err(|error: timemd_core::ParseErrorKind| invalid(error.to_string()))
 }
 
-fn project_status(raw: &str) -> Result<ProjectStatus, ErrorData> {
-    match raw {
-        "active" => Ok(ProjectStatus::Active),
-        "archived" => Ok(ProjectStatus::Archived),
-        other => Err(invalid(format!(
-            "unknown status {other:?}; expected `active` or `archived`"
-        ))),
-    }
-}
-
 fn date(raw: &str) -> Result<NaiveDate, ErrorData> {
     raw.parse()
         .map_err(|_| invalid(format!("invalid date {raw:?}; expected YYYY-MM-DD")))
@@ -557,15 +520,8 @@ fn time(raw: &str) -> Result<NaiveTime, ErrorData> {
         .map_err(|_| invalid(format!("invalid time {raw:?}; expected HH:MM")))
 }
 
-fn range(from: &str, to: &str) -> Result<(NaiveDate, NaiveDate), ErrorData> {
-    let (from, to) = (date(from)?, date(to)?);
-    if to < from {
-        return Err(invalid("`to` is before `from`".to_owned()));
-    }
-    if (to - from).num_days() > MAX_RANGE_DAYS {
-        return Err(invalid(format!("range longer than {MAX_RANGE_DAYS} days")));
-    }
-    Ok((from, to))
+fn range(from: &str, to: &str) -> Result<DateRange, ErrorData> {
+    DateRange::new(date(from)?, date(to)?).map_err(failed)
 }
 
 #[cfg(test)]
@@ -897,6 +853,7 @@ mod tests {
         assert!(range("2026-08-31", "2026-08-01").is_err());
         assert!(range("2020-01-01", "2026-08-01").is_err());
         assert!(range("2026-08-01", "2026-08-31").is_ok());
+        assert!(range("yesterday", "2026-08-31").is_err());
     }
 
     #[test]

@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { ApiError, api, type GroupBy, type Report } from '$lib/api';
+	import { api, type GroupBy, type Report } from '$lib/api';
+	import { describe } from '$lib/attempt';
+	import { parseMinutes } from '$lib/countdown';
 	import {
 		dayLabel,
 		endOfMonth,
@@ -22,16 +24,14 @@
 	const from = $derived(span === 'week' ? startOfWeek(anchor) : startOfMonth(anchor));
 	const to = $derived(span === 'week' ? shiftDays(startOfWeek(anchor), 6) : endOfMonth(anchor));
 
-	/** Longest bar in the set, so the bars are relative to the biggest bucket. */
-	const peak = $derived(
-		report?.buckets.reduce((most, bucket) => Math.max(most, minutes(bucket.tracked)), 0) ?? 0
+	/** Each bucket paired with its size, measured once per report rather than
+	    once per bucket per render. */
+	const bars = $derived(
+		(report?.buckets ?? []).map((bucket) => ({ bucket, minutes: parseMinutes(bucket.tracked) }))
 	);
 
-	/** `1h30m` / `25m` as a number, for bar widths only. */
-	function minutes(duration: string): number {
-		const match = /^(?:(\d+)h)?(?:(\d+)m)?$/.exec(duration);
-		return match ? Number(match[1] ?? 0) * 60 + Number(match[2] ?? 0) : 0;
-	}
+	/** Longest bar in the set, so the bars are relative to the biggest bucket. */
+	const peak = $derived(bars.reduce((most, bar) => Math.max(most, bar.minutes), 0));
 
 	const move = (steps: number): void => {
 		anchor = span === 'week' ? shiftDays(anchor, steps * 7) : shiftMonths(anchor, steps);
@@ -47,7 +47,7 @@
 				report = result;
 			})
 			.catch((failure: unknown) => {
-				error = failure instanceof ApiError ? failure.message : 'Something went wrong';
+				error = describe(failure);
 			})
 			.finally(() => {
 				loading = false;
@@ -91,7 +91,7 @@
 	<p class="muted">Nothing tracked in this range.</p>
 {:else if report}
 	<ul>
-		{#each report.buckets as bucket (bucket.key ?? '·')}
+		{#each bars as { bucket, minutes } (bucket.key ?? '·')}
 			<li>
 				<div class="line">
 					<span class="name">
@@ -105,10 +105,7 @@
 					</span>
 					<span class="value">{bucket.tracked}</span>
 				</div>
-				<div
-					class="bar"
-					style:width="{peak > 0 ? (minutes(bucket.tracked) / peak) * 100 : 0}%"
-				></div>
+				<div class="bar" style:width="{peak > 0 ? (minutes / peak) * 100 : 0}%"></div>
 			</li>
 		{/each}
 	</ul>
@@ -206,16 +203,5 @@
 		min-width: 2px;
 		border-radius: 999px;
 		background: var(--accent);
-	}
-
-	.muted {
-		color: var(--text-muted);
-	}
-
-	.error {
-		padding: 10px 12px;
-		border-radius: var(--radius);
-		background: color-mix(in srgb, var(--danger) 12%, transparent);
-		color: var(--danger);
 	}
 </style>

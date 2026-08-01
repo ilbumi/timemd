@@ -8,14 +8,11 @@ use chrono::{NaiveDate, NaiveTime};
 use serde::{Deserialize, Serialize};
 use timemd_core::day::Session;
 use timemd_core::schedule::planned;
-use timemd_core::{BlockId, DayBlock, Minutes, Occurrence, ProjectSlug, RecurringBlock};
+use timemd_core::{DateRange, DayBlock, Minutes, Occurrence, RecurringBlock};
 
 use crate::error::{ApiError, ApiResult};
+use crate::parse::{block_id, optional_minutes, optional_slug};
 use crate::state::AppState;
-
-/// Bounds a range request so a stray `to=9999-12-31` cannot walk a decade of
-/// dates on a small server.
-const MAX_RANGE_DAYS: i64 = 366;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -54,21 +51,41 @@ pub struct OccurrenceView {
     remind_before: Option<Minutes>,
     /// The repeating block this came from, or `null` for a one-off.
     block: Option<String>,
+    /// Position among that day's one-off blocks, which is what the delete
+    /// endpoint addresses. `null` for a repeat.
+    ///
+    /// Sent because the server owns this index. The client used to recover it by
+    /// counting entries in the merged list, which silently depended on how
+    /// `planned()` happens to sort.
+    one_off_index: Option<usize>,
 }
 
-impl From<&Occurrence> for OccurrenceView {
-    fn from(occurrence: &Occurrence) -> Self {
-        Self {
-            date: occurrence.date,
-            start: occurrence.start,
-            end: occurrence.end,
-            duration: occurrence.duration(),
-            project: occurrence.project.as_ref().map(ToString::to_string),
-            title: occurrence.title.clone(),
-            remind_before: occurrence.remind_before,
-            block: occurrence.block.as_ref().map(ToString::to_string),
-        }
-    }
+/// Numbers the one-offs in one day's merged list, leaving repeats at `None`.
+fn views_for(occurrences: Vec<Occurrence>) -> Vec<OccurrenceView> {
+    let mut one_offs = 0;
+
+    occurrences
+        .into_iter()
+        .map(|occurrence| {
+            let one_off_index = occurrence.block.is_none().then(|| {
+                let index = one_offs;
+                one_offs += 1;
+                index
+            });
+
+            OccurrenceView {
+                duration: occurrence.duration(),
+                date: occurrence.date,
+                start: occurrence.start,
+                end: occurrence.end,
+                project: occurrence.project.map(|slug| slug.to_string()),
+                title: occurrence.title,
+                remind_before: occurrence.remind_before,
+                block: occurrence.block.map(|id| id.to_string()),
+                one_off_index,
+            }
+        })
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -143,23 +160,17 @@ async fn range(
     State(state): State<AppState>,
     Query(query): Query<RangeQuery>,
 ) -> ApiResult<Json<Vec<OccurrenceView>>> {
-    if query.to < query.from {
-        return Err(ApiError::bad_request("`to` is before `from`"));
-    }
-    if (query.to - query.from).num_days() > MAX_RANGE_DAYS {
-        return Err(ApiError::bad_request(format!(
-            "range longer than {MAX_RANGE_DAYS} days"
-        )));
-    }
-
+    let range = DateRange::new(query.from, query.to)?;
     let recurring = state.store().read_recurring()?;
-    let mut occurrences = Vec::new();
-    for date in query.from.iter_days().take_while(|date| *date <= query.to) {
+
+    // Numbered per day, because a day is the scope the delete endpoint addresses.
+    let mut views = Vec::new();
+    for date in range.dates() {
         let day = state.store().read_day(date)?;
-        occurrences.extend(planned(&day, &recurring).iter().map(OccurrenceView::from));
+        views.extend(views_for(planned(&day, &recurring)));
     }
 
-    Ok(Json(occurrences))
+    Ok(Json(views))
 }
 
 async fn read_recurring(State(state): State<AppState>) -> ApiResult<Json<Vec<RecurringView>>> {
@@ -181,22 +192,14 @@ async fn write_recurring(
         .map(block_from)
         .collect::<ApiResult<Vec<_>>>()?;
 
-    state.store().update_recurring(|recurring| {
-        for existing in recurring
-            .blocks()
-            .iter()
-            .map(|block| block.id.clone())
-            .collect::<Vec<_>>()
-        {
-            recurring.remove(&existing);
-        }
-        for block in parsed {
-            recurring.upsert(block);
-        }
+    // The closure returns the result, so there is no second read of the file
+    // that was just written.
+    let stored = state.store().update_recurring(|recurring| {
+        recurring.replace_all(parsed);
+        recurring.blocks().iter().map(view_of).collect()
     })?;
 
-    let recurring = state.store().read_recurring()?;
-    Ok(Json(recurring.blocks().iter().map(view_of).collect()))
+    Ok(Json(stored))
 }
 
 async fn read_day(
@@ -222,10 +225,7 @@ async fn read_day(
             })
             .collect(),
         tracked: day.total(),
-        planned: planned(&day, &recurring)
-            .iter()
-            .map(OccurrenceView::from)
-            .collect(),
+        planned: views_for(planned(&day, &recurring)),
         skipped: day.skipped().iter().map(ToString::to_string).collect(),
         problems: day.problems().iter().map(ToString::to_string).collect(),
     }))
@@ -361,28 +361,6 @@ fn block_from(view: &RecurringView) -> ApiResult<RecurringBlock> {
         title: view.title.trim().to_owned(),
         remind_before: optional_minutes(view.remind_before.clone())?,
     })
-}
-
-fn block_id(raw: &str) -> ApiResult<BlockId> {
-    BlockId::new(raw).map_err(|error| ApiError::bad_request(error.to_string()))
-}
-
-fn optional_slug(raw: Option<String>) -> ApiResult<Option<ProjectSlug>> {
-    raw.filter(|slug| !slug.is_empty())
-        .map(|slug| {
-            ProjectSlug::new(slug).map_err(|error| ApiError::bad_request(error.to_string()))
-        })
-        .transpose()
-}
-
-fn optional_minutes(raw: Option<String>) -> ApiResult<Option<Minutes>> {
-    raw.filter(|value| !value.is_empty())
-        .map(|value| {
-            value
-                .parse::<Minutes>()
-                .map_err(|error| ApiError::bad_request(error.to_string()))
-        })
-        .transpose()
 }
 
 fn missing_session(date: NaiveDate, index: usize) -> ApiError {

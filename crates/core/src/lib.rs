@@ -35,8 +35,10 @@ pub use minutes::Minutes;
 pub use project::{Color, Project, ProjectStatus};
 pub use push::{PushState, Subscription};
 pub use reminders::{Reminder, SentLog};
-pub use report::{Bucket, GroupBy, Report};
-pub use schedule::{DayBlock, DaySet, Occurrence, Recurring, RecurringBlock, planned};
+pub use report::{Bucket, DateRange, GroupBy, Report};
+pub use schedule::{
+    DayBlock, DaySet, Occurrence, Recurring, RecurringBlock, planned, planned_range,
+};
 pub use settings::Settings;
 pub use store::{Store, Tx};
 pub use timer::{StartRequest, Stopped, Timer, TimerState};

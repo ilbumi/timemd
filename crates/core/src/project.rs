@@ -79,6 +79,29 @@ impl ProjectStatus {
     }
 }
 
+impl FromStr for ProjectStatus {
+    type Err = crate::error::Error;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw {
+            "active" => Ok(Self::Active),
+            "archived" => Ok(Self::Archived),
+            other => Err(crate::error::Error::Invalid(format!(
+                "unknown status {other:?}; expected `active` or `archived`"
+            ))),
+        }
+    }
+}
+
+impl fmt::Display for ProjectStatus {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Active => "active",
+            Self::Archived => "archived",
+        })
+    }
+}
+
 /// A project, with its prose body and any agent-authored frontmatter intact.
 #[derive(Debug, Clone)]
 pub struct Project {
@@ -228,5 +251,20 @@ mod tests {
     fn archived_is_reported() {
         assert!(ProjectStatus::Archived.is_archived());
         assert!(!ProjectStatus::Active.is_archived());
+    }
+
+    #[test]
+    fn statuses_round_trip_through_text() {
+        assert_eq!(
+            "active".parse::<ProjectStatus>().ok(),
+            Some(ProjectStatus::Active)
+        );
+        assert_eq!(
+            "archived".parse::<ProjectStatus>().ok(),
+            Some(ProjectStatus::Archived)
+        );
+        assert_eq!(ProjectStatus::Active.to_string(), "active");
+        assert_eq!(ProjectStatus::Archived.to_string(), "archived");
+        assert!("hibernating".parse::<ProjectStatus>().is_err());
     }
 }

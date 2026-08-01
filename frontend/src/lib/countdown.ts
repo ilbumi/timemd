@@ -58,3 +58,18 @@ export function progress(remainingSeconds: number, totalSeconds: number): number
 	if (totalSeconds <= 0) return 0;
 	return Math.min(1, Math.max(0, 1 - remainingSeconds / totalSeconds));
 }
+
+/**
+ * A canonical duration (`25m`, `1h`, `1h30m`) as a number of minutes.
+ *
+ * The client needs a quantity in the one place it draws proportional bars.
+ * Strict on purpose — it mirrors core's `Minutes` parser, which rejects an
+ * unlabelled number, so the two cannot quietly disagree about what is valid.
+ */
+export function parseMinutes(duration: string): number {
+	const match = /^(?:(\d+)h)?(?:(\d+)m)?$/.exec(duration);
+	if (match === null || (match[1] === undefined && match[2] === undefined)) {
+		return 0;
+	}
+	return Number(match[1] ?? 0) * 60 + Number(match[2] ?? 0);
+}

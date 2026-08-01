@@ -17,7 +17,7 @@ use chrono::NaiveDateTime;
 
 use crate::active::{ActiveSession, SessionKind};
 use crate::day::Session;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::ids::ProjectSlug;
 use crate::minutes::Minutes;
 use crate::store::{Store, Tx};
@@ -55,15 +55,6 @@ pub enum Stopped {
     TooShort,
     /// The session that was written.
     Logged(Session),
-}
-
-impl Stopped {
-    pub fn session(&self) -> Option<&Session> {
-        match self {
-            Self::Logged(session) => Some(session),
-            Self::Idle | Self::TooShort => None,
-        }
-    }
 }
 
 /// What the timer looks like right now.
@@ -116,6 +107,14 @@ impl<'store> Timer<'store> {
                 SessionKind::ShortBreak => settings.short_break,
                 SessionKind::LongBreak => settings.long_break,
             });
+
+            // A zero-length block can never log anything, so refusing it here —
+            // rather than in one front door — keeps the CLI and MCP honest too.
+            if duration.is_zero() {
+                return Err(Error::Invalid(
+                    "a session must last at least a minute".to_owned(),
+                ));
+            }
 
             let active =
                 ActiveSession::new(now, request.kind, duration, request.project, request.note);
@@ -377,20 +376,15 @@ mod tests {
     }
 
     #[test]
-    fn the_stop_outcome_exposes_its_session() {
+    fn a_zero_length_request_is_refused_before_anything_is_written() {
         let (_directory, store) = store();
-        let timer = Timer::new(&store);
-        timer
-            .start(moment(9, 0), StartRequest::focus(None, "work"))
-            .expect("starts");
+        let request = StartRequest {
+            duration: Some(Minutes::new(0)),
+            ..StartRequest::focus(None, "")
+        };
 
-        let outcome = timer.stop(moment(9, 10)).expect("stops");
-        assert_eq!(
-            outcome.session().map(Session::duration),
-            Some(Minutes::new(10))
-        );
-        assert_eq!(Stopped::Idle.session(), None);
-        assert_eq!(Stopped::TooShort.session(), None);
+        assert!(Timer::new(&store).start(moment(9, 0), request).is_err());
+        assert_eq!(store.read_active().expect("reads"), None);
     }
 
     #[test]

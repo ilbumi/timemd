@@ -33,12 +33,9 @@ pub async fn run(state: AppState) {
             continue;
         };
 
-        if let Some(notification) = settle_once(&state, now) {
-            push::deliver(&state, &notification).await;
-        }
-        for notification in reminders_due(&state, now) {
-            push::deliver(&state, &notification).await;
-        }
+        let mut notifications: Vec<Notification> = settle_once(&state, now).into_iter().collect();
+        notifications.extend(reminders_due(&state, now));
+        push::deliver(&state, &notifications).await;
     }
 }
 

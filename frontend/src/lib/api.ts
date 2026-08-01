@@ -33,6 +33,8 @@ export interface Running {
 	startedAt: string;
 	endsAt: string;
 	duration: string;
+	/** The block's full length in seconds, for the dial. */
+	durationSeconds: number;
 	/** Seconds left at `serverNow`. */
 	remainingSeconds: number;
 }
@@ -63,6 +65,8 @@ export interface Occurrence {
 	remindBefore: string | null;
 	/** The repeating block this came from, or null for a one-off. */
 	block: string | null;
+	/** Position among the day's one-offs, which is what deletion addresses. */
+	oneOffIndex: number | null;
 }
 
 export interface LoggedSession {
@@ -193,6 +197,12 @@ async function request<T>(method: string, path: string, body?: JsonValue): Promi
 
 export const api = {
 	listProjects: (): Promise<Project[]> => request('GET', '/api/projects'),
+
+	/** Projects you can start a session against. */
+	listActiveProjects: async (): Promise<Project[]> =>
+		(await request<Project[]>('GET', '/api/projects')).filter(
+			(project) => project.status === 'active'
+		),
 
 	createProject: (project: NewProject): Promise<Project> =>
 		request('POST', '/api/projects', { ...project }),

@@ -91,6 +91,13 @@ async fn unsubscribe(
 
 /// Returns the VAPID private key, generating one on first use.
 pub fn ensure_keypair(state: &AppState) -> Result<String> {
+    // The key almost always exists already, and generating is the rare path — so
+    // read first rather than making every call pay for a durable write and a
+    // chmod it does not need.
+    if let Some(existing) = state.store().read_push()?.private_key {
+        return Ok(existing);
+    }
+
     state.store().update_push(|push| {
         push.private_key
             .get_or_insert_with(|| {
@@ -108,12 +115,19 @@ fn derive_public_key(private: &str) -> Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(builder.get_public_key()))
 }
 
-/// Delivers a notification to every subscribed browser.
+/// Delivers notifications to every subscribed browser.
+///
+/// Takes a batch so a tick that has both a finished session and a due reminder
+/// reads `push.md` once rather than once per message.
 ///
 /// Subscriptions the push service reports as gone are dropped, so an uninstalled
 /// app stops being retried forever. Every other failure is logged and skipped:
 /// one unreachable device must not stop the others being told.
-pub async fn deliver(state: &AppState, notification: &Notification) {
+pub async fn deliver(state: &AppState, notifications: &[Notification]) {
+    if notifications.is_empty() {
+        return;
+    }
+
     let (private, subscriptions) = match state.store().read_push() {
         Ok(push) => (push.private_key, push.subscriptions),
         Err(error) => {
@@ -130,30 +144,36 @@ pub async fn deliver(state: &AppState, notification: &Notification) {
         return;
     }
 
-    let payload = match serde_json::to_vec(notification) {
-        Ok(payload) => payload,
-        Err(error) => {
-            tracing::error!("could not encode notification: {error}");
-            return;
-        }
-    };
-
-    let client = reqwest::Client::new();
-    let mut gone = Vec::new();
-
-    for subscription in &subscriptions {
-        match build(&private, subscription, &payload) {
-            Ok(message) => {
-                if let Some(endpoint) = send_one(&client, message).await {
-                    gone.push(endpoint);
-                }
+    let mut messages = Vec::new();
+    for notification in notifications {
+        let payload = match serde_json::to_vec(notification) {
+            Ok(payload) => payload,
+            Err(error) => {
+                tracing::error!("could not encode notification: {error}");
+                continue;
             }
-            Err(error) => tracing::error!(
-                endpoint = subscription.endpoint,
-                "could not build push message: {error}"
-            ),
+        };
+
+        for subscription in &subscriptions {
+            match build(&private, subscription, &payload) {
+                Ok(message) => messages.push(message),
+                Err(error) => tracing::error!(
+                    endpoint = subscription.endpoint,
+                    "could not build push message: {error}"
+                ),
+            }
         }
     }
+
+    // Independent round trips, so they go out together rather than each waiting
+    // for the last device to answer.
+    let sent = futures::future::join_all(
+        messages
+            .into_iter()
+            .map(|message| send_one(state.http(), message)),
+    )
+    .await;
+    let gone: Vec<String> = sent.into_iter().flatten().collect();
 
     if !gone.is_empty() {
         let result = state.store().update_push(|push| {
@@ -386,7 +406,7 @@ mod tests {
             .update_push(|push| push.subscribe(well_formed(&endpoint)))
             .expect("subscribes");
 
-        deliver(&state, &notification()).await;
+        deliver(&state, &[notification()]).await;
 
         let request = served
             .await
@@ -425,7 +445,7 @@ mod tests {
             .update_push(|push| push.subscribe(well_formed(&endpoint)))
             .expect("subscribes");
 
-        deliver(&state, &notification()).await;
+        deliver(&state, &[notification()]).await;
         served.await.expect("the stub ran");
 
         assert!(
@@ -450,7 +470,7 @@ mod tests {
             .update_push(|push| push.subscribe(well_formed("http://127.0.0.1:1/push")))
             .expect("subscribes");
 
-        deliver(&state, &notification()).await;
+        deliver(&state, &[notification()]).await;
 
         assert_eq!(
             state
@@ -482,7 +502,7 @@ mod tests {
             })
             .expect("subscribes");
 
-        deliver(&state, &notification()).await;
+        deliver(&state, &[notification()]).await;
 
         // The good subscription was still served despite the bad one first.
         assert!(served.await.expect("the stub ran").is_some());
@@ -498,8 +518,10 @@ mod tests {
         };
 
         // No key, then a key but no subscribers: neither should panic or block.
-        deliver(&state, &notification).await;
+        deliver(&state, std::slice::from_ref(&notification)).await;
         ensure_keypair(&state).expect("generates");
-        deliver(&state, &notification).await;
+        deliver(&state, &[notification]).await;
+        // An empty batch must not read anything or panic.
+        deliver(&state, &[]).await;
     }
 }

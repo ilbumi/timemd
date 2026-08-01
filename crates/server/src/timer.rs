@@ -6,9 +6,11 @@ use axum::{Json, Router};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use timemd_core::active::SessionKind;
-use timemd_core::{Minutes, ProjectSlug, StartRequest, Timer, TimerState};
+use timemd_core::{Minutes, StartRequest, Timer, TimerState};
 
-use crate::error::{ApiError, ApiResult};
+use crate::parse::{optional_minutes, optional_slug};
+
+use crate::error::ApiResult;
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -28,6 +30,12 @@ pub struct RunningView {
     started_at: NaiveDateTime,
     ends_at: NaiveDateTime,
     duration: Minutes,
+    /// The block's full length in seconds.
+    ///
+    /// Sent as a number because the client does arithmetic with it (the dial's
+    /// sweep); `duration` is the same value as a label. Without this the browser
+    /// had to re-implement `Minutes`'s parser to get back to a quantity.
+    duration_seconds: i64,
     /// Seconds left, at `server_now`.
     ///
     /// Sent alongside the server's clock so the client can run a smooth
@@ -57,6 +65,7 @@ impl TimerView {
                 started_at: active.started,
                 ends_at: active.ends_at(),
                 duration: active.duration,
+                duration_seconds: i64::from(active.duration.get()) * 60,
                 remaining_seconds: (active.ends_at() - now).num_seconds().max(0),
             }),
             completed_today: state.completed_today,
@@ -93,27 +102,8 @@ async fn start(
     State(state): State<AppState>,
     Json(body): Json<StartBody>,
 ) -> ApiResult<Json<TimerView>> {
-    let project = body
-        .project
-        .filter(|slug| !slug.is_empty())
-        .map(|slug| {
-            ProjectSlug::new(slug).map_err(|error| ApiError::bad_request(error.to_string()))
-        })
-        .transpose()?;
-
-    let duration = body
-        .duration
-        .map(|raw| {
-            raw.parse::<Minutes>()
-                .map_err(|error| ApiError::bad_request(error.to_string()))
-        })
-        .transpose()?;
-
-    if duration.is_some_and(Minutes::is_zero) {
-        return Err(ApiError::bad_request(
-            "a session must last at least a minute",
-        ));
-    }
+    let project = optional_slug(body.project)?;
+    let duration = optional_minutes(body.duration)?;
 
     let now = state.local_now()?;
     let timer = Timer::new(state.store());

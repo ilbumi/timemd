@@ -5,6 +5,8 @@
 //! that state in a readable file is also what lets an agent answer "what are you
 //! working on right now" without the web app running.
 
+use std::fmt;
+
 use chrono::{NaiveDateTime, NaiveTime, TimeDelta};
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +30,18 @@ impl SessionKind {
     /// Only focus blocks become logged sessions; breaks are timer state.
     pub fn is_focus(self) -> bool {
         matches!(self, Self::Focus)
+    }
+}
+
+/// The wire spelling, matching the serde rename. Declared once so the CLI and
+/// the MCP server do not each hand-roll the same match.
+impl fmt::Display for SessionKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Focus => "focus",
+            Self::ShortBreak => "short_break",
+            Self::LongBreak => "long_break",
+        })
     }
 }
 
@@ -236,6 +250,13 @@ mod tests {
         );
         assert_eq!(rest.to_session(moment(9, 5)), None);
         assert_eq!(running().to_session(moment(9, 0)), None);
+    }
+
+    #[test]
+    fn kinds_render_their_wire_spelling() {
+        assert_eq!(SessionKind::Focus.to_string(), "focus");
+        assert_eq!(SessionKind::ShortBreak.to_string(), "short_break");
+        assert_eq!(SessionKind::LongBreak.to_string(), "long_break");
     }
 
     #[test]

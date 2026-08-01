@@ -141,7 +141,7 @@ pub struct RecurringBlock {
 
 impl RecurringBlock {
     fn parse(content: &str) -> Result<Self, ParseErrorKind> {
-        let (id, rest) = backtick_id(content)?;
+        let (id, rest) = grammar::take_backtick_id(content)?;
         let (days, rest) = grammar::split_token(rest);
         let days: DaySet = days.parse()?;
         let ((start, end), rest) = grammar::time_range(rest)?;
@@ -248,21 +248,9 @@ pub struct Recurring {
 impl Recurring {
     pub fn parse(text: &str) -> Result<Self, yaml_serde::Error> {
         let document = Document::parse(text)?;
-        let mut blocks = Vec::new();
-        let mut unparsed = Vec::new();
         let mut problems = Vec::new();
-
-        if let Some(section) = document.section(SECTION_BLOCKS) {
-            for (line_number, line) in section.content() {
-                match grammar::list_item(line).and_then(RecurringBlock::parse) {
-                    Ok(block) => blocks.push(block),
-                    Err(kind) => {
-                        problems.push(ParseError::new(line_number, kind));
-                        unparsed.push(line.to_owned());
-                    }
-                }
-            }
-        }
+        let (blocks, unparsed) =
+            document.parse_list_section(SECTION_BLOCKS, RecurringBlock::parse, &mut problems);
 
         Ok(Self {
             blocks,
@@ -274,9 +262,13 @@ impl Recurring {
 
     pub fn render(&self) -> String {
         let mut document = self.document.clone();
-        let mut lines: Vec<String> = self.blocks.iter().map(RecurringBlock::render).collect();
-        lines.extend(self.unparsed.iter().cloned());
-        document.upsert_section(SECTION_BLOCKS, lines, &[]);
+        document.write_list_section(
+            SECTION_BLOCKS,
+            &self.blocks,
+            &self.unparsed,
+            &[],
+            RecurringBlock::render,
+        );
         document.render()
     }
 
@@ -297,6 +289,15 @@ impl Recurring {
         {
             Some(existing) => *existing = block,
             None => self.blocks.push(block),
+        }
+    }
+
+    /// Replaces every block. Says what the caller means, without the
+    /// remove-each-then-upsert-each dance that is quadratic and hard to read.
+    pub fn replace_all(&mut self, blocks: Vec<RecurringBlock>) {
+        self.blocks.clear();
+        for block in blocks {
+            self.upsert(block);
         }
     }
 
@@ -365,15 +366,23 @@ pub fn planned(day: &crate::day::Day, recurring: &Recurring) -> Vec<Occurrence> 
     occurrences
 }
 
-/// Consumes a leading backtick-quoted block id.
-fn backtick_id(text: &str) -> Result<(BlockId, &str), ParseErrorKind> {
-    let missing = || ParseErrorKind::MissingBlockId {
-        found: text.to_owned(),
-    };
-    let rest = text.strip_prefix('`').ok_or_else(missing)?;
-    let close = rest.find('`').ok_or_else(missing)?;
-    let id = BlockId::new(&rest[..close]).map_err(|_| missing())?;
-    Ok((id, rest[close + 1..].trim_start()))
+/// Everything planned across a range, oldest first.
+///
+/// The range counterpart to [`planned`]; both the HTTP API and the MCP server
+/// were expanding this loop themselves.
+pub fn planned_range(
+    store: &crate::store::Store,
+    range: crate::report::DateRange,
+) -> crate::error::Result<Vec<Occurrence>> {
+    let recurring = store.read_recurring()?;
+    let mut occurrences = Vec::new();
+
+    for date in range.dates() {
+        let day = store.read_day(date)?;
+        occurrences.extend(planned(&day, &recurring));
+    }
+
+    Ok(occurrences)
 }
 
 #[cfg(test)]
@@ -617,6 +626,49 @@ mod tests {
         let occurrences = planned(&day, &recurring);
         assert_eq!(occurrences.len(), 1);
         assert_eq!(occurrences[0].title, "Lunch");
+    }
+
+    #[test]
+    fn a_range_expands_every_day_in_order() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = crate::store::Store::new(directory.path());
+        store
+            .update_recurring(|recurring| {
+                recurring.replace_all(Recurring::parse(SAMPLE).expect("parses").blocks().to_vec());
+            })
+            .expect("writes");
+
+        // 2026-08-05 is a Wednesday, 2026-08-08 a Saturday.
+        let range = crate::report::DateRange::new(date(5), date(8)).expect("valid range");
+        let occurrences = planned_range(&store, range).expect("expands");
+
+        let dates: Vec<String> = occurrences
+            .iter()
+            .map(|occurrence| occurrence.date.to_string())
+            .collect();
+        assert_eq!(
+            dates,
+            vec!["2026-08-05", "2026-08-05", "2026-08-06", "2026-08-07"]
+        );
+    }
+
+    #[test]
+    fn replace_all_swaps_the_whole_list() {
+        let mut recurring = Recurring::parse(SAMPLE).expect("parses");
+        assert_eq!(recurring.blocks().len(), 2);
+
+        recurring.replace_all(vec![RecurringBlock {
+            id: id("gym"),
+            days: DaySet::from_weekdays([Weekday::Mon]),
+            start: at(18, 0),
+            end: at(19, 0),
+            project: None,
+            title: "Training".to_owned(),
+            remind_before: None,
+        }]);
+
+        assert_eq!(recurring.blocks().len(), 1);
+        assert_eq!(recurring.blocks()[0].id, id("gym"));
     }
 
     #[test]

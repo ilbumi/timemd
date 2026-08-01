@@ -9,7 +9,7 @@
 use chrono::{NaiveTime, Timelike};
 
 use crate::error::ParseErrorKind;
-use crate::ids::ProjectSlug;
+use crate::ids::{BlockId, ProjectSlug};
 use crate::minutes::Minutes;
 
 const SECONDS_PER_DAY: u32 = 24 * 60 * 60;
@@ -126,6 +126,31 @@ pub fn reminder_suffix(text: &str) -> (Option<Minutes>, &str) {
     }
 }
 
+/// Reads a backtick-quoted block id, rejecting anything after it.
+///
+/// Used by the `## Skipped` grammar, where the id is the whole line.
+pub fn backtick_id(text: &str) -> Result<BlockId, ParseErrorKind> {
+    let (id, rest) = take_backtick_id(text)?;
+    if rest.is_empty() {
+        Ok(id)
+    } else {
+        Err(ParseErrorKind::MissingBlockId {
+            found: text.to_owned(),
+        })
+    }
+}
+
+/// Consumes a leading backtick-quoted block id, returning it and the remainder.
+pub fn take_backtick_id(text: &str) -> Result<(BlockId, &str), ParseErrorKind> {
+    let missing = || ParseErrorKind::MissingBlockId {
+        found: text.to_owned(),
+    };
+    let rest = text.strip_prefix('`').ok_or_else(missing)?;
+    let close = rest.find('`').ok_or_else(missing)?;
+    let id = BlockId::new(&rest[..close]).map_err(|_| missing())?;
+    Ok((id, rest[close + 1..].trim_start()))
+}
+
 /// Splits off the first whitespace-delimited token.
 pub fn split_token(text: &str) -> (&str, &str) {
     let text = text.trim_start();
@@ -201,6 +226,27 @@ mod tests {
         );
         assert_eq!(wikilink("[[unclosed rest"), (None, "[[unclosed rest"));
         assert_eq!(wikilink("plain note"), (None, "plain note"));
+    }
+
+    #[test]
+    fn reads_a_backtick_quoted_id() {
+        assert_eq!(
+            backtick_id("`deep-work`").map(|id| id.to_string()),
+            Ok("deep-work".to_owned())
+        );
+        for candidate in ["deep-work", "`unclosed", "`Bad Id`", "`ok` trailing", ""] {
+            assert!(
+                backtick_id(candidate).is_err(),
+                "{candidate:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn takes_an_id_and_leaves_the_rest() {
+        let (id, rest) = take_backtick_id("`deep-work` mon-fri 09:00-11:00").expect("parses");
+        assert_eq!(id.to_string(), "deep-work");
+        assert_eq!(rest, "mon-fri 09:00-11:00");
     }
 
     #[test]

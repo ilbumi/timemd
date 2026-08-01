@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { ApiError, api, type DayView, type Project } from '$lib/api';
+	import { api, type DayView, type Project } from '$lib/api';
+	import { attempt } from '$lib/attempt';
 	import { clockTime, dayLabel, shiftDays, today } from '$lib/dates';
-	import { oneOffIndex } from '$lib/planned';
 
 	let date = $state(today());
 	let day = $state<DayView | null>(null);
@@ -15,17 +15,12 @@
 	let project = $state('');
 	let note = $state('');
 
-	async function attempt(work: () => Promise<void>): Promise<void> {
-		error = null;
-		try {
-			await work();
-		} catch (failure) {
-			error = failure instanceof ApiError ? failure.message : 'Something went wrong';
-		}
+	async function run(work: () => Promise<void>): Promise<void> {
+		error = await attempt(work);
 	}
 
 	async function load(): Promise<void> {
-		await attempt(async () => {
+		await run(async () => {
 			day = await api.readDay(date);
 		});
 		loading = false;
@@ -37,7 +32,7 @@
 
 	async function addSession(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
-		await attempt(async () => {
+		await run(async () => {
 			await api.addSession(date, {
 				start: `${start}:00`,
 				end: `${end}:00`,
@@ -51,19 +46,19 @@
 	}
 
 	const removeSession = (index: number): Promise<void> =>
-		attempt(async () => {
+		run(async () => {
 			await api.deleteSession(date, index);
 			day = await api.readDay(date);
 		});
 
 	const toggleSkip = (id: string, skipped: boolean): Promise<void> =>
-		attempt(async () => {
+		run(async () => {
 			await (skipped ? api.unskipBlock(date, id) : api.skipBlock(date, id));
 			day = await api.readDay(date);
 		});
 
 	const removeBlock = (index: number): Promise<void> =>
-		attempt(async () => {
+		run(async () => {
 			await api.deleteBlock(date, index);
 			day = await api.readDay(date);
 		});
@@ -76,9 +71,9 @@
 
 	$effect(() => {
 		api
-			.listProjects()
-			.then((all) => {
-				projects = all.filter((candidate) => candidate.status === 'active');
+			.listActiveProjects()
+			.then((active) => {
+				projects = active;
 			})
 			.catch(() => {
 				// The day is readable without the project list.
@@ -125,7 +120,7 @@
 			<p class="muted">Nothing scheduled.</p>
 		{:else}
 			<ul>
-				{#each current.planned as block, index (`${block.start}-${block.title}-${index}`)}
+				{#each current.planned as block, position (`${block.start}-${block.title}-${position}`)}
 					<li>
 						<span class="when">{clockTime(block.start)}–{clockTime(block.end)}</span>
 						<span class="what">
@@ -135,10 +130,9 @@
 						{#if block.block}
 							{@const id = block.block}
 							<button class="quiet" onclick={() => toggleSkip(id, false)}>Skip</button>
-						{:else}
-							<button class="quiet danger" onclick={() => removeBlock(oneOffIndex(current, index))}>
-								Remove
-							</button>
+						{:else if block.oneOffIndex !== null}
+							{@const index = block.oneOffIndex}
+							<button class="quiet danger" onclick={() => removeBlock(index)}>Remove</button>
 						{/if}
 					</li>
 				{/each}
@@ -294,12 +288,6 @@
 		flex: 1;
 	}
 
-	.muted {
-		color: var(--text-muted);
-		margin: 4px 0;
-	}
-
-	.error,
 	.problems {
 		padding: 10px 12px;
 		margin-bottom: var(--gap);

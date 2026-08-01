@@ -134,6 +134,52 @@ async fn one_off_blocks_merge_with_repeats_in_start_order() {
     assert_eq!(body["planned"][1]["block"], serde_json::Value::Null);
 }
 
+/// The client used to recompute this by counting entries in the merged list,
+/// which quietly depended on how the server sorts.
+#[tokio::test]
+async fn one_offs_are_numbered_for_deletion_and_repeats_are_not() {
+    let harness = Harness::new();
+    with_deep_work(&harness).await;
+
+    for (start, end, title) in [
+        ("12:00:00", "12:30:00", "Lunch"),
+        ("15:00:00", "15:30:00", "Walk"),
+    ] {
+        harness
+            .post(
+                &format!("/api/days/{WEDNESDAY}/blocks"),
+                json!({ "start": start, "end": end, "title": title }),
+            )
+            .await;
+    }
+
+    let (_, body) = harness.get(&format!("/api/days/{WEDNESDAY}")).await;
+    let planned = body["planned"].as_array().expect("an array");
+
+    // Deep work (a repeat) sorts first, so the indexes are not list positions.
+    assert_eq!(planned[0]["title"], "Deep work");
+    assert_eq!(planned[0]["oneOffIndex"], serde_json::Value::Null);
+    assert_eq!(planned[1]["title"], "Lunch");
+    assert_eq!(planned[1]["oneOffIndex"], 0);
+    assert_eq!(planned[2]["title"], "Walk");
+    assert_eq!(planned[2]["oneOffIndex"], 1);
+
+    // And the index the server gave actually addresses that block.
+    let (status, _) = harness
+        .delete(&format!("/api/days/{WEDNESDAY}/blocks/1"))
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, body) = harness.get(&format!("/api/days/{WEDNESDAY}")).await;
+    let titles: Vec<&str> = body["planned"]
+        .as_array()
+        .expect("an array")
+        .iter()
+        .map(|block| block["title"].as_str().expect("a title"))
+        .collect();
+    assert_eq!(titles, vec!["Deep work", "Lunch"]);
+}
+
 #[tokio::test]
 async fn a_one_off_block_can_be_removed() {
     let harness = Harness::new();

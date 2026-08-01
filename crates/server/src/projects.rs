@@ -6,7 +6,9 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::NaiveDate;
 use serde::{Deserialize, Deserializer, Serialize};
-use timemd_core::{Color, Project, ProjectSlug, ProjectStatus};
+use timemd_core::{Project, ProjectSlug, ProjectStatus};
+
+use crate::parse::optional_color;
 
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
@@ -77,7 +79,7 @@ async fn create(
             request.name
         ))
     })?;
-    let color = parse_color(request.color)?;
+    let color = optional_color(request.color)?;
 
     let mut project = Project::new(slug, &request.name, state.today()?);
     project.color = color;
@@ -105,7 +107,7 @@ async fn update(
 ) -> ApiResult<Json<ProjectView>> {
     let slug = slug_from_path(&slug)?;
     let color = match patch.color {
-        Some(raw) => Some(parse_color(raw)?),
+        Some(raw) => Some(optional_color(raw)?),
         None => None,
     };
 
@@ -138,9 +140,4 @@ async fn remove(State(state): State<AppState>, Path(slug): Path<String>) -> ApiR
 /// rather than a 400 — there is no resource there either way.
 fn slug_from_path(raw: &str) -> ApiResult<ProjectSlug> {
     ProjectSlug::new(raw).map_err(|_| ApiError::not_found(format!("no project named {raw:?}")))
-}
-
-fn parse_color(raw: Option<String>) -> ApiResult<Option<Color>> {
-    raw.map(|value| Color::new(value).map_err(|error| ApiError::bad_request(error.to_string())))
-        .transpose()
 }
