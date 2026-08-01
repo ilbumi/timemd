@@ -15,3 +15,4 @@ crates/server/assets/*
 # coverage
 lcov.info
 *.profraw
+frontend/coverage/
