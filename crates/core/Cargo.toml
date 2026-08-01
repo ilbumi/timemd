@@ -10,11 +10,11 @@ repository   .workspace = true
 [dependencies]
 chrono     .workspace = true
 chrono-tz  .workspace = true
+iana-time-zone .workspace = true
 serde      .workspace = true
 thiserror  .workspace = true
 yaml_serde .workspace = true
 
 [dev-dependencies]
-insta    .workspace = true
 proptest .workspace = true
 tempfile .workspace = true
