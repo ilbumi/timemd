@@ -285,13 +285,13 @@
 		border-bottom: var(--rule) solid var(--ink);
 	}
 
+	/* The glyph sits at the padding edge rather than centred in its tap box, so
+	   it lines up with the fields below instead of hanging outside them. */
 	.close {
 		display: flex;
 		align-items: center;
-		justify-content: center;
 		width: var(--tap-target);
 		height: var(--tap-target);
-		margin-left: -12px;
 		font-size: 1.25rem;
 		line-height: 1;
 		text-decoration: none;
