@@ -331,6 +331,11 @@
 		 * `background`/`color`, so a state like `:hover` can still override them.
 		 * Set inline directly they won the cascade, which left an outline as the
 		 * only way to show hover — and that drew a second line inside the border.
+		 *
+		 * They are also what draws a finished block rather than filling it — the
+		 * same way an archived project's mark is drawn. Fading it instead mixed
+		 * the fill, the text and the lane's rule showing through into one muddy
+		 * colour, and nothing else in this design is a tint.
 		 */
 		background: var(--fill);
 		border: var(--rule) solid var(--edge);
@@ -351,12 +356,6 @@
 		gap: 2px;
 	}
 
-	/*
-	 * A finished block is drawn rather than filled — the same way an archived
-	 * project's mark is. Fading it instead mixed the fill, the text and the
-	 * lane's rule showing through into one muddy colour, and nothing else in
-	 * this design is a tint. That is what `--fill` carries.
-	 */
 	/* Two lines need about 44px. Below that the time goes and the title stays,
 	   which is the half worth keeping. */
 	@container (max-height: 43px) {

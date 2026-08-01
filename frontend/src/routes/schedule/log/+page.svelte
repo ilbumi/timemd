@@ -274,9 +274,6 @@
 	/* ---- wide ------------------------------------------------------------ */
 
 	@media (min-width: 700px) {
-		/* A note is prose; past about sixty characters a line stops being one.
-		   The day bands stay full width, because they are the rules that separate
-		   the days. */
 		/*
 		 * The bands, the rows and the header all run to the same edge — capping
 		 * the body left the header's rule and the foot's hanging 180px past

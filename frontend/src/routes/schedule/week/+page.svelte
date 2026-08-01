@@ -339,6 +339,9 @@
 			margin: 0;
 		}
 
+		/* A floor rather than a cap, unlike every other foot: this one is a
+		   `space-between` row, so the pair of buttons has to keep a width while
+		   the project key takes whatever slack is left. */
 		.foot > .actions {
 			flex: none;
 			min-width: 320px;

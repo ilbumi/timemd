@@ -847,6 +847,8 @@
 		font-weight: 600;
 	}
 
+	/* Vertical only, and the reason is optical: the 44px tap box is taller than
+	   the eyebrow beside it, so centring it in the row sat the label low. */
 	.settings {
 		flex: none;
 		display: flex;
