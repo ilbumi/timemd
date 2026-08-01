@@ -9,9 +9,14 @@ use proptest::prelude::*;
 use timemd_core::day::{Day, Session};
 use timemd_core::document::Document;
 use timemd_core::ids::ProjectSlug;
+use timemd_core::project::{Milestone, Project};
 
 fn date() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 8, 1).expect("valid date")
+}
+
+fn slug() -> ProjectSlug {
+    ProjectSlug::new("thesis").expect("valid slug")
 }
 
 /// Notes may contain grammar characters, but not *open* with them: a note
@@ -52,6 +57,16 @@ fn session() -> impl Strategy<Value = Session> {
                 )
             },
         )
+}
+
+fn milestone() -> impl Strategy<Value = Milestone> {
+    (
+        any::<bool>(),
+        r"[a-zA-Z0-9 .,'—-]{1,40}"
+            .prop_map(|title| title.trim().to_owned())
+            .prop_filter("a milestone needs a title", |title| !title.is_empty()),
+    )
+        .prop_map(|(done, title)| Milestone::new(done, title))
 }
 
 /// Lines a hand-edited file might realistically contain, valid or not.
@@ -119,6 +134,37 @@ proptest! {
             "retrospective lost\n--- rendered ---\n{}",
             rendered
         );
+    }
+
+    /// The same guarantee as sessions, for the other owned body list.
+    #[test]
+    fn milestones_survive_a_write_and_a_read(
+        milestones in prop::collection::vec(milestone(), 0..8),
+    ) {
+        let mut project = Project::new(slug(), "Thesis", date());
+        project.milestones = milestones.clone();
+
+        let reparsed = Project::parse(slug(), &project.render()).expect("parses");
+
+        prop_assert!(reparsed.problems().is_empty());
+        prop_assert_eq!(reparsed.milestones, milestones);
+    }
+
+    /// A project file the app rewrites must reach a fixed point too, with the
+    /// prose and any agent-authored key still in it.
+    #[test]
+    fn writing_a_project_is_idempotent(lines in prop::collection::vec(body_line(), 0..12)) {
+        let text = format!(
+            "---\nname: Thesis\nagent_key: kept\n---\n\n# Thesis\n\nProse.\n\n## Milestones\n\n{}\n",
+            lines.join("\n"),
+        );
+
+        let once = Project::parse(slug(), &text).expect("parses").render();
+        let twice = Project::parse(slug(), &once).expect("parses").render();
+
+        prop_assert!(once.contains("agent_key: kept"), "{}", once);
+        prop_assert!(once.contains("Prose."), "{}", once);
+        prop_assert_eq!(once, twice);
     }
 
     /// Any document the parser accepts must survive a render/parse cycle

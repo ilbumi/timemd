@@ -32,7 +32,7 @@ pub use document::{Document, Section};
 pub use error::{Error, ParseError, ParseErrorKind, Result};
 pub use ids::{BlockId, ProjectSlug};
 pub use minutes::Minutes;
-pub use project::{Color, Project, ProjectStatus};
+pub use project::{Color, Mark, Milestone, Project, ProjectStatus};
 pub use push::{PushState, Subscription};
 pub use reminders::{Reminder, SentLog};
 pub use report::{Bucket, DateRange, GroupBy, Report};

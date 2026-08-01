@@ -79,6 +79,9 @@ pub enum ParseErrorKind {
 
     #[error("expected a backtick-quoted block id, found {found:?}")]
     MissingBlockId { found: String },
+
+    #[error("expected a checkbox and a title, as in `[x] Ch. 1`, found {found:?}")]
+    MissingCheckbox { found: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
