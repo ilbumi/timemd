@@ -306,7 +306,7 @@
 {:else if finished}
 	<!-- 3b: log a note, tick a milestone. -->
 	{@const done = finished}
-	<section class="screen">
+	<section class="screen finished">
 		<header class="complete">
 			<div class="eyebrow">Session complete</div>
 			<div class="headline">
@@ -1011,7 +1011,13 @@
 			max-width: 560px;
 		}
 
-		.body {
+		/*
+		 * The cap goes on the screen, not on its middle. Capping `.body` alone
+		 * left the red band above it and the action bar below it running the
+		 * full measure, so the state had three right edges. `.welcome` is the
+		 * model: the state's own class carries the width.
+		 */
+		.finished {
 			max-width: 620px;
 		}
 	}
