@@ -20,10 +20,18 @@ lint: ## Deny clippy warnings and check formatting
 fmt: ## Format the workspace
 	$(CARGO) fmt --all
 
+# `crates/cli/src/main.rs` is excluded: it is a process shim (argument parsing
+# into a call, logging setup, exit code) with no branch a test could exercise
+# without spawning the binary. Its logic lives in the cli crate's library, which
+# is measured.
+COVERAGE_EXCLUDE ?= crates/cli/src/main\.rs
+
 cov: ## Measure coverage, failing under the floor
 	@command -v cargo-llvm-cov >/dev/null 2>&1 \
 		|| { echo "cargo-llvm-cov missing: cargo install cargo-llvm-cov --locked"; exit 1; }
-	$(CARGO) llvm-cov --workspace --all-features --fail-under-lines $(COVERAGE_MIN)
+	$(CARGO) llvm-cov --workspace --all-features \
+		--ignore-filename-regex '$(COVERAGE_EXCLUDE)' \
+		--fail-under-lines $(COVERAGE_MIN)
 
 serve: ## Run the app locally
 	$(CARGO) run --bin timemd -- serve --addr 127.0.0.1:8080

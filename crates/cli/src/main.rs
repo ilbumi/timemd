@@ -5,29 +5,11 @@
 //! shell. Keeping them in a single artifact is what makes the Tailscale deploy
 //! story "copy one file".
 
-use std::net::SocketAddr;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::Parser;
+use timemd::{Cli, Command};
 use tokio::net::TcpListener;
-
-#[derive(Parser)]
-#[command(name = "timemd", version, about, long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// Run the web app and JSON API.
-    Serve {
-        /// Address to bind. Defaults to every interface, which is safe only
-        /// because access is expected to be gated by Tailscale or a LAN.
-        #[arg(long, env = "TIMEMD_ADDR", default_value = "0.0.0.0:8080")]
-        addr: SocketAddr,
-    },
-}
 
 #[tokio::main]
 async fn main() -> ExitCode {
