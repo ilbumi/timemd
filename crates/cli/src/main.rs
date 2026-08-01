@@ -6,9 +6,12 @@
 //! story "copy one file".
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::Parser;
 use timemd::{Cli, Command};
+use timemd_core::Store;
+use timemd_server::state::{AppState, Clock};
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -30,11 +33,13 @@ async fn main() -> ExitCode {
 }
 
 async fn run(cli: Cli) -> std::io::Result<()> {
+    let state = AppState::new(Arc::new(Store::new(&cli.data)), Clock::System);
+
     match cli.command {
         Command::Serve { addr } => {
             let listener = TcpListener::bind(addr).await?;
-            tracing::info!(addr = %listener.local_addr()?, "timemd listening");
-            timemd_server::serve(listener).await
+            tracing::info!(addr = %listener.local_addr()?, data = ?cli.data, "timemd listening");
+            timemd_server::serve(listener, state).await
         }
     }
 }
