@@ -1,0 +1,43 @@
+# The commit prefixes are load-bearing: `chore:` produces no version bump and
+# stays out of the changelog, which is what dependency churn should do.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      frontend:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # `rust-toolchain.toml` is not an ecosystem Dependabot knows, so the toolchain
+  # pin and the runner labels in the workflows stay a manual bump.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
