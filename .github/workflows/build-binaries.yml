@@ -1,0 +1,125 @@
+# Release binaries, one per platform, each with the web UI compiled in so the
+# deploy story stays "copy one file".
+#
+# Callable on its own so the matrix can be exercised long before a real release
+# exists: `gh workflow run build-binaries.yml --ref main -f upload=false`.
+name: build-binaries
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      upload:
+        required: false
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build. Blank builds the current manifest version."
+        required: false
+        type: string
+      upload:
+        description: "Attach the tarballs to the GitHub release named by the tag."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: write # only the upload step needs this
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native runners throughout: no cross-compilation, no emulation. The
+          # labels are pinned rather than `-latest` because a silent bump would
+          # change the glibc floor of a published artifact.
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+
+      - uses: ./.github/actions/setup-web
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          cache: false # a release build shares nothing useful with CI's cache
+
+      # `web-push -> ece` pulls in openssl-sys, so an unconfigured build links
+      # against whatever libssl the runner happens to have — a path that does not
+      # exist on the machine that downloads the tarball. Link it statically.
+      - name: Link OpenSSL statically
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+            echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          else
+            sudo apt-get update
+            sudo apt-get install -y pkg-config libssl-dev
+          fi
+
+      - run: make frontend
+      - run: cargo build --release --locked --bin timemd --target ${{ matrix.target }}
+
+      - name: Package
+        id: package
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TAG" ]; then
+            VERSION="${TAG#v}"
+          else
+            VERSION="$(cargo metadata --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(.name == "timemd") | .version')"
+          fi
+          NAME="timemd-${VERSION}-${TARGET}"
+          mkdir -p "dist/${NAME}"
+          cp "target/${TARGET}/release/timemd" "dist/${NAME}/"
+          cp README.md LICENSE docs/format.md "dist/${NAME}/"
+          tar -C dist -czf "dist/${NAME}.tar.gz" "${NAME}"
+          # The checksum line names the bare tarball, so `shasum -a 256 -c` works
+          # in whatever directory the two files were downloaded into.
+          (cd dist && shasum -a 256 "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: dist/*.tar.gz*
+          retention-days: 7
+
+      - name: Attach to the release
+        if: inputs.upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: gh release upload "$TAG" dist/*.tar.gz dist/*.tar.gz.sha256 --clobber

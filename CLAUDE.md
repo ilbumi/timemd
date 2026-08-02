@@ -50,3 +50,16 @@ make serve             # build the UI and run locally
 - Coverage floors are >85% overall and >80% per file. `crates/cli/src/main.rs`
   is excluded as a process shim; the reason is recorded in the `Makefile`.
 - Never log to stdout: `timemd mcp` speaks JSON-RPC there.
+- CI runs these same `make` targets, split into `-rust` and `-web` halves. A
+  change to what a gate *checks* belongs in the `Makefile`; a workflow may only
+  supply toolchains, caches and artifacts.
+- The `rust` CI job installs no Node. `cargo test` and `cargo clippy` must keep
+  working on a clone where the UI has never been built — that is what
+  `#[allow_missing]` on `Assets` buys, so do not undo it.
+- Commit subjects pick the version and write the changelog: `feat:` → minor,
+  `fix:`/`perf:` → patch, `!` or a `BREAKING CHANGE:` footer → minor while below
+  1.0, everything else → no release. Releases are cut by merging the
+  `chore(main): release X.Y.Z` pull request; nothing is tagged by hand.
+- release-please edits `Cargo.toml` through the GitHub API and cannot run cargo,
+  so `release.yml` pushes the matching `Cargo.lock` onto the release branch. If
+  you change how the version is stored, that step has to follow.

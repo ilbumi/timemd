@@ -1,0 +1,124 @@
+# Versioning and releasing, both driven by the conventional-commit history.
+#
+# An ordinary commit on main updates the "chore(main): release X.Y.Z" pull
+# request. Merging that pull request is itself a push to main, and on that run
+# release-please tags it, opens the GitHub release, and the binaries attach to
+# it. Nothing is ever tagged by hand.
+#
+# It is all one workflow run because a tag pushed by a GitHub token does not
+# trigger `on: push: tags:` — a separate release workflow would never fire.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false # never cancel a release with binaries half uploaded
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The layout suite gates the tag: it runs on every main push, and nothing is
+  # released before it passes.
+  e2e:
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read # a called workflow cannot ask for more than its caller grants
+
+  release-please:
+    name: version and tag
+    needs: e2e
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write # release-please labels its own pull request
+    env:
+      # `secrets` is unreachable from a step `if`, so the test happens here.
+      HAS_APP_TOKEN: ${{ secrets.RELEASE_PLEASE_APP_ID != '' }}
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      pr_branch: ${{ fromJSON(steps.release.outputs.pr || '{}').headBranchName }}
+    steps:
+      # A pull request opened by the default GITHUB_TOKEN triggers no workflow,
+      # so the release PR would get no CI and could never satisfy a required
+      # status check. An app token is a real actor and does not have that
+      # problem, so it is used when the secrets are present. Without them
+      # everything still works — just do not turn on required checks.
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        if: env.HAS_APP_TOKEN == 'true'
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # release-please edits `[workspace.package] version` through the GitHub API, so
+  # it cannot run cargo. Without this the lockfile would still name the old
+  # version and the `--locked` release build below would refuse to start.
+  lockfile:
+    name: sync the lockfile
+    needs: release-please
+    if: needs.release-please.outputs.pr_branch != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      HAS_APP_TOKEN: ${{ secrets.RELEASE_PLEASE_APP_ID != '' }}
+    steps:
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        if: env.HAS_APP_TOKEN == 'true'
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.pr_branch }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false # nothing is compiled here, and the entry no job can read
+
+      - name: Rewrite the workspace versions in Cargo.lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `--workspace` restricts this to the four timemd packages, so no
+          # third-party dependency moves. Not `--offline`: a cold runner has no
+          # registry cache to resolve the graph against.
+          cargo update --workspace
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock already matches the manifest."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "chore: sync Cargo.lock with the release version"
+          git push
+
+  binaries:
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    uses: ./.github/workflows/build-binaries.yml
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.release-please.outputs.tag }}
+      upload: true
