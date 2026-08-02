@@ -11,7 +11,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+// `Generate` draws from the operating system directly, so no `rand` version
+// has to be kept in step with the one p256 was built against.
 use p256::SecretKey;
+use p256::elliptic_curve::Generate;
 use serde::{Deserialize, Serialize};
 use timemd_core::push::Subscription;
 use timemd_core::{Error, Result};
@@ -101,7 +104,7 @@ pub fn ensure_keypair(state: &AppState) -> Result<String> {
     state.store().update_push(|push| {
         push.private_key
             .get_or_insert_with(|| {
-                let secret = SecretKey::random(&mut rand::thread_rng());
+                let secret = SecretKey::generate();
                 URL_SAFE_NO_PAD.encode(secret.to_bytes())
             })
             .clone()
@@ -315,11 +318,7 @@ mod tests {
         // point and auth is 16 bytes, which is what the encryption expects.
         let subscription = Subscription {
             endpoint: "https://push.example/abc".to_owned(),
-            p256dh: URL_SAFE_NO_PAD.encode(
-                SecretKey::random(&mut rand::thread_rng())
-                    .public_key()
-                    .to_sec1_bytes(),
-            ),
+            p256dh: URL_SAFE_NO_PAD.encode(SecretKey::generate().public_key().to_sec1_bytes()),
             auth: URL_SAFE_NO_PAD.encode([7_u8; 16]),
         };
 
@@ -378,11 +377,7 @@ mod tests {
     fn well_formed(endpoint: &str) -> Subscription {
         Subscription {
             endpoint: endpoint.to_owned(),
-            p256dh: URL_SAFE_NO_PAD.encode(
-                SecretKey::random(&mut rand::thread_rng())
-                    .public_key()
-                    .to_sec1_bytes(),
-            ),
+            p256dh: URL_SAFE_NO_PAD.encode(SecretKey::generate().public_key().to_sec1_bytes()),
             auth: URL_SAFE_NO_PAD.encode([7_u8; 16]),
         }
     }
