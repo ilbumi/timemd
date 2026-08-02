@@ -52,8 +52,76 @@ async fn groups_by_project_largest_first_by_default() {
     assert_eq!(body["groupBy"], "project");
     assert_eq!(body["buckets"][0]["key"], "timemd");
     assert_eq!(body["buckets"][0]["tracked"], "3h");
+    // Nothing was scheduled, so the plan is a zero rather than absent or null.
+    assert_eq!(body["planned"], "0m");
+    assert_eq!(body["buckets"][0]["planned"], "0m");
     assert_eq!(body["buckets"][0]["sessions"], 2);
     assert_eq!(body["buckets"][1]["key"], "admin");
+}
+
+async fn planned(harness: &Harness, date: &str, start: &str, end: &str, project: Option<&str>) {
+    harness
+        .post(
+            &format!("/api/days/{date}/blocks"),
+            json!({ "start": start, "end": end, "project": project, "title": "Deep work" }),
+        )
+        .await;
+}
+
+#[tokio::test]
+async fn a_report_carries_what_was_planned_beside_what_was_tracked() {
+    let harness = Harness::new();
+    planned(
+        &harness,
+        "2026-08-01",
+        "09:00:00",
+        "11:00:00",
+        Some("timemd"),
+    )
+    .await;
+    logged(
+        &harness,
+        "2026-08-01",
+        "09:00:00",
+        "10:00:00",
+        Some("timemd"),
+    )
+    .await;
+
+    let (status, body) = harness
+        .get("/api/reports?from=2026-08-01&to=2026-08-31")
+        .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total"], "1h");
+    assert_eq!(body["planned"], "2h");
+    assert_eq!(body["buckets"][0]["key"], "timemd");
+    assert_eq!(body["buckets"][0]["tracked"], "1h");
+    assert_eq!(body["buckets"][0]["planned"], "2h");
+}
+
+#[tokio::test]
+async fn a_project_that_was_only_planned_still_gets_a_row() {
+    let harness = Harness::new();
+    planned(
+        &harness,
+        "2026-08-01",
+        "09:00:00",
+        "11:00:00",
+        Some("russian"),
+    )
+    .await;
+
+    let (status, body) = harness
+        .get("/api/reports?from=2026-08-01&to=2026-08-31")
+        .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total"], "0m");
+    assert_eq!(body["buckets"][0]["key"], "russian");
+    assert_eq!(body["buckets"][0]["tracked"], "0m");
+    assert_eq!(body["buckets"][0]["planned"], "2h");
+    assert_eq!(body["buckets"][0]["sessions"], 0);
 }
 
 #[tokio::test]
@@ -107,6 +175,7 @@ async fn an_empty_range_totals_zero() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["total"], "0m");
+    assert_eq!(body["planned"], "0m");
     assert!(body["buckets"].as_array().expect("an array").is_empty());
 }
 

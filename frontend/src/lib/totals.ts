@@ -20,9 +20,11 @@ export interface Totals {
 	/** Whole minutes tracked in the range. */
 	tracked: number;
 	sessions: number;
+	/** Whole minutes the schedule set aside over the same range. */
+	planned: number;
 }
 
-const NOTHING: Totals = { tracked: 0, sessions: 0 };
+const NOTHING: Totals = { tracked: 0, sessions: 0, planned: 0 };
 
 /** Rows keyed by project slug. Untagged time has no slug and is left out. */
 export function totalsFrom(report: Report): Record<string, Totals> {
@@ -31,7 +33,11 @@ export function totalsFrom(report: Report): Record<string, Totals> {
 			.filter((bucket) => bucket.key !== null)
 			.map((bucket) => [
 				bucket.key,
-				{ tracked: parseMinutes(bucket.tracked), sessions: bucket.sessions }
+				{
+					tracked: parseMinutes(bucket.tracked),
+					sessions: bucket.sessions,
+					planned: parseMinutes(bucket.planned)
+				}
 			])
 	);
 }

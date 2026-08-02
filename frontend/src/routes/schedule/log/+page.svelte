@@ -15,6 +15,7 @@
 
 	let anchor = $state(today());
 	let bands = $state<Band[]>([]);
+	let plannedMinutes = $state(0);
 	let looks = $state<Record<string, Look>>({});
 	let projects = $state<Project[]>([]);
 
@@ -41,6 +42,14 @@
 	async function load(): Promise<void> {
 		error = await attempt(async () => {
 			const days = await Promise.all(weekDates(monday).map((date) => api.readDay(date)));
+
+			// Across all seven days, not just the banded ones: a day can be planned
+			// and have nothing tracked, and dropping its plan would understate the
+			// week. The server's `duration` is used rather than end-minus-start
+			// because it is the one that survives a block crossing midnight.
+			plannedMinutes = days
+				.flatMap((day) => day.planned)
+				.reduce((total, block) => total + parseMinutes(block.duration), 0);
 
 			bands = days
 				.map((day) => ({
@@ -96,7 +105,7 @@
 <section class="screen">
 	<PeriodHeader
 		unit="week"
-		total="{formatHours(totalMinutes)} · {sessionCount} sessions"
+		total="{formatHours(totalMinutes)} / {formatHours(plannedMinutes)} · {sessionCount} sessions"
 		onPrevious={() => (anchor = shiftDays(anchor, -7))}
 		onNext={() => (anchor = shiftDays(anchor, 7))}
 	>

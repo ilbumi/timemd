@@ -49,12 +49,17 @@
 		margin-bottom: 14px;
 	}
 
+	/* Grows into the free space but never shrinks below the title itself: with a
+	   flex-basis of zero the total claimed its content width first and left the
+	   title a box too small to sit in, which it then overflowed into the gap. */
 	h1 {
-		flex: 1;
+		flex: 1 0 auto;
 		min-width: 0;
 	}
 
+	/* So the total is the part that gives way, wrapping rather than colliding. */
 	.total {
+		flex: 0 1 auto;
 		text-align: right;
 		text-transform: uppercase;
 	}

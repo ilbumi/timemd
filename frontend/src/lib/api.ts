@@ -144,6 +144,8 @@ export interface Bucket {
 	/** Project slug or date, depending on the grouping; null means no project. */
 	key: string | null;
 	tracked: string;
+	/** What the schedule set aside for this key over the range. */
+	planned: string;
 	sessions: number;
 }
 
@@ -152,6 +154,8 @@ export interface Report {
 	to: string;
 	groupBy: GroupBy;
 	total: string;
+	/** Everything scheduled over the range; `total` is what was tracked. */
+	planned: string;
 	buckets: Bucket[];
 }
 

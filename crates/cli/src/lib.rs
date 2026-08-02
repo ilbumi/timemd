@@ -238,12 +238,18 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
             let range = DateRange::new(from, to)?;
 
             let report = report::build(store, range, group_by.parse::<GroupBy>()?)?;
-            let mut lines = vec![format!("{from} → {to} — {} total", report.total)];
+            let mut lines = vec![format!(
+                "{from} → {to} — {} total · {} planned",
+                report.total, report.planned
+            )];
             for bucket in &report.buckets {
+                // `to_string` first on both: `Minutes` writes through `write!`, so
+                // a width specifier does nothing to the value itself.
                 lines.push(format!(
-                    "  {:<24} {:>8}  {} session(s)",
+                    "  {:<24} {:>8} {:>8}  {} session(s)",
                     bucket.key.as_deref().unwrap_or("-"),
                     bucket.tracked.to_string(),
+                    bucket.planned.to_string(),
                     bucket.sessions,
                 ));
             }
@@ -600,7 +606,50 @@ mod tests {
         .expect("reads");
 
         assert!(output.contains("2h total"), "{output}");
+        assert!(output.contains("0m planned"), "{output}");
         assert!(output.contains("timemd"), "{output}");
+    }
+
+    #[test]
+    fn report_prints_what_was_planned_beside_what_was_tracked() {
+        let (_directory, store) = store();
+        run(
+            &store,
+            log(Some("timemd"), at(9, 0), at(10, 0), None),
+            moment(12, 0),
+        )
+        .expect("logs");
+        // The CLI has no schedule command, so the plan is seeded through the store.
+        store
+            .update_day(moment(9, 0).date(), |day| {
+                day.add_block(timemd_core::DayBlock {
+                    start: at(9, 0),
+                    end: at(11, 0),
+                    project: Some(ProjectSlug::new("timemd").expect("valid slug")),
+                    title: "Deep work".to_owned(),
+                    remind_before: None,
+                });
+            })
+            .expect("writes");
+
+        let output = run(
+            &store,
+            Command::Report {
+                from: None,
+                to: None,
+                group_by: "project".to_owned(),
+            },
+            moment(12, 0),
+        )
+        .expect("reads");
+
+        assert!(output.contains("1h total · 2h planned"), "{output}");
+        let row = output
+            .lines()
+            .find(|line| line.contains("timemd"))
+            .expect("has a timemd row");
+        assert!(row.contains("1h"), "{row}");
+        assert!(row.contains("2h"), "{row}");
     }
 
     #[test]

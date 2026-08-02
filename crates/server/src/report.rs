@@ -24,6 +24,7 @@ pub struct ReportView {
     to: NaiveDate,
     group_by: GroupBy,
     total: Minutes,
+    planned: Minutes,
     /// Core's `Bucket` serialises correctly as-is: its field names are single
     /// words, so there is no camelCase to apply and nothing to restate here.
     buckets: Vec<Bucket>,
@@ -36,6 +37,7 @@ impl From<Report> for ReportView {
             to: report.to,
             group_by: report.group_by,
             total: report.total,
+            planned: report.planned,
             buckets: report.buckets,
         }
     }

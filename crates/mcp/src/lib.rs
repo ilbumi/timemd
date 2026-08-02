@@ -192,6 +192,9 @@ pub struct ReportBucket {
     /// Project slug or date, depending on the grouping. Null means no project.
     pub key: Option<String>,
     pub tracked: String,
+    /// What the schedule set aside for this key. A bucket can have this and no
+    /// tracked time at all.
+    pub planned: String,
     pub sessions: u32,
 }
 
@@ -201,6 +204,8 @@ pub struct ReportSummary {
     pub to: String,
     pub group_by: String,
     pub total: String,
+    /// Everything scheduled over the range; `total` is what was tracked.
+    pub planned: String,
     pub buckets: Vec<ReportBucket>,
 }
 
@@ -354,7 +359,10 @@ impl TimeMd {
         }))
     }
 
-    #[tool(name = "report", description = "Total tracked time over a range.")]
+    #[tool(
+        name = "report",
+        description = "Tracked and scheduled time over a range."
+    )]
     fn report(
         &self,
         Parameters(params): Parameters<ReportParams>,
@@ -374,12 +382,14 @@ impl TimeMd {
             to: summary.to.to_string(),
             group_by: summary.group_by.to_string(),
             total: summary.total.to_string(),
+            planned: summary.planned.to_string(),
             buckets: summary
                 .buckets
                 .iter()
                 .map(|bucket| ReportBucket {
                     key: bucket.key.clone(),
                     tracked: bucket.tracked.to_string(),
+                    planned: bucket.planned.to_string(),
                     sessions: bucket.sessions,
                 })
                 .collect(),
@@ -841,8 +851,10 @@ mod tests {
             }))
             .expect("reads");
         assert_eq!(by_project.0.total, "2h30m");
+        assert_eq!(by_project.0.planned, "0m");
         assert_eq!(by_project.0.group_by, "project");
         assert_eq!(by_project.0.buckets[0].key.as_deref(), Some("timemd"));
+        assert_eq!(by_project.0.buckets[0].planned, "0m");
 
         let by_day = server
             .report(Parameters(ReportParams {
@@ -852,6 +864,40 @@ mod tests {
             }))
             .expect("reads");
         assert_eq!(by_day.0.buckets[0].key.as_deref(), Some("2026-08-05"));
+    }
+
+    #[test]
+    fn a_report_carries_the_plan_beside_the_work() {
+        let (_directory, server) = server();
+        log(&server, "2026-08-05", "09:00", "10:00", Some("timemd"));
+        server
+            .store
+            .update_day(
+                NaiveDate::from_ymd_opt(2026, 8, 5).expect("valid date"),
+                |day| {
+                    day.add_block(timemd_core::DayBlock {
+                        start: NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"),
+                        end: NaiveTime::from_hms_opt(11, 0, 0).expect("valid time"),
+                        project: Some(ProjectSlug::new("timemd").expect("valid slug")),
+                        title: "Deep work".to_owned(),
+                        remind_before: None,
+                    });
+                },
+            )
+            .expect("writes");
+
+        let summary = server
+            .report(Parameters(ReportParams {
+                from: "2026-08-01".to_owned(),
+                to: "2026-08-31".to_owned(),
+                group_by: None,
+            }))
+            .expect("reads");
+
+        assert_eq!(summary.0.total, "1h");
+        assert_eq!(summary.0.planned, "2h");
+        assert_eq!(summary.0.buckets[0].tracked, "1h");
+        assert_eq!(summary.0.buckets[0].planned, "2h");
     }
 
     #[test]

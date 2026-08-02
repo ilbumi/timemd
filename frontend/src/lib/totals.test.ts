@@ -7,41 +7,55 @@ afterEach(() => {
 });
 
 function report(buckets: Report['buckets']): Report {
-	return { from: '2026-07-27', to: '2026-08-02', groupBy: 'project', total: '7h', buckets };
+	return {
+		from: '2026-07-27',
+		to: '2026-08-02',
+		groupBy: 'project',
+		total: '7h',
+		planned: '9h',
+		buckets
+	};
 }
 
 describe('totalsFrom', () => {
 	it('keys the rows by slug and reads the durations as minutes', () => {
 		const rows = totalsFrom(
 			report([
-				{ key: 'thesis', tracked: '6h20m', sessions: 14 },
-				{ key: 'russian', tracked: '1h10m', sessions: 3 }
+				{ key: 'thesis', tracked: '6h20m', planned: '10h', sessions: 14 },
+				{ key: 'russian', tracked: '1h10m', planned: '30m', sessions: 3 }
 			])
 		);
 
 		expect(rows).toEqual({
-			thesis: { tracked: 380, sessions: 14 },
-			russian: { tracked: 70, sessions: 3 }
+			thesis: { tracked: 380, sessions: 14, planned: 600 },
+			russian: { tracked: 70, sessions: 3, planned: 30 }
 		});
+	});
+
+	/** A project can be all plan and no work, and still needs its row. */
+	it('keeps a row that was only ever planned', () => {
+		const rows = totalsFrom(report([{ key: 'piano', tracked: '0m', planned: '2h', sessions: 0 }]));
+		expect(rows).toEqual({ piano: { tracked: 0, sessions: 0, planned: 120 } });
 	});
 
 	/** A null key is untagged time, which belongs to no project's target. */
 	it('drops the bucket for time tracked against no project', () => {
-		const rows = totalsFrom(report([{ key: null, tracked: '45m', sessions: 2 }]));
+		const rows = totalsFrom(report([{ key: null, tracked: '45m', planned: '1h', sessions: 2 }]));
 		expect(rows).toEqual({});
 	});
 });
 
 describe('totalsFor', () => {
 	it('reads a row back', () => {
-		expect(totalsFor({ thesis: { tracked: 380, sessions: 14 } }, 'thesis')).toEqual({
+		expect(totalsFor({ thesis: { tracked: 380, sessions: 14, planned: 600 } }, 'thesis')).toEqual({
 			tracked: 380,
-			sessions: 14
+			sessions: 14,
+			planned: 600
 		});
 	});
 
 	it('reports zero for a project with nothing tracked', () => {
-		expect(totalsFor({}, 'thesis')).toEqual({ tracked: 0, sessions: 0 });
+		expect(totalsFor({}, 'thesis')).toEqual({ tracked: 0, sessions: 0, planned: 0 });
 	});
 });
 
@@ -51,16 +65,17 @@ describe('readTotals', () => {
 		vi.stubGlobal('fetch', (url: string) => {
 			asked = url;
 			return Promise.resolve(
-				new Response(JSON.stringify(report([{ key: 'thesis', tracked: '2h', sessions: 4 }])), {
-					headers: { 'content-type': 'application/json' }
-				})
+				new Response(
+					JSON.stringify(report([{ key: 'thesis', tracked: '2h', planned: '3h', sessions: 4 }])),
+					{ headers: { 'content-type': 'application/json' } }
+				)
 			);
 		});
 
 		const rows = await readTotals('2026-07-27', '2026-08-02');
 
 		expect(asked).toBe('/api/reports?from=2026-07-27&to=2026-08-02&groupBy=project');
-		expect(rows.thesis).toEqual({ tracked: 120, sessions: 4 });
+		expect(rows.thesis).toEqual({ tracked: 120, sessions: 4, planned: 180 });
 	});
 
 	/** A target bar is worth losing; a screen is not. */

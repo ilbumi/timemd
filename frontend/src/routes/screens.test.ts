@@ -100,7 +100,8 @@ function stubApi(): void {
 					to: '2026-08-02',
 					groupBy: 'project',
 					total: '5h',
-					buckets: [{ key: 'thesis', tracked: '5h', sessions: 6 }]
+					planned: '6h',
+					buckets: [{ key: 'thesis', tracked: '5h', planned: '6h', sessions: 6 }]
 				};
 			}
 			if (url.startsWith('/api/settings')) {
