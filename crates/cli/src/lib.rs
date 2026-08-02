@@ -11,7 +11,9 @@
 //! each group live beside it, one module per thing being operated on.
 
 pub mod project;
+pub mod schedule;
 pub mod session;
+pub mod settings;
 pub mod timer;
 
 #[cfg(test)]
@@ -105,6 +107,59 @@ pub enum Command {
         #[arg(long, default_value = "project")]
         group_by: String,
     },
+
+    // The verbs above are one word because they are typed constantly. The
+    // groups below are nouns operated on rarely, and flattening them would put
+    // seventeen more entries in one `--help` list.
+    /// Read, create, change and delete projects.
+    Project {
+        #[command(subcommand)]
+        operation: project::ProjectCommand,
+    },
+
+    /// Add, tick, retitle, reorder and delete a project's milestones.
+    Milestone {
+        #[command(subcommand)]
+        operation: project::MilestoneCommand,
+    },
+
+    /// Amend or remove time already logged.
+    Session {
+        #[command(subcommand)]
+        operation: session::SessionCommand,
+    },
+
+    /// Plan, amend and remove one-off blocks on a day.
+    Block {
+        #[command(subcommand)]
+        operation: schedule::BlockCommand,
+    },
+
+    /// The weekly repeating schedule, and skipping it for a day.
+    Repeat {
+        #[command(subcommand)]
+        operation: schedule::RepeatCommand,
+    },
+
+    /// What is planned over a range. Defaults to today.
+    Schedule {
+        #[arg(long)]
+        from: Option<NaiveDate>,
+        #[arg(long)]
+        to: Option<NaiveDate>,
+    },
+
+    /// Pomodoro lengths and the reminder default. With no flags, prints them.
+    Settings {
+        #[arg(long)]
+        focus: Option<String>,
+        #[arg(long)]
+        short_break: Option<String>,
+        #[arg(long)]
+        long_break: Option<String>,
+        #[arg(long)]
+        remind_before: Option<String>,
+    },
 }
 
 /// Runs everything except `serve`, which needs the async runtime the binary owns.
@@ -137,6 +192,25 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
         } => session::log(store, project, from, to, note, date, now),
 
         Command::Projects => project::list(store),
+
+        Command::Project { operation } => project::run(store, operation, now.date()),
+
+        Command::Milestone { operation } => project::milestone(store, operation),
+
+        Command::Session { operation } => session::run(store, operation, now),
+
+        Command::Block { operation } => schedule::block(store, operation, now),
+
+        Command::Repeat { operation } => schedule::repeat(store, operation, now),
+
+        Command::Schedule { from, to } => schedule::range(store, from, to, now),
+
+        Command::Settings {
+            focus,
+            short_break,
+            long_break,
+            remind_before,
+        } => settings::run(store, focus, short_break, long_break, remind_before),
 
         Command::Report { from, to, group_by } => {
             let to = to.unwrap_or_else(|| now.date());
@@ -174,6 +248,19 @@ pub fn local_now(store: &Store) -> Result<NaiveDateTime> {
 /// seed a tree without the HTTP API.
 pub fn create_project(store: &Store, slug: &str, name: &str, today: NaiveDate) -> Result<()> {
     store.create_project(&Project::new(ProjectSlug::new(slug)?, name, today))
+}
+
+/// Reads a `--project` flag that may also be given empty to mean "clear it".
+///
+/// The outer `Option` is "was the flag passed", the inner one is the value, so
+/// leaving a tag alone and removing it stay distinguishable — the same
+/// distinction the HTTP API draws with a doubly-optional field.
+pub(crate) fn optional_slug(raw: Option<String>) -> Result<Option<Option<ProjectSlug>>> {
+    match raw.as_deref() {
+        None => Ok(None),
+        Some("") => Ok(Some(None)),
+        Some(slug) => Ok(Some(Some(ProjectSlug::new(slug)?))),
+    }
 }
 
 pub(crate) fn name_or_dash(project: Option<&ProjectSlug>) -> String {
