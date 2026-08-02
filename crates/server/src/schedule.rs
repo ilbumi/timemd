@@ -30,7 +30,7 @@ pub fn routes() -> Router<AppState> {
         .route("/days/{date}/blocks", post(add_block))
         .route(
             "/days/{date}/blocks/{index}",
-            axum::routing::delete(remove_block),
+            axum::routing::patch(replace_block).delete(remove_block),
         )
         .route("/days/{date}/skips", post(add_skip))
         .route(
@@ -298,6 +298,35 @@ async fn add_block(
     Ok(StatusCode::CREATED)
 }
 
+/// Replaces a one-off block.
+///
+/// Like `replace_session`, this re-sorts the day, so the `oneOffIndex` the
+/// client used may afterwards name a different block. It answers 204 and the
+/// client re-reads — which the day screen's `mutate()` wrapper already does
+/// after every mutation.
+async fn replace_block(
+    State(state): State<AppState>,
+    Path((date, index)): Path<(NaiveDate, usize)>,
+    Json(body): Json<NewBlock>,
+) -> ApiResult<StatusCode> {
+    // Every conversion happens before the store is touched, so a rejected value
+    // cannot leave the file half-updated.
+    let block = DayBlock {
+        start: body.start,
+        end: body.end,
+        project: optional_slug(body.project)?,
+        title: body.title.trim().to_owned(),
+        remind_before: optional_minutes(body.remind_before)?,
+    };
+    let replaced = state
+        .store()
+        .update_day(date, |day| day.replace_block(index, block))?;
+
+    replaced
+        .map(|_| StatusCode::NO_CONTENT)
+        .ok_or_else(|| missing_block(date, index))
+}
+
 async fn remove_block(
     State(state): State<AppState>,
     Path((date, index)): Path<(NaiveDate, usize)>,
@@ -308,7 +337,7 @@ async fn remove_block(
 
     removed
         .map(|_| StatusCode::NO_CONTENT)
-        .ok_or_else(|| ApiError::not_found(format!("no block at index {index} on {date}")))
+        .ok_or_else(|| missing_block(date, index))
 }
 
 async fn add_skip(
@@ -377,4 +406,8 @@ fn block_from(view: &RecurringView) -> ApiResult<RecurringBlock> {
 
 fn missing_session(date: NaiveDate, index: usize) -> ApiError {
     ApiError::not_found(format!("no session at index {index} on {date}"))
+}
+
+fn missing_block(date: NaiveDate, index: usize) -> ApiError {
+    ApiError::not_found(format!("no block at index {index} on {date}"))
 }

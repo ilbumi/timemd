@@ -181,6 +181,141 @@ async fn one_offs_are_numbered_for_deletion_and_repeats_are_not() {
 }
 
 #[tokio::test]
+async fn a_one_off_block_can_be_edited() {
+    let harness = Harness::new();
+    harness
+        .post(
+            &format!("/api/days/{SATURDAY}/blocks"),
+            json!({ "start": "12:00:00", "end": "12:30:00", "title": "Lunch" }),
+        )
+        .await;
+
+    let (status, _) = harness
+        .patch(
+            &format!("/api/days/{SATURDAY}/blocks/0"),
+            json!({
+                "start": "12:15:00",
+                "end": "13:00:00",
+                "project": "timemd",
+                "title": "Long lunch",
+                "remindBefore": "5m"
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, body) = harness.get(&format!("/api/days/{SATURDAY}")).await;
+    assert_eq!(body["planned"][0]["title"], "Long lunch");
+    assert_eq!(body["planned"][0]["start"], "12:15:00");
+    assert_eq!(body["planned"][0]["project"], "timemd");
+    assert_eq!(body["planned"][0]["remindBefore"], "5m");
+    assert_eq!(body["planned"][0]["oneOffIndex"], 0);
+}
+
+/// Editing a start time re-sorts the day, so the index the client used no
+/// longer names the block it just edited. The server renumbers; the client
+/// re-reads rather than reusing what it had.
+#[tokio::test]
+async fn editing_a_block_re_sorts_and_renumbers_the_day() {
+    let harness = Harness::new();
+    for (start, end, title) in [
+        ("09:00:00", "10:00:00", "Early"),
+        ("16:00:00", "17:00:00", "Late"),
+    ] {
+        harness
+            .post(
+                &format!("/api/days/{SATURDAY}/blocks"),
+                json!({ "start": start, "end": end, "title": title }),
+            )
+            .await;
+    }
+
+    let (status, _) = harness
+        .patch(
+            &format!("/api/days/{SATURDAY}/blocks/0"),
+            json!({ "start": "18:00:00", "end": "19:00:00", "title": "Moved" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, body) = harness.get(&format!("/api/days/{SATURDAY}")).await;
+    let planned = body["planned"].as_array().expect("an array");
+    assert_eq!(planned[0]["title"], "Late");
+    assert_eq!(planned[0]["oneOffIndex"], 0);
+    assert_eq!(planned[1]["title"], "Moved");
+    assert_eq!(planned[1]["oneOffIndex"], 1);
+}
+
+#[tokio::test]
+async fn editing_a_block_that_is_not_there_is_not_found() {
+    let harness = Harness::new();
+    let (status, _) = harness
+        .patch(
+            &format!("/api/days/{SATURDAY}/blocks/3"),
+            json!({ "start": "12:00:00", "end": "12:30:00", "title": "Lunch" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// Every conversion happens before the store is touched, so a rejected value
+/// cannot leave the file half-updated.
+#[tokio::test]
+async fn a_rejected_block_edit_leaves_the_day_alone() {
+    let harness = Harness::new();
+    harness
+        .post(
+            &format!("/api/days/{SATURDAY}/blocks"),
+            json!({ "start": "12:00:00", "end": "12:30:00", "title": "Lunch" }),
+        )
+        .await;
+
+    for bad in [
+        json!({ "start": "13:00:00", "end": "14:00:00", "title": "x", "project": "Not A Slug" }),
+        json!({ "start": "13:00:00", "end": "14:00:00", "title": "x", "remindBefore": "soon" }),
+    ] {
+        let (status, _) = harness
+            .patch(&format!("/api/days/{SATURDAY}/blocks/0"), bad)
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    let (_, body) = harness.get(&format!("/api/days/{SATURDAY}")).await;
+    assert_eq!(body["planned"][0]["title"], "Lunch");
+    assert_eq!(body["planned"][0]["start"], "12:00:00");
+}
+
+/// Reads are lenient and the app owns only what it understands: a hand-written
+/// line the parser could not read survives an edit to a line beside it, and is
+/// still reported.
+#[tokio::test]
+async fn a_hand_edited_schedule_line_survives_a_block_edit() {
+    let harness = Harness::new();
+    let path = harness.store.day_path(SATURDAY.parse().expect("a date"));
+    std::fs::create_dir_all(path.parent().expect("a parent")).expect("makes the directory");
+    std::fs::write(
+        &path,
+        "---\ndate: 2026-08-08\n---\n\n## Schedule\n\n- 12:00-12:30 Lunch\n- half past something\n",
+    )
+    .expect("writes the day");
+
+    let (status, _) = harness
+        .patch(
+            &format!("/api/days/{SATURDAY}/blocks/0"),
+            json!({ "start": "12:15:00", "end": "13:00:00", "title": "Long lunch" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let text = std::fs::read_to_string(&path).expect("reads the day");
+    assert!(text.contains("- half past something"), "{text}");
+    assert!(text.contains("12:15-13:00 Long lunch"), "{text}");
+
+    let (_, body) = harness.get(&format!("/api/days/{SATURDAY}")).await;
+    assert_eq!(body["problems"].as_array().expect("an array").len(), 1);
+}
+
+#[tokio::test]
 async fn a_one_off_block_can_be_removed() {
     let harness = Harness::new();
     harness
