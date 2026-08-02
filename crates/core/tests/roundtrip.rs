@@ -150,6 +150,53 @@ proptest! {
         prop_assert_eq!(reparsed.milestones, milestones);
     }
 
+    /// Reordering may only permute. A move that dropped, duplicated or mangled
+    /// a milestone would be invisible in the returned index and obvious only in
+    /// the file, so the property is checked against a re-read.
+    #[test]
+    fn moving_a_milestone_is_a_permutation(
+        milestones in prop::collection::vec(milestone(), 1..8),
+        from in 0_usize..8,
+        to in 0_usize..8,
+    ) {
+        let mut project = Project::new(slug(), "Thesis", date());
+        project.milestones = milestones.clone();
+
+        let moved = project.move_milestone(from, to);
+        prop_assert_eq!(moved.is_some(), from < milestones.len());
+
+        let reparsed = Project::parse(slug(), &project.render()).expect("parses");
+        prop_assert!(reparsed.problems().is_empty());
+
+        let mut before = milestones;
+        let mut after = reparsed.milestones;
+        before.sort_by(|a, b| (a.done, a.title()).cmp(&(b.done, b.title())));
+        after.sort_by(|a, b| (a.done, a.title()).cmp(&(b.done, b.title())));
+        prop_assert_eq!(after, before);
+    }
+
+    /// The write-side gate, as a property: any title `rename_milestone` accepts
+    /// must come back byte for byte. A rename that wrote a line the reader could
+    /// not read would silently demote a milestone to a preserved-verbatim
+    /// problem line.
+    #[test]
+    fn renaming_never_writes_a_line_the_reader_cannot_read(
+        milestones in prop::collection::vec(milestone(), 1..6),
+        title in r"[a-zA-Z0-9 .,'—\[\]()-]{0,40}",
+    ) {
+        let mut project = Project::new(slug(), "Thesis", date());
+        project.milestones = milestones;
+
+        let Ok(()) = project.rename_milestone(0, &title) else {
+            // Refused, so nothing was written and there is nothing to check.
+            return Ok(());
+        };
+
+        let reparsed = Project::parse(slug(), &project.render()).expect("parses");
+        prop_assert!(reparsed.problems().is_empty());
+        prop_assert_eq!(reparsed.milestones[0].title(), title.trim());
+    }
+
     /// A project file the app rewrites must reach a fixed point too, with the
     /// prose and any agent-authored key still in it.
     #[test]

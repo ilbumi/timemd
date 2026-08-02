@@ -302,6 +302,88 @@ impl Project {
         &self.slug
     }
 
+    /// The position of the one milestone carrying this title.
+    ///
+    /// The addressing scheme for every surface that does not hold the list in
+    /// hand. A milestone has no id — [`docs/format.md`] keeps it that way
+    /// deliberately — and an index is a position another writer can invalidate
+    /// between two calls, whereas a title is what the agent, the file and the
+    /// user all already see.
+    ///
+    /// Reads stay lenient, so a file with the same title twice parses and lists
+    /// fine. Writes are strict, so addressing one of them is refused rather than
+    /// resolved by picking whichever came first.
+    pub fn milestone_titled(&self, title: &str) -> crate::error::Result<usize> {
+        let title = title.trim();
+        let mut found = self
+            .milestones
+            .iter()
+            .enumerate()
+            .filter(|(_, milestone)| milestone.title == title);
+
+        match (found.next(), found.count()) {
+            (Some((index, _)), 0) => Ok(index),
+            (None, _) => Err(crate::error::Error::Invalid(format!(
+                "no milestone titled {title:?} on {}",
+                self.slug
+            ))),
+            (Some(_), rest) => Err(crate::error::Error::Invalid(format!(
+                "{} milestones on {} are titled {title:?}; rename one first",
+                rest + 1,
+                self.slug,
+            ))),
+        }
+    }
+
+    /// Adds a milestone at `position`, or last when `position` is past the end.
+    /// Returns where it landed.
+    ///
+    /// Here rather than at the caller for the clamp: `Vec::insert` panics past
+    /// the end, and three surfaces each writing `position.min(len)` is three
+    /// chances to forget.
+    pub fn insert_milestone(&mut self, position: usize, milestone: Milestone) -> usize {
+        let position = position.min(self.milestones.len());
+        self.milestones.insert(position, milestone);
+        position
+    }
+
+    /// Retitles the milestone at `index`.
+    ///
+    /// Here rather than at the caller because [`Milestone::new`] is the
+    /// write-side gate and `Milestone::title` is private, so this is the only
+    /// door in — a rename cannot walk past the rule the way a field assignment
+    /// once could.
+    pub fn rename_milestone(
+        &mut self,
+        index: usize,
+        title: impl AsRef<str>,
+    ) -> crate::error::Result<()> {
+        let milestone = self.milestones.get_mut(index).ok_or_else(|| {
+            crate::error::Error::Invalid(format!("no milestone at index {index} on {}", self.slug))
+        })?;
+        *milestone = Milestone::new(milestone.done, title)?;
+        Ok(())
+    }
+
+    /// Moves the milestone at `from` to sit at `to` in the *resulting* list,
+    /// landing it last when `to` is past the end. Returns where it landed, or
+    /// `None` when `from` names nothing.
+    ///
+    /// Here rather than at the caller because "`to` in the old list's
+    /// coordinates or the new one's" is a decision that has to be made once and
+    /// tested once: remove-then-insert is off by one in exactly one direction.
+    pub fn move_milestone(&mut self, from: usize, to: usize) -> Option<usize> {
+        if from >= self.milestones.len() {
+            return None;
+        }
+        let milestone = self.milestones.remove(from);
+        // `remove` already shifted everything after `from` down, so `to` is
+        // read against the shortened list — which is the resulting list.
+        let to = to.min(self.milestones.len());
+        self.milestones.insert(to, milestone);
+        Some(to)
+    }
+
     /// Milestone lines the app could not read, so a broken file is visible
     /// rather than silently half-loaded.
     pub fn problems(&self) -> &[ParseError] {
@@ -323,6 +405,14 @@ mod tests {
 
     fn milestone(done: bool, title: &str) -> Milestone {
         Milestone::new(done, title).expect("valid milestone")
+    }
+
+    fn titles(project: &Project) -> Vec<&str> {
+        project
+            .milestones
+            .iter()
+            .map(Milestone::title)
+            .collect::<Vec<_>>()
     }
 
     const SAMPLE: &str = "---\nname: timemd\ncolor: '#4f46e5'\nmark: square\ntarget: 10h\nstatus: active\ncreated: 2026-08-01\n---\n\n# timemd\n\nFree-form project notes.\n\n## Milestones\n\n- [x] Ch. 1 — lit review\n- [ ] Ch. 4 — first draft\n";
@@ -432,6 +522,121 @@ mod tests {
             );
         }
         assert_eq!(milestone(true, "  padded  ").title, "padded");
+    }
+
+    /// The addressing scheme every surface that does not hold the list uses.
+    #[test]
+    fn finds_a_milestone_by_its_title() {
+        let project = Project::parse(slug(), SAMPLE).expect("parses");
+
+        assert_eq!(project.milestone_titled("Ch. 1 — lit review").ok(), Some(0));
+        assert_eq!(
+            project.milestone_titled("Ch. 4 — first draft").ok(),
+            Some(1)
+        );
+    }
+
+    /// `Milestone::new` trims, so a lookup that did not would never match a
+    /// title the caller read back from us and handed straight in again.
+    #[test]
+    fn matches_a_title_after_trimming_it() {
+        let project = Project::parse(slug(), SAMPLE).expect("parses");
+        assert_eq!(
+            project.milestone_titled("  Ch. 1 — lit review  ").ok(),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn refuses_a_title_that_names_no_milestone() {
+        let project = Project::parse(slug(), SAMPLE).expect("parses");
+        let error = project
+            .milestone_titled("Ch. 9")
+            .expect_err("no such title");
+        assert!(error.to_string().contains("Ch. 9"), "{error}");
+    }
+
+    /// Reads are lenient, so a hand-written duplicate parses and lists fine.
+    /// Writes are strict, so addressing one is refused rather than resolved by
+    /// picking whichever came first.
+    #[test]
+    fn refuses_a_title_two_milestones_share() {
+        let source = "---\nname: timemd\n---\n\n## Milestones\n\n- [ ] Ch. 4\n- [x] Ch. 4\n";
+        let project = Project::parse(slug(), source).expect("parses");
+
+        assert_eq!(project.milestones.len(), 2);
+        let error = project.milestone_titled("Ch. 4").expect_err("ambiguous");
+        assert!(error.to_string().contains('2'), "{error}");
+    }
+
+    #[test]
+    fn inserts_a_milestone_at_a_position_and_past_the_end() {
+        let mut project = Project::parse(slug(), SAMPLE).expect("parses");
+
+        assert_eq!(project.insert_milestone(0, milestone(false, "Ch. 0")), 0);
+        assert_eq!(project.insert_milestone(99, milestone(false, "Ch. 9")), 3);
+        assert_eq!(
+            titles(&project),
+            [
+                "Ch. 0",
+                "Ch. 1 — lit review",
+                "Ch. 4 — first draft",
+                "Ch. 9"
+            ]
+        );
+    }
+
+    /// Renaming is the only reason `Milestone::title` is private: this is the
+    /// one door in, so the gate cannot be walked past.
+    #[test]
+    fn renaming_goes_through_the_write_side_gate() {
+        let mut project = Project::parse(slug(), SAMPLE).expect("parses");
+
+        for candidate in ["", "   ", "two\nlines", "carriage\rreturn"] {
+            assert!(
+                project.rename_milestone(0, candidate).is_err(),
+                "{candidate:?} should be rejected"
+            );
+        }
+        assert_eq!(project.milestones[0].title(), "Ch. 1 — lit review");
+
+        project.rename_milestone(0, "  Ch. 1  ").expect("renames");
+        assert_eq!(project.milestones[0].title(), "Ch. 1");
+        assert!(project.milestones[0].done, "renaming must not untick it");
+    }
+
+    #[test]
+    fn refuses_to_rename_a_milestone_that_is_not_there() {
+        let mut project = Project::parse(slug(), SAMPLE).expect("parses");
+        assert!(project.rename_milestone(7, "Ch. 7").is_err());
+    }
+
+    /// `to` is a position in the *resulting* list, which is the half of this
+    /// that remove-then-insert gets wrong in exactly one direction.
+    #[test]
+    fn moves_a_milestone_forwards_and_backwards() {
+        let source =
+            "---\nname: timemd\n---\n\n## Milestones\n\n- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n";
+
+        let mut forwards = Project::parse(slug(), source).expect("parses");
+        assert_eq!(forwards.move_milestone(0, 2), Some(2));
+        assert_eq!(titles(&forwards), ["b", "c", "a", "d"]);
+
+        let mut backwards = Project::parse(slug(), source).expect("parses");
+        assert_eq!(backwards.move_milestone(3, 1), Some(1));
+        assert_eq!(titles(&backwards), ["a", "d", "b", "c"]);
+    }
+
+    #[test]
+    fn moving_past_the_end_lands_last_and_moving_nothing_is_none() {
+        let mut project = Project::parse(slug(), SAMPLE).expect("parses");
+
+        assert_eq!(project.move_milestone(0, 99), Some(1));
+        assert_eq!(
+            titles(&project),
+            ["Ch. 4 — first draft", "Ch. 1 — lit review"]
+        );
+        assert_eq!(project.move_milestone(7, 0), None);
     }
 
     #[test]
