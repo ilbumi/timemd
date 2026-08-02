@@ -7,7 +7,7 @@
  * gets its own outcome rather than being reported as success.
  */
 
-import { api } from './api';
+import { ApiError, api } from './api';
 
 export type PushOutcome =
 	| 'enabled'
@@ -108,7 +108,15 @@ export async function disablePush(): Promise<boolean> {
 	const subscription = await registration?.pushManager.getSubscription();
 	if (!subscription) return false;
 
-	await api.unsubscribePush(subscription.endpoint);
+	try {
+		await api.unsubscribePush(subscription.endpoint);
+	} catch (failure) {
+		// A 404 is the goal state, not a failure: the server has no record of
+		// this endpoint, which is exactly what it was being asked to reach. A
+		// device whose subscription the server has forgotten could otherwise
+		// never turn notifications off again.
+		if (!(failure instanceof ApiError) || failure.status !== 404) throw failure;
+	}
 	await subscription.unsubscribe();
 	return true;
 }

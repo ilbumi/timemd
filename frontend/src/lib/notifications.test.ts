@@ -191,6 +191,37 @@ describe('disablePush', () => {
 		expect(unsubscribe).toHaveBeenCalledOnce();
 	});
 
+	/// The server 404s an endpoint it has no record of, which is the state we
+	/// were asking it to reach. Without this the button could never be turned
+	/// off again.
+	it('treats an endpoint the server has forgotten as already gone', async () => {
+		const unsubscribe = vi.fn(() => Promise.resolve(true));
+		stubBrowser({ subscription: { ...validSubscription, unsubscribe } });
+		vi.stubGlobal('fetch', () =>
+			Promise.resolve(
+				new Response(JSON.stringify({ error: 'no such subscription' }), {
+					status: 404,
+					headers: { 'content-type': 'application/json' }
+				})
+			)
+		);
+
+		await expect(disablePush()).resolves.toBe(true);
+		expect(unsubscribe).toHaveBeenCalledOnce();
+	});
+
+	/// Dropping the browser's half while the server keeps pushing into a live
+	/// endpoint is the asymmetry this function exists to prevent, so anything
+	/// that is not a 404 stops before the local unsubscribe.
+	it('leaves any other failure to the caller', async () => {
+		const unsubscribe = vi.fn(() => Promise.resolve(true));
+		stubBrowser({ subscription: { ...validSubscription, unsubscribe } });
+		vi.stubGlobal('fetch', () => Promise.resolve(new Response(null, { status: 500 })));
+
+		await expect(disablePush()).rejects.toThrow();
+		expect(unsubscribe).not.toHaveBeenCalled();
+	});
+
 	it('is a no-op with no subscription or on an unsupported browser', async () => {
 		const calls: string[] = [];
 		stubBrowser({});
