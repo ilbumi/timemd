@@ -9,7 +9,9 @@ use proptest::prelude::*;
 use timemd_core::day::{Day, Session};
 use timemd_core::document::Document;
 use timemd_core::ids::ProjectSlug;
+use timemd_core::minutes::Minutes;
 use timemd_core::project::{Milestone, Project};
+use timemd_core::schedule::DayBlock;
 
 fn date() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 8, 1).expect("valid date")
@@ -55,6 +57,34 @@ fn session() -> impl Strategy<Value = Session> {
                     project,
                     note,
                 )
+            },
+        )
+}
+
+/// A block's title sits where a session's note does, so it carries the same
+/// rule: grammar characters are fine inside it, but opening with one makes it
+/// indistinguishable from a project link.
+fn day_block() -> impl Strategy<Value = DayBlock> {
+    (
+        0_u32..24,
+        0_u32..60,
+        0_u32..24,
+        0_u32..60,
+        project(),
+        r"[a-zA-Z0-9 ,.:;'?-]{1,40}"
+            .prop_filter("a block needs a title", |title| !title.trim().is_empty()),
+        prop::option::of((1_u32..120).prop_map(Minutes::new)),
+    )
+        .prop_map(
+            |(start_hour, start_minute, end_hour, end_minute, project, title, remind_before)| {
+                DayBlock {
+                    start: NaiveTime::from_hms_opt(start_hour, start_minute, 0)
+                        .expect("valid time"),
+                    end: NaiveTime::from_hms_opt(end_hour, end_minute, 0).expect("valid time"),
+                    project,
+                    title: title.trim().to_owned(),
+                    remind_before,
+                }
             },
         )
 }
@@ -109,6 +139,49 @@ proptest! {
         let twice = Day::parse(date(), &once).expect("parses").render();
 
         prop_assert_eq!(once, twice);
+    }
+
+    /// The same guarantee as sessions, for the day's other owned list. `##
+    /// Schedule` had no property test at all, which is why editing a one-off
+    /// block was the operation missing from every surface at once.
+    #[test]
+    fn blocks_survive_a_write_and_a_read(blocks in prop::collection::vec(day_block(), 0..8)) {
+        let mut day = Day::new(date());
+        for block in &blocks {
+            day.add_block(block.clone());
+        }
+
+        let reparsed = Day::parse(date(), &day.render()).expect("parses");
+
+        let mut expected = blocks;
+        expected.sort_by_key(|block| block.start);
+        prop_assert_eq!(reparsed.schedule(), expected.as_slice());
+        prop_assert!(reparsed.problems().is_empty());
+    }
+
+    /// Replacing a block must leave the day readable and correctly ordered,
+    /// whatever the new start time does to the list.
+    #[test]
+    fn replacing_a_block_keeps_the_day_ordered(
+        blocks in prop::collection::vec(day_block(), 1..6),
+        index in 0_usize..6,
+        replacement in day_block(),
+    ) {
+        let mut day = Day::new(date());
+        for block in &blocks {
+            day.add_block(block.clone());
+        }
+
+        let replaced = day.replace_block(index, replacement.clone());
+        prop_assert_eq!(replaced.is_some(), index < blocks.len());
+
+        let reparsed = Day::parse(date(), &day.render()).expect("parses");
+        prop_assert!(reparsed.problems().is_empty());
+        prop_assert!(reparsed.schedule().is_sorted_by_key(|block| block.start));
+        prop_assert_eq!(reparsed.schedule().len(), blocks.len());
+        if replaced.is_some() {
+            prop_assert!(reparsed.schedule().contains(&replacement));
+        }
     }
 
     /// Content the app does not understand comes back byte-for-byte.
