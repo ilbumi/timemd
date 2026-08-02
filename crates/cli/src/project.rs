@@ -4,8 +4,11 @@ use chrono::NaiveDate;
 use clap::Subcommand;
 use timemd_core::error::Error;
 use timemd_core::{
-    Color, Mark, Milestone, Minutes, Project, ProjectSlug, ProjectStatus, Result, Store,
+    Color, Mark, Milestone, MilestoneEdit, Minutes, Project, ProjectSlug, ProjectStatus, Result,
+    Store,
 };
+
+use crate::clearable;
 
 #[derive(Subcommand, Debug)]
 pub enum ProjectCommand {
@@ -125,17 +128,9 @@ pub fn run(store: &Store, command: ProjectCommand, today: NaiveDate) -> Result<S
             let slug = ProjectSlug::new(slug)?;
             // Every conversion before the store is touched, so a rejected value
             // cannot leave the file half-updated.
-            let color = match color.as_deref() {
-                None => None,
-                Some("") => Some(None),
-                Some(raw) => Some(Some(Color::new(raw)?)),
-            };
+            let color = clearable(color, Color::new)?;
             let mark = mark.map(|raw| raw.parse::<Mark>()).transpose()?;
-            let target = match target.as_deref() {
-                None => None,
-                Some("") => Some(None),
-                Some(raw) => Some(Some(raw.parse::<Minutes>()?)),
-            };
+            let target = clearable(target, |raw| raw.parse::<Minutes>())?;
             let status = status.map(|raw| raw.parse::<ProjectStatus>()).transpose()?;
 
             store.update_project(&slug, |project| {
@@ -184,16 +179,9 @@ pub fn milestone(store: &Store, command: MilestoneCommand) -> Result<String> {
             let slug = ProjectSlug::new(project)?;
             let milestone = Milestone::new(false, &title)?;
             store.update_project(&slug, |project| {
-                // A title nobody can address is a title nobody can edit, so a
-                // second copy of one is refused on the way in.
-                if project.milestone_titled(milestone.title()).is_ok() {
-                    return Err(Error::Invalid(format!(
-                        "{slug} already has a milestone titled {:?}",
-                        milestone.title()
-                    )));
-                }
-                project.insert_milestone(position.unwrap_or(usize::MAX), milestone);
-                Ok(())
+                project
+                    .insert_milestone(position.unwrap_or(usize::MAX), milestone)
+                    .map(|_| ())
             })??;
             show(store, &slug)
         }
@@ -208,26 +196,18 @@ pub fn milestone(store: &Store, command: MilestoneCommand) -> Result<String> {
         } => {
             let slug = ProjectSlug::new(project)?;
             store.update_project(&slug, |project| {
-                let index = project.milestone_titled(&title)?;
-
-                if done || undone {
-                    project.milestones[index].done = done;
-                }
-                if let Some(new_title) = &rename {
-                    if project
-                        .milestone_titled(new_title)
-                        .is_ok_and(|existing| existing != index)
-                    {
-                        return Err(Error::Invalid(format!(
-                            "{slug} already has a milestone titled {new_title:?}"
-                        )));
-                    }
-                    project.rename_milestone(index, new_title)?;
-                }
-                if let Some(position) = position {
-                    project.move_milestone(index, position);
-                }
-                Ok(())
+                project
+                    .update_milestone(
+                        &title,
+                        MilestoneEdit {
+                            // `conflicts_with` makes the pair exclusive, so
+                            // either flag decides it and neither means leave it.
+                            done: (done || undone).then_some(done),
+                            title: rename.clone(),
+                            position,
+                        },
+                    )
+                    .map(|_| ())
             })??;
             show(store, &slug)
         }
@@ -320,8 +300,10 @@ pub fn list(store: &Store) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::{MilestoneCommand, ProjectCommand};
     use crate::testing::{moment, store};
     use crate::{Command, create_project, run};
+    use clap::Parser;
     use timemd_core::{Milestone, Minutes, ProjectSlug, ProjectStatus};
 
     #[test]
@@ -369,14 +351,6 @@ mod tests {
             "no projects yet"
         );
     }
-}
-
-#[cfg(test)]
-mod group_tests {
-    use super::{MilestoneCommand, ProjectCommand};
-    use crate::testing::{moment, store};
-    use crate::{Command, run};
-    use clap::Parser;
 
     fn thesis(store: &timemd_core::Store) {
         run(

@@ -7,7 +7,7 @@ use axum::{Json, Router};
 use chrono::{NaiveDate, NaiveTime};
 use serde::{Deserialize, Serialize};
 use timemd_core::day::Session;
-use timemd_core::schedule::planned;
+use timemd_core::schedule::{planned, planned_range};
 use timemd_core::{DateRange, DayBlock, Minutes, Occurrence, RecurringBlock};
 
 use crate::error::{ApiError, ApiResult};
@@ -60,30 +60,19 @@ pub struct OccurrenceView {
     one_off_index: Option<usize>,
 }
 
-/// Numbers the one-offs in one day's merged list, leaving repeats at `None`.
 fn views_for(occurrences: Vec<Occurrence>) -> Vec<OccurrenceView> {
-    let mut one_offs = 0;
-
     occurrences
         .into_iter()
-        .map(|occurrence| {
-            let one_off_index = occurrence.block.is_none().then(|| {
-                let index = one_offs;
-                one_offs += 1;
-                index
-            });
-
-            OccurrenceView {
-                duration: occurrence.duration(),
-                date: occurrence.date,
-                start: occurrence.start,
-                end: occurrence.end,
-                project: occurrence.project.map(|slug| slug.to_string()),
-                title: occurrence.title,
-                remind_before: occurrence.remind_before,
-                block: occurrence.block.map(|id| id.to_string()),
-                one_off_index,
-            }
+        .map(|occurrence| OccurrenceView {
+            duration: occurrence.duration(),
+            date: occurrence.date,
+            start: occurrence.start,
+            end: occurrence.end,
+            project: occurrence.project.map(|slug| slug.to_string()),
+            title: occurrence.title,
+            remind_before: occurrence.remind_before,
+            block: occurrence.block.map(|id| id.to_string()),
+            one_off_index: occurrence.one_off_index,
         })
         .collect()
 }
@@ -164,16 +153,7 @@ async fn range(
     Query(query): Query<RangeQuery>,
 ) -> ApiResult<Json<Vec<OccurrenceView>>> {
     let range = DateRange::new(query.from, query.to)?;
-    let recurring = state.store().read_recurring()?;
-
-    // Numbered per day, because a day is the scope the delete endpoint addresses.
-    let mut views = Vec::new();
-    for date in range.dates() {
-        let day = state.store().read_day(date)?;
-        views.extend(views_for(planned(&day, &recurring)));
-    }
-
-    Ok(Json(views))
+    Ok(Json(views_for(planned_range(state.store(), range)?)))
 }
 
 async fn read_recurring(State(state): State<AppState>) -> ApiResult<Json<Vec<RecurringView>>> {

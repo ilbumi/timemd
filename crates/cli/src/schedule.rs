@@ -8,7 +8,7 @@ use timemd_core::{
     BlockId, DateRange, DayBlock, Minutes, Occurrence, RecurringBlock, Result, Store,
 };
 
-use crate::{name_or_dash, optional_slug};
+use crate::{clearable, name_or_dash, optional_slug};
 
 #[derive(Subcommand, Debug)]
 pub enum BlockCommand {
@@ -108,7 +108,16 @@ pub fn range(
     now: NaiveDateTime,
 ) -> Result<String> {
     let from = from.unwrap_or_else(|| now.date());
-    let to = to.unwrap_or(from);
+    span(store, from, to.unwrap_or(from))
+}
+
+/// What is planned on one day, which every block and repeat command reprints so
+/// the handle its next argument takes is on screen.
+fn on(store: &Store, date: NaiveDate) -> Result<String> {
+    span(store, date, date)
+}
+
+fn span(store: &Store, from: NaiveDate, to: NaiveDate) -> Result<String> {
     let occurrences = planned_range(store, DateRange::new(from, to)?)?;
 
     if occurrences.is_empty() {
@@ -117,23 +126,22 @@ pub fn range(
 
     let mut lines = Vec::new();
     let mut date = None;
-    // Numbered per day, because that is what `block edit` and `block rm`
-    // address — a position among one day's one-offs, not a row in this list.
-    let mut one_offs = 0;
 
     for occurrence in &occurrences {
         if date != Some(occurrence.date) {
             date = Some(occurrence.date);
-            one_offs = 0;
             lines.push(occurrence.date.to_string());
         }
         lines.push(match &occurrence.block {
             Some(id) => format!("     {}  `{id}`", body(occurrence)),
-            None => {
-                let index = one_offs;
-                one_offs += 1;
-                format!("  {index}  {}", body(occurrence))
-            }
+            // `planned` numbers exactly the entries with no repeating source,
+            // and the number it gives is the one `block edit` and `block rm`
+            // take: a position among that day's one-offs.
+            None => format!(
+                "  {}  {}",
+                occurrence.one_off_index.unwrap_or_default(),
+                body(occurrence)
+            ),
         });
     }
     Ok(lines.join("\n"))
@@ -158,7 +166,7 @@ pub fn block(store: &Store, command: BlockCommand, now: NaiveDateTime) -> Result
                 remind_before: remind.map(|raw| raw.parse::<Minutes>()).transpose()?,
             };
             store.update_day(date, |day| day.add_block(block))?;
-            range(store, Some(date), Some(date), now)
+            on(store, date)
         }
 
         BlockCommand::Edit {
@@ -172,11 +180,7 @@ pub fn block(store: &Store, command: BlockCommand, now: NaiveDateTime) -> Result
         } => {
             let date = date.unwrap_or_else(|| now.date());
             let project = optional_slug(project)?;
-            let remind = match remind.as_deref() {
-                None => None,
-                Some("") => Some(None),
-                Some(raw) => Some(Some(raw.parse::<Minutes>()?)),
-            };
+            let remind = clearable(remind, |raw: String| raw.parse::<Minutes>())?;
 
             store.update_day(date, |day| {
                 let existing = day
@@ -197,7 +201,7 @@ pub fn block(store: &Store, command: BlockCommand, now: NaiveDateTime) -> Result
                 );
                 Ok::<_, Error>(())
             })??;
-            range(store, Some(date), Some(date), now)
+            on(store, date)
         }
 
         BlockCommand::Rm { index, date } => {
@@ -207,41 +211,45 @@ pub fn block(store: &Store, command: BlockCommand, now: NaiveDateTime) -> Result
                     .map(|_| ())
                     .ok_or_else(|| missing_block(index, date))
             })??;
-            range(store, Some(date), Some(date), now)
+            on(store, date)
         }
     }
 }
 
+/// The repeating pattern, which every `repeat` write reprints so the id its
+/// next argument takes is on screen.
+fn list(store: &Store) -> Result<String> {
+    let recurring = store.read_recurring()?;
+    if recurring.blocks().is_empty() {
+        return Ok("nothing repeats yet".to_owned());
+    }
+    let mut lines: Vec<String> = recurring
+        .blocks()
+        .iter()
+        .map(|block| {
+            format!(
+                "  `{}`  {:<16} {}-{}  {}  {}{}",
+                block.id,
+                block.days,
+                block.start.format("%H:%M"),
+                block.end.format("%H:%M"),
+                name_or_dash(block.project.as_ref()),
+                block.title,
+                block
+                    .remind_before
+                    .map_or_else(String::new, |lead| format!("  !{lead}")),
+            )
+        })
+        .collect();
+    for problem in recurring.problems() {
+        lines.push(format!("  ! {problem}"));
+    }
+    Ok(lines.join("\n"))
+}
+
 pub fn repeat(store: &Store, command: RepeatCommand, now: NaiveDateTime) -> Result<String> {
     match command {
-        RepeatCommand::List => {
-            let recurring = store.read_recurring()?;
-            if recurring.blocks().is_empty() {
-                return Ok("nothing repeats yet".to_owned());
-            }
-            let mut lines: Vec<String> = recurring
-                .blocks()
-                .iter()
-                .map(|block| {
-                    format!(
-                        "  `{}`  {:<16} {}-{}  {}  {}{}",
-                        block.id,
-                        block.days,
-                        block.start.format("%H:%M"),
-                        block.end.format("%H:%M"),
-                        name_or_dash(block.project.as_ref()),
-                        block.title,
-                        block
-                            .remind_before
-                            .map_or_else(String::new, |lead| format!("  !{lead}")),
-                    )
-                })
-                .collect();
-            for problem in recurring.problems() {
-                lines.push(format!("  ! {problem}"));
-            }
-            Ok(lines.join("\n"))
-        }
+        RepeatCommand::List => list(store),
 
         RepeatCommand::Set {
             id,
@@ -265,7 +273,7 @@ pub fn repeat(store: &Store, command: RepeatCommand, now: NaiveDateTime) -> Resu
             };
             // Keyed on the id, so changing one block leaves every other alone.
             store.update_recurring(|recurring| recurring.upsert(block))?;
-            repeat(store, RepeatCommand::List, now)
+            list(store)
         }
 
         RepeatCommand::Rm { id } => {
@@ -273,14 +281,14 @@ pub fn repeat(store: &Store, command: RepeatCommand, now: NaiveDateTime) -> Resu
             if !store.update_recurring(|recurring| recurring.remove(&id))? {
                 return Err(Error::Invalid(format!("no repeating block named {id:?}")));
             }
-            repeat(store, RepeatCommand::List, now)
+            list(store)
         }
 
         RepeatCommand::Skip { id, date } => {
             let date = date.unwrap_or_else(|| now.date());
             let id = BlockId::new(&id)?;
             store.update_day(date, |day| day.skip(id))?;
-            range(store, Some(date), Some(date), now)
+            on(store, date)
         }
 
         RepeatCommand::Restore { id, date } => {
@@ -289,7 +297,7 @@ pub fn repeat(store: &Store, command: RepeatCommand, now: NaiveDateTime) -> Resu
             if !store.update_day(date, |day| day.unskip(&id))? {
                 return Err(Error::Invalid(format!("{id} was not skipped on {date}")));
             }
-            range(store, Some(date), Some(date), now)
+            on(store, date)
         }
     }
 }

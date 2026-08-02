@@ -205,6 +205,15 @@ impl Milestone {
     }
 }
 
+/// What [`Project::update_milestone`] may change about one milestone. Every
+/// field omitted leaves it exactly as it was.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MilestoneEdit {
+    pub done: Option<bool>,
+    pub title: Option<String>,
+    pub position: Option<usize>,
+}
+
 /// A project, with its prose body and any agent-authored frontmatter intact.
 #[derive(Debug, Clone)]
 pub struct Project {
@@ -335,16 +344,68 @@ impl Project {
         }
     }
 
+    /// Refuses a title already carried by a milestone other than the one at
+    /// `except`.
+    ///
+    /// The other half of [`Project::milestone_titled`], and the reason it can
+    /// promise a single match: a title two milestones share is addressable by
+    /// nobody, so no surface may write one. Enforced here rather than at each
+    /// caller because it is the same rule for adding, renaming and replacing
+    /// the whole list, and the surface that replaces the whole list is the one
+    /// that had forgotten it.
+    fn refuse_duplicate(&self, title: &str, except: Option<usize>) -> crate::error::Result<()> {
+        let taken = self
+            .milestones
+            .iter()
+            .enumerate()
+            .any(|(index, milestone)| milestone.title == title && Some(index) != except);
+
+        if taken {
+            return Err(crate::error::Error::Invalid(format!(
+                "{} already has a milestone titled {title:?}",
+                self.slug
+            )));
+        }
+        Ok(())
+    }
+
     /// Adds a milestone at `position`, or last when `position` is past the end.
     /// Returns where it landed.
     ///
     /// Here rather than at the caller for the clamp: `Vec::insert` panics past
     /// the end, and three surfaces each writing `position.min(len)` is three
     /// chances to forget.
-    pub fn insert_milestone(&mut self, position: usize, milestone: Milestone) -> usize {
+    pub fn insert_milestone(
+        &mut self,
+        position: usize,
+        milestone: Milestone,
+    ) -> crate::error::Result<usize> {
+        self.refuse_duplicate(milestone.title(), None)?;
         let position = position.min(self.milestones.len());
         self.milestones.insert(position, milestone);
-        position
+        Ok(position)
+    }
+
+    /// Replaces the whole list, refusing one that carries a title twice.
+    ///
+    /// The door for the whole-list `PATCH`: the web app holds the list and
+    /// sends it back entire, which is the one shape that can introduce a
+    /// duplicate without ever naming a milestone.
+    pub fn set_milestones(&mut self, milestones: Vec<Milestone>) -> crate::error::Result<()> {
+        for (index, milestone) in milestones.iter().enumerate() {
+            if let Some(clash) = milestones[..index]
+                .iter()
+                .find(|earlier| earlier.title == milestone.title)
+            {
+                return Err(crate::error::Error::Invalid(format!(
+                    "{} would have two milestones titled {:?}",
+                    self.slug,
+                    clash.title()
+                )));
+            }
+        }
+        self.milestones = milestones;
+        Ok(())
     }
 
     /// Retitles the milestone at `index`.
@@ -358,11 +419,47 @@ impl Project {
         index: usize,
         title: impl AsRef<str>,
     ) -> crate::error::Result<()> {
-        let milestone = self.milestones.get_mut(index).ok_or_else(|| {
-            crate::error::Error::Invalid(format!("no milestone at index {index} on {}", self.slug))
-        })?;
-        *milestone = Milestone::new(milestone.done, title)?;
+        let renamed = Milestone::new(
+            self.milestones
+                .get(index)
+                .ok_or_else(|| {
+                    crate::error::Error::Invalid(format!(
+                        "no milestone at index {index} on {}",
+                        self.slug
+                    ))
+                })?
+                .done,
+            title,
+        )?;
+        self.refuse_duplicate(renamed.title(), Some(index))?;
+        self.milestones[index] = renamed;
         Ok(())
+    }
+
+    /// Ticks, retitles and moves the milestone carrying `title`, in that order,
+    /// returning where it ended up.
+    ///
+    /// One method rather than one per verb because the three share an address,
+    /// a transaction and an ordering — `position` is read against the list as
+    /// it stands *after* the rename — and that ordering is a decision to make
+    /// once. MCP and the CLI had each made it separately.
+    pub fn update_milestone(
+        &mut self,
+        title: &str,
+        edit: MilestoneEdit,
+    ) -> crate::error::Result<usize> {
+        let index = self.milestone_titled(title)?;
+
+        if let Some(done) = edit.done {
+            self.milestones[index].done = done;
+        }
+        if let Some(new_title) = &edit.title {
+            self.rename_milestone(index, new_title)?;
+        }
+        match edit.position {
+            Some(position) => Ok(self.move_milestone(index, position).unwrap_or(index)),
+            None => Ok(index),
+        }
     }
 
     /// Moves the milestone at `from` to sit at `to` in the *resulting* list,
@@ -573,8 +670,14 @@ mod tests {
     fn inserts_a_milestone_at_a_position_and_past_the_end() {
         let mut project = Project::parse(slug(), SAMPLE).expect("parses");
 
-        assert_eq!(project.insert_milestone(0, milestone(false, "Ch. 0")), 0);
-        assert_eq!(project.insert_milestone(99, milestone(false, "Ch. 9")), 3);
+        assert_eq!(
+            project.insert_milestone(0, milestone(false, "Ch. 0")).ok(),
+            Some(0)
+        );
+        assert_eq!(
+            project.insert_milestone(99, milestone(false, "Ch. 9")).ok(),
+            Some(3)
+        );
         assert_eq!(
             titles(&project),
             [
@@ -583,6 +686,83 @@ mod tests {
                 "Ch. 4 — first draft",
                 "Ch. 9"
             ]
+        );
+    }
+
+    /// A title two milestones share is addressable by nobody, so every door in
+    /// refuses one — including the whole-list replace, which is the door the
+    /// web app uses and the only one that can collide without naming anything.
+    #[test]
+    fn no_door_writes_a_title_twice() {
+        let mut project = Project::parse(slug(), SAMPLE).expect("parses");
+
+        assert!(
+            project
+                .insert_milestone(0, milestone(false, "Ch. 4 — first draft"))
+                .is_err(),
+            "adding a duplicate"
+        );
+        assert!(
+            project.rename_milestone(0, "Ch. 4 — first draft").is_err(),
+            "renaming onto a duplicate"
+        );
+        assert!(
+            project
+                .update_milestone(
+                    "Ch. 1 — lit review",
+                    MilestoneEdit {
+                        title: Some("Ch. 4 — first draft".to_owned()),
+                        ..MilestoneEdit::default()
+                    }
+                )
+                .is_err(),
+            "updating onto a duplicate"
+        );
+        assert!(
+            project
+                .set_milestones(vec![milestone(false, "same"), milestone(true, "same")])
+                .is_err(),
+            "replacing the whole list with a duplicate"
+        );
+
+        assert_eq!(
+            titles(&project),
+            ["Ch. 1 — lit review", "Ch. 4 — first draft"],
+            "a refused write changes nothing"
+        );
+
+        project
+            .rename_milestone(0, "Ch. 1 — lit review")
+            .expect("renaming a milestone to the title it already has");
+    }
+
+    /// Tick, retitle and move are one call because they share an address and a
+    /// transaction — and because `position` has to be read against the list as
+    /// it stands after the rename.
+    #[test]
+    fn one_update_ticks_retitles_and_moves() {
+        let mut project = Project::parse(slug(), SAMPLE).expect("parses");
+
+        let landed = project
+            .update_milestone(
+                "Ch. 1 — lit review",
+                MilestoneEdit {
+                    done: Some(false),
+                    title: Some("Ch. 1".to_owned()),
+                    position: Some(1),
+                },
+            )
+            .expect("updates");
+
+        assert_eq!(landed, 1);
+        assert_eq!(titles(&project), ["Ch. 4 — first draft", "Ch. 1"]);
+        assert!(!project.milestones[1].done);
+
+        assert!(
+            project
+                .update_milestone("Ch. 9", MilestoneEdit::default())
+                .is_err(),
+            "a title nothing carries"
         );
     }
 

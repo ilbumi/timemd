@@ -1,6 +1,6 @@
 //! `settings` — pomodoro lengths and the reminder default.
 
-use timemd_core::{Minutes, Result, Settings, Store};
+use timemd_core::{Minutes, Result, Settings, SettingsPatch, Store};
 
 /// Prints the settings, having first applied any flag that was given.
 ///
@@ -13,32 +13,22 @@ pub fn run(
     long_break: Option<String>,
     remind_before: Option<String>,
 ) -> Result<String> {
-    let focus = focus.map(|raw| raw.parse::<Minutes>()).transpose()?;
-    let short_break = short_break.map(|raw| raw.parse::<Minutes>()).transpose()?;
-    let long_break = long_break.map(|raw| raw.parse::<Minutes>()).transpose()?;
-    let remind_before = remind_before
-        .map(|raw| raw.parse::<Minutes>())
-        .transpose()?;
+    let length = |raw: Option<String>| raw.map(|raw| raw.parse::<Minutes>()).transpose();
+    let patch = SettingsPatch {
+        focus: length(focus)?,
+        short_break: length(short_break)?,
+        long_break: length(long_break)?,
+        remind_before: length(remind_before)?,
+    };
 
-    if focus.is_none() && short_break.is_none() && long_break.is_none() && remind_before.is_none() {
+    if patch.is_empty() {
         return Ok(show(&store.read_settings()?));
     }
 
     store.update_settings(|settings| {
-        if let Some(focus) = focus {
-            settings.focus = focus;
-        }
-        if let Some(short_break) = short_break {
-            settings.short_break = short_break;
-        }
-        if let Some(long_break) = long_break {
-            settings.long_break = long_break;
-        }
-        if let Some(remind_before) = remind_before {
-            settings.remind_before = remind_before;
-        }
-        show(settings)
-    })
+        settings.apply(patch)?;
+        Ok(show(settings))
+    })?
 }
 
 fn show(settings: &Settings) -> String {
@@ -99,5 +89,16 @@ mod tests {
     fn an_unreadable_duration_is_rejected() {
         let (_directory, store) = store();
         assert!(run(&store, settings(Some("a while")), moment(9, 0)).is_err());
+    }
+
+    /// `Settings::parse` falls back when it reads a zero, so writing one would
+    /// leave the file saying one thing and the timer doing another.
+    #[test]
+    fn a_zero_session_length_is_rejected() {
+        let (_directory, store) = store();
+        assert!(run(&store, settings(Some("0m")), moment(9, 0)).is_err());
+
+        let output = run(&store, settings(None), moment(9, 0)).expect("reads");
+        assert!(output.contains("focus            25m"), "{output}");
     }
 }

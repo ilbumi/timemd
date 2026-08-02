@@ -238,6 +238,14 @@ pub struct Occurrence {
     pub remind_before: Option<Minutes>,
     /// The repeating block this came from, or `None` for a one-off.
     pub block: Option<BlockId>,
+    /// Position among that day's one-offs — the handle `Day::replace_block` and
+    /// `Day::remove_block` take — or `None` for a repeat.
+    ///
+    /// Carried here rather than counted by each caller because it is a position
+    /// among *one day's* one-offs, and a caller holding a merged range has
+    /// nothing left to count it from. Three surfaces wrote that pass out; the
+    /// one handed a range counted straight through the day boundary.
+    pub one_off_index: Option<usize>,
 }
 
 impl Occurrence {
@@ -332,6 +340,7 @@ impl Recurring {
                 title: block.title.clone(),
                 remind_before: block.remind_before,
                 block: Some(block.id.clone()),
+                one_off_index: None,
             })
             .collect()
     }
@@ -362,15 +371,25 @@ impl Default for Recurring {
 pub fn planned(day: &crate::day::Day, recurring: &Recurring) -> Vec<Occurrence> {
     let mut occurrences = recurring.on(day.date(), day.skipped());
 
-    occurrences.extend(day.schedule().iter().map(|block| Occurrence {
-        date: day.date(),
-        start: block.start,
-        end: block.end,
-        project: block.project.clone(),
-        title: block.title.clone(),
-        remind_before: block.remind_before,
-        block: None,
-    }));
+    // Numbered here, from the day's own list, so the index is the one
+    // `Day::replace_block` takes rather than a position recovered by counting
+    // entries in the merged list — which would depend on how the sort below
+    // breaks a tie.
+    occurrences.extend(
+        day.schedule()
+            .iter()
+            .enumerate()
+            .map(|(index, block)| Occurrence {
+                date: day.date(),
+                start: block.start,
+                end: block.end,
+                project: block.project.clone(),
+                title: block.title.clone(),
+                remind_before: block.remind_before,
+                block: None,
+                one_off_index: Some(index),
+            }),
+    );
 
     occurrences.sort_by_key(|occurrence| (occurrence.start, occurrence.end));
     occurrences
@@ -646,6 +665,59 @@ mod tests {
             occurrences[1].block, None,
             "a one-off has no repeating source"
         );
+    }
+
+    /// The handle every surface hands back to `replace_block` and
+    /// `remove_block`, so it is a position among *this day's* one-offs and
+    /// nothing else. Carried on the occurrence rather than counted after the
+    /// merge, which is what let a range-wide count drift past day one.
+    #[test]
+    fn one_offs_are_numbered_per_day_across_a_range() {
+        use crate::day::Day;
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = crate::store::Store::new(directory.path());
+        for day in [5, 6] {
+            store
+                .update_day(date(day), |target: &mut Day| {
+                    target.add_block(DayBlock::parse("12:00-12:30 Lunch").expect("parses"));
+                    target.add_block(DayBlock::parse("18:00-18:30 Gym").expect("parses"));
+                })
+                .expect("writes");
+        }
+
+        let range = crate::report::DateRange::new(date(5), date(6)).expect("valid range");
+        let numbered: Vec<(String, Option<usize>)> = planned_range(&store, range)
+            .expect("expands")
+            .into_iter()
+            .map(|occurrence| (occurrence.title, occurrence.one_off_index))
+            .collect();
+
+        assert_eq!(
+            numbered,
+            vec![
+                ("Lunch".to_owned(), Some(0)),
+                ("Gym".to_owned(), Some(1)),
+                ("Lunch".to_owned(), Some(0)),
+                ("Gym".to_owned(), Some(1)),
+            ],
+            "the second day restarts at 0"
+        );
+    }
+
+    #[test]
+    fn a_repeat_carries_no_one_off_index() {
+        use crate::day::Day;
+
+        let recurring = Recurring::parse(SAMPLE).expect("parses");
+        let text = "---\ndate: 2026-08-05\n---\n\n## Schedule\n\n- 12:00-12:30 Lunch\n";
+        let day = Day::parse(date(5), text).expect("parses");
+
+        let numbered: Vec<Option<usize>> = planned(&day, &recurring)
+            .iter()
+            .map(|occurrence| occurrence.one_off_index)
+            .collect();
+        assert_eq!(numbered, vec![None, Some(0), None]);
     }
 
     #[test]

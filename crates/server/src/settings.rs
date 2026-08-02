@@ -10,9 +10,9 @@ use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use timemd_core::Minutes;
+use timemd_core::SettingsPatch;
 
-use crate::error::{ApiError, ApiResult};
+use crate::error::ApiResult;
 use crate::parse::optional_minutes;
 use crate::state::AppState;
 
@@ -44,9 +44,11 @@ impl From<&timemd_core::Settings> for SettingsView {
     }
 }
 
+/// The wire body. Durations arrive as the file's own spelling (`25m`, `1h30m`)
+/// and become a [`SettingsPatch`] before the store is touched.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SettingsPatch {
+pub struct SettingsRequest {
     focus: Option<String>,
     short_break: Option<String>,
     long_break: Option<String>,
@@ -60,45 +62,22 @@ async fn read(State(state): State<AppState>) -> ApiResult<Json<SettingsView>> {
 
 async fn write(
     State(state): State<AppState>,
-    Json(patch): Json<SettingsPatch>,
+    Json(request): Json<SettingsRequest>,
 ) -> ApiResult<Json<SettingsView>> {
     // Parsed before the store is touched, so a rejected duration cannot leave
-    // the file half-updated.
-    let focus = length(patch.focus)?;
-    let short_break = length(patch.short_break)?;
-    let long_break = length(patch.long_break)?;
-    let remind_before = optional_minutes(patch.remind_before)?;
+    // the file half-updated. `Settings::apply` owns the rest of the rule,
+    // including refusing a zero session length.
+    let patch = SettingsPatch {
+        focus: optional_minutes(request.focus)?,
+        short_break: optional_minutes(request.short_break)?,
+        long_break: optional_minutes(request.long_break)?,
+        remind_before: optional_minutes(request.remind_before)?,
+    };
 
     let view = state.store().update_settings(|settings| {
-        if let Some(focus) = focus {
-            settings.focus = focus;
-        }
-        if let Some(short_break) = short_break {
-            settings.short_break = short_break;
-        }
-        if let Some(long_break) = long_break {
-            settings.long_break = long_break;
-        }
-        if let Some(remind_before) = remind_before {
-            settings.remind_before = remind_before;
-        }
-        SettingsView::from(&*settings)
-    })?;
+        settings.apply(patch)?;
+        Ok::<_, timemd_core::Error>(SettingsView::from(&*settings))
+    })??;
 
     Ok(Json(view))
-}
-
-/// A session length the app is willing to write.
-///
-/// The other half of the rule lives in `Settings::parse`, which falls back when
-/// it reads a zero: reads are lenient so a hand-edited file cannot break the
-/// timer, writes are strict so the app never puts one there itself. Rejecting
-/// rather than silently defaulting is what tells the caller nothing happened.
-fn length(raw: Option<String>) -> ApiResult<Option<Minutes>> {
-    match optional_minutes(raw)? {
-        Some(value) if value.is_zero() => Err(ApiError::bad_request(
-            "a session length must be more than zero minutes",
-        )),
-        other => Ok(other),
-    }
 }

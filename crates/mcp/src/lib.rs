@@ -19,8 +19,9 @@ use timemd_core::day::Session;
 use timemd_core::report::{self, GroupBy};
 use timemd_core::schedule::{planned, planned_range};
 use timemd_core::{
-    BlockId, Color, DateRange, DayBlock, Mark, Milestone, Minutes, Project, ProjectSlug,
-    ProjectStatus, Recurring, RecurringBlock, Settings, StartRequest, Stopped, Store, Timer,
+    BlockId, Color, DateRange, DayBlock, Mark, Milestone, MilestoneEdit, Minutes, Project,
+    ProjectSlug, ProjectStatus, Recurring, RecurringBlock, Settings, SettingsPatch, StartRequest,
+    Stopped, Store, Timer,
 };
 
 /// The MCP server. One store, no other state.
@@ -553,13 +554,7 @@ impl TimeMd {
         // cannot leave the day half-updated.
         let start = params.start.as_deref().map(time).transpose()?;
         let end = params.end.as_deref().map(time).transpose()?;
-        let project = match params.project.as_deref() {
-            // An empty string is how a caller says "no project"; there is no
-            // other way to spell it in JSON that `None` does not already mean.
-            Some("") => Some(None),
-            Some(raw) => Some(Some(slug(raw)?)),
-            None => None,
-        };
+        let project = clearable(params.project.as_deref(), slug)?;
 
         self.edit_day(on, |day| {
             let existing =
@@ -749,7 +744,7 @@ impl TimeMd {
                     project.status = status;
                 }
                 if let Some(milestones) = milestones {
-                    project.milestones = milestones;
+                    project.set_milestones(milestones)?;
                 }
 
                 tx.write_project(&project)?;
@@ -773,16 +768,10 @@ impl TimeMd {
             .map_err(|error| invalid(error.to_string()))?;
 
         self.edit_project(&slug, |project| {
-            // A duplicate title is addressable by nobody, so refusing to write
-            // one is what keeps every other milestone tool usable.
-            if project.milestone_titled(milestone.title()).is_ok() {
-                return Err(invalid(format!(
-                    "{slug} already has a milestone titled {:?}",
-                    milestone.title()
-                )));
-            }
-            project.insert_milestone(params.position.unwrap_or(usize::MAX), milestone);
-            Ok(())
+            project
+                .insert_milestone(params.position.unwrap_or(usize::MAX), milestone)
+                .map(|_| ())
+                .map_err(|error| invalid(error.to_string()))
         })
     }
 
@@ -797,30 +786,17 @@ impl TimeMd {
         let slug = slug(&params.project)?;
 
         self.edit_project(&slug, |project| {
-            let index = project
-                .milestone_titled(&params.title)
-                .map_err(|error| invalid(error.to_string()))?;
-
-            if let Some(done) = params.done {
-                project.milestones[index].done = done;
-            }
-            if let Some(new_title) = &params.new_title {
-                if project
-                    .milestone_titled(new_title)
-                    .is_ok_and(|existing| existing != index)
-                {
-                    return Err(invalid(format!(
-                        "{slug} already has a milestone titled {new_title:?}"
-                    )));
-                }
-                project
-                    .rename_milestone(index, new_title)
-                    .map_err(|error| invalid(error.to_string()))?;
-            }
-            if let Some(position) = params.position {
-                project.move_milestone(index, position);
-            }
-            Ok(())
+            project
+                .update_milestone(
+                    &params.title,
+                    MilestoneEdit {
+                        done: params.done,
+                        title: params.new_title,
+                        position: params.position,
+                    },
+                )
+                .map(|_| ())
+                .map_err(|error| invalid(error.to_string()))
         })
     }
 
@@ -873,18 +849,16 @@ impl TimeMd {
         &self,
         Parameters(params): Parameters<SettingsParams>,
     ) -> Result<Json<SettingsSummary>, ErrorData> {
-        let focus = params.focus.as_deref().map(minutes).transpose()?;
-        let short_break = params.short_break.as_deref().map(minutes).transpose()?;
-        let long_break = params.long_break.as_deref().map(minutes).transpose()?;
-        let remind_before = params.remind_before.as_deref().map(minutes).transpose()?;
+        let patch = SettingsPatch {
+            focus: params.focus.as_deref().map(minutes).transpose()?,
+            short_break: params.short_break.as_deref().map(minutes).transpose()?,
+            long_break: params.long_break.as_deref().map(minutes).transpose()?,
+            remind_before: params.remind_before.as_deref().map(minutes).transpose()?,
+        };
 
         // A pure read must not write: an agent asking what the lengths are
         // should not dirty a git-tracked tree.
-        if focus.is_none()
-            && short_break.is_none()
-            && long_break.is_none()
-            && remind_before.is_none()
-        {
+        if patch.is_empty() {
             let settings = self.store.read_settings().map_err(failed)?;
             return Ok(Json(summarise_settings(&settings)));
         }
@@ -892,21 +866,11 @@ impl TimeMd {
         let summary = self
             .store
             .update_settings(|settings| {
-                if let Some(focus) = focus {
-                    settings.focus = focus;
-                }
-                if let Some(short_break) = short_break {
-                    settings.short_break = short_break;
-                }
-                if let Some(long_break) = long_break {
-                    settings.long_break = long_break;
-                }
-                if let Some(remind_before) = remind_before {
-                    settings.remind_before = remind_before;
-                }
-                summarise_settings(settings)
+                settings.apply(patch)?;
+                Ok(summarise_settings(settings))
             })
-            .map_err(failed)?;
+            .map_err(failed)?
+            .map_err(|error: timemd_core::Error| invalid(error.to_string()))?;
 
         Ok(Json(summary))
     }
@@ -1016,16 +980,8 @@ impl TimeMd {
         let on = self.on(params.date.as_deref())?;
         let start = params.start.as_deref().map(time).transpose()?;
         let end = params.end.as_deref().map(time).transpose()?;
-        let project = match params.project.as_deref() {
-            Some("") => Some(None),
-            Some(raw) => Some(Some(slug(raw)?)),
-            None => None,
-        };
-        let remind_before = match params.remind_before.as_deref() {
-            Some("") => Some(None),
-            Some(raw) => Some(Some(minutes(raw)?)),
-            None => None,
-        };
+        let project = clearable(params.project.as_deref(), slug)?;
+        let remind_before = clearable(params.remind_before.as_deref(), minutes)?;
 
         self.edit_day(on, |day| {
             let existing =
@@ -1260,34 +1216,19 @@ fn logged((index, session): (usize, &Session)) -> LoggedSession {
     }
 }
 
-/// Numbers the one-offs in one day's merged list, leaving repeats at `None`.
-///
-/// The same pass the HTTP API makes, and for the same reason: the index is a
-/// position among the one-offs, not a position in the merged list, so a caller
-/// that recovered it by counting entries would depend on how `planned` sorts.
 fn blocks(occurrences: &[timemd_core::Occurrence]) -> Vec<PlannedBlock> {
-    let mut one_offs = 0;
-
     occurrences
         .iter()
-        .map(|occurrence| {
-            let one_off_index = occurrence.block.is_none().then(|| {
-                let index = one_offs;
-                one_offs += 1;
-                index
-            });
-
-            PlannedBlock {
-                date: occurrence.date.to_string(),
-                start: occurrence.start.format("%H:%M").to_string(),
-                end: occurrence.end.format("%H:%M").to_string(),
-                duration: occurrence.duration().to_string(),
-                project: occurrence.project.as_ref().map(ToString::to_string),
-                title: occurrence.title.clone(),
-                remind_before: occurrence.remind_before.map(|lead| lead.to_string()),
-                block: occurrence.block.as_ref().map(ToString::to_string),
-                one_off_index,
-            }
+        .map(|occurrence| PlannedBlock {
+            date: occurrence.date.to_string(),
+            start: occurrence.start.format("%H:%M").to_string(),
+            end: occurrence.end.format("%H:%M").to_string(),
+            duration: occurrence.duration().to_string(),
+            project: occurrence.project.as_ref().map(ToString::to_string),
+            title: occurrence.title.clone(),
+            remind_before: occurrence.remind_before.map(|lead| lead.to_string()),
+            block: occurrence.block.as_ref().map(ToString::to_string),
+            one_off_index: occurrence.one_off_index,
         })
         .collect()
 }
@@ -1298,6 +1239,25 @@ fn failed(error: timemd_core::Error) -> ErrorData {
 
 fn invalid(message: String) -> ErrorData {
     ErrorData::invalid_params(message, None)
+}
+
+/// Reads a field that may also be given empty to mean "clear it".
+///
+/// An empty string is how a caller says "no project" or "no reminder"; there is
+/// no other way to spell it in JSON that omitting the field does not already
+/// mean. The outer `Option` is "was the field given", the inner one the value.
+///
+/// One helper rather than one per field: `crates/server/src/parse.rs` records
+/// what happened last time this was written out per caller.
+fn clearable<T>(
+    raw: Option<&str>,
+    parse: impl FnOnce(&str) -> Result<T, ErrorData>,
+) -> Result<Option<Option<T>>, ErrorData> {
+    match raw {
+        None => Ok(None),
+        Some("") => Ok(Some(None)),
+        Some(value) => parse(value).map(|parsed| Some(Some(parsed))),
+    }
 }
 
 fn slug(raw: &str) -> Result<ProjectSlug, ErrorData> {
@@ -1463,6 +1423,26 @@ mod tests {
             .0;
         assert_eq!(summary.focus, "50m");
         assert_eq!(summary.short_break, "5m", "omitted fields stay put");
+    }
+
+    /// `Settings::parse` falls back when it reads a zero, so writing one would
+    /// leave the file saying one thing and the timer doing another.
+    #[test]
+    fn a_zero_session_length_is_rejected_and_nothing_is_written() {
+        let (_directory, server) = server();
+        let path = server.store.settings_path();
+        let before = std::fs::read(&path).expect("settings exist");
+
+        let error = server
+            .settings(Parameters(SettingsParams {
+                focus: Some("0m".to_owned()),
+                ..SettingsParams::default()
+            }))
+            .err()
+            .expect("a zero focus length is refused");
+        assert!(error.message.contains("focus"), "{}", error.message);
+
+        assert_eq!(std::fs::read(&path).expect("settings exist"), before);
     }
 
     /// Keyed on the id, not on position: an agent that had to read-modify-write

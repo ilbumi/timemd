@@ -148,6 +148,39 @@ async fn rejects_a_milestone_with_a_blank_title() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// The whole-list `PATCH` is the one door that can write a duplicate without
+/// naming a milestone, and the web app's reorder and rename both go through it.
+/// A title two milestones share is addressable by no other surface, so this
+/// refuses rather than leaving the tree in a state only a hand edit can undo.
+#[tokio::test]
+async fn rejects_a_milestone_list_carrying_one_title_twice() {
+    let harness = Harness::new();
+    harness
+        .post("/api/projects", json!({ "name": "Thesis" }))
+        .await;
+    harness
+        .patch(
+            "/api/projects/thesis",
+            json!({ "milestones": [{ "done": false, "title": "Ch. 4" }] }),
+        )
+        .await;
+
+    let (status, _) = harness
+        .patch(
+            "/api/projects/thesis",
+            json!({ "milestones": [
+                { "done": false, "title": "Ch. 4" },
+                { "done": true, "title": "Ch. 4" }
+            ] }),
+        )
+        .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (_, body) = harness.get("/api/projects/thesis").await;
+    assert_eq!(body["milestones"].as_array().map(Vec::len), Some(1));
+}
+
 #[tokio::test]
 async fn clears_a_target_with_an_explicit_null() {
     let harness = Harness::new();

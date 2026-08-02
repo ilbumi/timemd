@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use clap::{Parser, Subcommand};
 use timemd_core::report::{self, GroupBy};
-use timemd_core::{DateRange, Project, ProjectSlug, Result, Store};
+use timemd_core::{DateRange, Error, Project, ProjectSlug, Result, Store};
 
 #[derive(Parser, Debug)]
 #[command(name = "timemd", version, about, long_about = None)]
@@ -250,17 +250,31 @@ pub fn create_project(store: &Store, slug: &str, name: &str, today: NaiveDate) -
     store.create_project(&Project::new(ProjectSlug::new(slug)?, name, today))
 }
 
-/// Reads a `--project` flag that may also be given empty to mean "clear it".
+/// Reads a flag that may also be given empty to mean "clear it".
 ///
 /// The outer `Option` is "was the flag passed", the inner one is the value, so
 /// leaving a tag alone and removing it stay distinguishable — the same
 /// distinction the HTTP API draws with a doubly-optional field.
-pub(crate) fn optional_slug(raw: Option<String>) -> Result<Option<Option<ProjectSlug>>> {
-    match raw.as_deref() {
+///
+/// One helper rather than one per flag because that distinction is the whole
+/// rule, and `crates/server/src/parse.rs` records what happened last time it
+/// was written out per caller: the copies had already disagreed about whether
+/// an empty string means "absent" or "clear".
+pub(crate) fn clearable<T, E: Into<Error>>(
+    raw: Option<String>,
+    parse: impl FnOnce(String) -> std::result::Result<T, E>,
+) -> Result<Option<Option<T>>> {
+    match raw {
         None => Ok(None),
-        Some("") => Ok(Some(None)),
-        Some(slug) => Ok(Some(Some(ProjectSlug::new(slug)?))),
+        Some(value) if value.is_empty() => Ok(Some(None)),
+        Some(value) => parse(value)
+            .map(|parsed| Some(Some(parsed)))
+            .map_err(Into::into),
     }
+}
+
+pub(crate) fn optional_slug(raw: Option<String>) -> Result<Option<Option<ProjectSlug>>> {
+    clearable(raw, ProjectSlug::new)
 }
 
 pub(crate) fn name_or_dash(project: Option<&ProjectSlug>) -> String {

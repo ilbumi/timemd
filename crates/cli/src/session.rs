@@ -132,9 +132,11 @@ pub fn log(
 
 #[cfg(test)]
 mod tests {
+    use super::SessionCommand;
     use crate::testing::{at, log, moment, store};
     use crate::{Command, run};
     use chrono::NaiveDate;
+    use clap::Parser;
     use timemd_core::Minutes;
 
     #[test]
@@ -228,14 +230,6 @@ mod tests {
         let output = run(&store, Command::Today { date: None }, moment(10, 0)).expect("reads");
         assert!(output.contains("  ! "), "{output}");
     }
-}
-
-#[cfg(test)]
-mod group_tests {
-    use super::SessionCommand;
-    use crate::testing::{at, log, moment, store};
-    use crate::{Command, run};
-    use clap::Parser;
 
     fn session(operation: SessionCommand) -> Command {
         Command::Session { operation }

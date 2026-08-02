@@ -137,7 +137,7 @@ async fn create(
     project.color = color;
     project.mark = mark.unwrap_or_default();
     project.target = target;
-    project.milestones = milestones.unwrap_or_default();
+    project.set_milestones(milestones.unwrap_or_default())?;
     state.store().create_project(&project)?;
 
     Ok((StatusCode::CREATED, Json(ProjectView::from(&project))))
@@ -192,10 +192,10 @@ async fn update(
             project.status = status;
         }
         if let Some(milestones) = milestones {
-            project.milestones = milestones;
+            project.set_milestones(milestones)?;
         }
-        ProjectView::from(&*project)
-    })?;
+        Ok::<_, timemd_core::Error>(ProjectView::from(&*project))
+    })??;
 
     Ok(Json(view))
 }
