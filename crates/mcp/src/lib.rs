@@ -95,6 +95,12 @@ pub struct UpsertProjectParams {
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct SlugParams {
+    /// Project slug.
+    pub slug: String,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct NoParams {}
 
 // ---- tool results ----------------------------------------------------------
@@ -419,6 +425,38 @@ impl TimeMd {
         }))
     }
 
+    #[tool(name = "project", description = "One project, with its milestones.")]
+    fn project(
+        &self,
+        Parameters(params): Parameters<SlugParams>,
+    ) -> Result<Json<ProjectSummary>, ErrorData> {
+        let slug = slug(&params.slug)?;
+        let project = self
+            .store
+            .read_project(&slug)
+            .map_err(failed)?
+            .ok_or_else(|| invalid(format!("no project named {slug:?}")))?;
+        Ok(Json(summarise(&project)))
+    }
+
+    #[tool(
+        name = "delete_project",
+        description = "Delete a project file. Sessions already logged against it keep their link."
+    )]
+    fn delete_project(
+        &self,
+        Parameters(params): Parameters<SlugParams>,
+    ) -> Result<Json<Outcome>, ErrorData> {
+        let slug = slug(&params.slug)?;
+        if self.store.delete_project(&slug).map_err(failed)? {
+            Ok(Json(Outcome {
+                message: format!("deleted {slug}"),
+            }))
+        } else {
+            Err(invalid(format!("no project named {slug:?}")))
+        }
+    }
+
     #[tool(
         name = "upsert_project",
         description = "Create a project, or update only the fields given on an existing one."
@@ -713,7 +751,9 @@ mod tests {
             "schedule",
             "report",
             "list_projects",
+            "project",
             "upsert_project",
+            "delete_project",
         ] {
             assert!(
                 names.contains(&expected.to_owned()),
@@ -737,6 +777,52 @@ mod tests {
                 tool.name
             );
         }
+    }
+
+    /// Reading one project meant listing every project and their whole
+    /// milestone lists, which is the read half of the same problem that made
+    /// editing a milestone a two-call race.
+    #[test]
+    fn one_project_can_be_read_and_deleted_by_slug() {
+        let (_directory, server) = server();
+        server
+            .upsert_project(Parameters(UpsertProjectParams {
+                slug: "thesis".to_owned(),
+                name: Some("Thesis".to_owned()),
+                ..UpsertProjectParams::default()
+            }))
+            .expect("creates");
+
+        let project = server
+            .project(Parameters(SlugParams {
+                slug: "thesis".to_owned(),
+            }))
+            .expect("reads")
+            .0;
+        assert_eq!(project.name, "Thesis");
+
+        let outcome = server
+            .delete_project(Parameters(SlugParams {
+                slug: "thesis".to_owned(),
+            }))
+            .expect("deletes")
+            .0;
+        assert!(outcome.message.contains("thesis"), "{}", outcome.message);
+
+        assert!(
+            server
+                .project(Parameters(SlugParams {
+                    slug: "thesis".to_owned(),
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .delete_project(Parameters(SlugParams {
+                    slug: "thesis".to_owned(),
+                }))
+                .is_err()
+        );
     }
 
     /// The CLI and the web app could both discard a session; an agent that
