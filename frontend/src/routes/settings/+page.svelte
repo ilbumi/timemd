@@ -57,19 +57,23 @@
 	/**
 	 * One button, both ways. The wrapper existed and had no caller: turning
 	 * notifications on was permanent from here, short of clearing site data.
+	 *
+	 * Through `run` like every other call on this screen. Turning them off
+	 * reaches the API, and the API throws on any non-2xx; a throw that skipped
+	 * `busy = false` left the button disabled for good with nothing on screen
+	 * to say why, which is the one state a user cannot retry out of.
 	 */
-	async function togglePush(): Promise<void> {
-		busy = true;
-		if (subscribed) {
-			await disablePush();
-			subscribed = false;
-			outcome = null;
-		} else {
-			outcome = await enablePush();
-			subscribed = outcome === 'enabled';
-		}
-		busy = false;
-	}
+	const togglePush = (): Promise<void> =>
+		run(async () => {
+			if (subscribed) {
+				await disablePush();
+				subscribed = false;
+				outcome = null;
+			} else {
+				outcome = await enablePush();
+				subscribed = outcome === 'enabled';
+			}
+		});
 
 	$effect(() => {
 		void run(async () => {
