@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Mark from '$lib/Mark.svelte';
 	import PeriodHeader from '$lib/PeriodHeader.svelte';
-	import { api, type LoggedSession, type Project } from '$lib/api';
+	import { api, type DayView, type LoggedSession, type Project } from '$lib/api';
 	import { attempt } from '$lib/attempt';
 	import { formatHours, parseMinutes } from '$lib/countdown';
 	import { clockTime, dayLabel, shiftDays, startOfWeek, today, weekDates } from '$lib/dates';
@@ -14,7 +14,7 @@
 	}
 
 	let anchor = $state(today());
-	let bands = $state<Band[]>([]);
+	let days = $state<DayView[]>([]);
 	let looks = $state<Record<string, Look>>({});
 	let projects = $state<Project[]>([]);
 
@@ -28,28 +28,41 @@
 	let note = $state('');
 
 	const monday = $derived(startOfWeek(anchor));
+
+	/** The week's days, newest first, with the empty ones dropped. */
+	const bands: Band[] = $derived(
+		days
+			.map((day) => ({
+				date: day.date,
+				sessions: [...day.sessions].reverse(),
+				minutes: parseMinutes(day.tracked)
+			}))
+			.filter((band) => band.sessions.length > 0)
+			.reverse()
+	);
 	const totalMinutes = $derived(bands.reduce((total, band) => total + band.minutes, 0));
 	const sessionCount = $derived(bands.reduce((total, band) => total + band.sessions.length, 0));
 
 	/**
-	 * The week's days, newest first, with the empty ones dropped.
-	 *
+	 * Off `days` rather than `bands`, which drops the empty ones: a day can be
+	 * planned and have nothing tracked, and losing its plan would understate the
+	 * week. The server's `duration` is used rather than end-minus-start because
+	 * it is the one that survives a block crossing midnight.
+	 */
+	const plannedMinutes = $derived(
+		days
+			.flatMap((day) => day.planned)
+			.reduce((total, block) => total + parseMinutes(block.duration), 0)
+	);
+
+	/**
 	 * Seven reads rather than one endpoint because notes live in the day files and
 	 * the report endpoint returns totals; they run in parallel, so it costs one
 	 * round trip.
 	 */
 	async function load(): Promise<void> {
 		error = await attempt(async () => {
-			const days = await Promise.all(weekDates(monday).map((date) => api.readDay(date)));
-
-			bands = days
-				.map((day) => ({
-					date: day.date,
-					sessions: [...day.sessions].reverse(),
-					minutes: parseMinutes(day.tracked)
-				}))
-				.filter((band) => band.sessions.length > 0)
-				.reverse();
+			days = await Promise.all(weekDates(monday).map((date) => api.readDay(date)));
 		});
 		loading = false;
 	}
@@ -96,7 +109,7 @@
 <section class="screen">
 	<PeriodHeader
 		unit="week"
-		total="{formatHours(totalMinutes)} · {sessionCount} sessions"
+		total="{formatHours(totalMinutes)} / {formatHours(plannedMinutes)} · {sessionCount} sessions"
 		onPrevious={() => (anchor = shiftDays(anchor, -7))}
 		onNext={() => (anchor = shiftDays(anchor, 7))}
 	>

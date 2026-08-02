@@ -49,9 +49,14 @@
 		margin-bottom: 14px;
 	}
 
+	/* Grows into the free space but never shrinks below the title itself. With a
+	   flex-basis of zero the total claimed its content width first and left the
+	   title a box too small to sit in, which it then overflowed into the gap; the
+	   basis fixes that and `0` shrink keeps it fixed as the total gets longer.
+	   The total is left at its defaults, and so is the one that gives way — it
+	   wraps, which is why a long title costs height here rather than a collision. */
 	h1 {
-		flex: 1;
-		min-width: 0;
+		flex: 1 0 auto;
 	}
 
 	.total {
