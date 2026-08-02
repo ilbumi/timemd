@@ -9,6 +9,7 @@
 //! an async runtime. The server calls it directly from handlers; the operations
 //! are sub-millisecond on files this size.
 
+use std::convert::Infallible;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,21 @@ use crate::push::PushState;
 use crate::reminders::SentLog;
 use crate::schedule::Recurring;
 use crate::settings::Settings;
+
+/// `crate::Result` fixes the error to [`Error`]; an edit refuses with its own.
+type StdResult<T, E> = std::result::Result<T, E>;
+
+/// Collapses the outcome of an edit that could not have refused.
+///
+/// Each infallible `update_*` is its fallible twin with [`Infallible`] as the
+/// error, so there is one body per file rather than two that can drift — and
+/// only one place where `write_atomic` is called.
+fn settled<T>(outcome: Result<StdResult<T, Infallible>>) -> Result<T> {
+    outcome.map(|value| match value {
+        Ok(value) => value,
+        Err(never) => match never {},
+    })
+}
 
 const PROJECTS_DIR: &str = "projects";
 const DAYS_DIR: &str = "days";
@@ -139,6 +155,15 @@ impl Store {
         self.transaction(|tx| tx.update_project(slug, edit))
     }
 
+    /// Applies an edit that may refuse, writing only if it did not.
+    pub fn try_update_project<T, E>(
+        &self,
+        slug: &ProjectSlug,
+        edit: impl FnOnce(&mut Project) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
+        self.transaction(|tx| tx.try_update_project(slug, edit))
+    }
+
     /// Removes a project file. Returns whether it existed.
     pub fn delete_project(&self, slug: &ProjectSlug) -> Result<bool> {
         self.transaction(|tx| tx.delete_project(slug))
@@ -175,6 +200,15 @@ impl Store {
     /// Applies an edit to a day, creating the file if needed.
     pub fn update_day<T>(&self, date: NaiveDate, edit: impl FnOnce(&mut Day) -> T) -> Result<T> {
         self.transaction(|tx| tx.update_day(date, edit))
+    }
+
+    /// Applies an edit that may refuse, writing only if it did not.
+    pub fn try_update_day<T, E>(
+        &self,
+        date: NaiveDate,
+        edit: impl FnOnce(&mut Day) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
+        self.transaction(|tx| tx.try_update_day(date, edit))
     }
 
     /// Days in `from..=to` that have a file, oldest first.
@@ -223,6 +257,14 @@ impl Store {
 
     pub fn update_settings<T>(&self, edit: impl FnOnce(&mut Settings) -> T) -> Result<T> {
         self.transaction(|tx| tx.update_settings(edit))
+    }
+
+    /// Applies an edit that may refuse, writing only if it did not.
+    pub fn try_update_settings<T, E>(
+        &self,
+        edit: impl FnOnce(&mut Settings) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
+        self.transaction(|tx| tx.try_update_settings(edit))
     }
 
     pub fn active_path(&self) -> PathBuf {
@@ -368,6 +410,23 @@ impl Tx<'_> {
         slug: &ProjectSlug,
         edit: impl FnOnce(&mut Project) -> T,
     ) -> Result<T> {
+        settled(self.try_update_project(slug, |project| Ok(edit(project))))
+    }
+
+    /// Applies an edit that may refuse, writing only if it did not.
+    ///
+    /// The door for anything fallible. `update_project` cannot tell a refusal
+    /// from a value — `T` is opaque to it — so a closure that mutated and *then*
+    /// returned `Err` had its half-edit written anyway, and its caller was told
+    /// the edit had failed. Two of them did exactly that.
+    ///
+    /// Generic over `E` because the surfaces do not share an error type: the
+    /// server and the shell refuse with [`Error`], the MCP tools with their own.
+    pub fn try_update_project<T, E>(
+        &self,
+        slug: &ProjectSlug,
+        edit: impl FnOnce(&mut Project) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
         let path = self.store.project_path(slug);
         let text = read_to_string(&path)?.ok_or_else(|| Error::UnknownProject(slug.to_string()))?;
         let mut project =
@@ -376,7 +435,9 @@ impl Tx<'_> {
                 source,
             })?;
         let outcome = edit(&mut project);
-        write_atomic(&path, &project.render())?;
+        if outcome.is_ok() {
+            write_atomic(&path, &project.render())?;
+        }
         Ok(outcome)
     }
 
@@ -393,16 +454,39 @@ impl Tx<'_> {
     }
 
     pub fn update_day<T>(&self, date: NaiveDate, edit: impl FnOnce(&mut Day) -> T) -> Result<T> {
+        settled(self.try_update_day(date, |day| Ok(edit(day))))
+    }
+
+    /// Applies an edit that may refuse, writing only if it did not. See
+    /// [`Tx::try_update_project`] for why this exists.
+    pub fn try_update_day<T, E>(
+        &self,
+        date: NaiveDate,
+        edit: impl FnOnce(&mut Day) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
         let mut day = self.store.read_day(date)?;
         let outcome = edit(&mut day);
-        write_atomic(&self.store.day_path(date), &day.render())?;
+        if outcome.is_ok() {
+            write_atomic(&self.store.day_path(date), &day.render())?;
+        }
         Ok(outcome)
     }
 
     pub fn update_settings<T>(&self, edit: impl FnOnce(&mut Settings) -> T) -> Result<T> {
+        settled(self.try_update_settings(|settings| Ok(edit(settings))))
+    }
+
+    /// Applies an edit that may refuse, writing only if it did not. See
+    /// [`Tx::try_update_project`] for why this exists.
+    pub fn try_update_settings<T, E>(
+        &self,
+        edit: impl FnOnce(&mut Settings) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
         let mut settings = self.store.read_settings()?;
         let outcome = edit(&mut settings);
-        write_atomic(&self.store.settings_path(), &settings.render())?;
+        if outcome.is_ok() {
+            write_atomic(&self.store.settings_path(), &settings.render())?;
+        }
         Ok(outcome)
     }
 
@@ -855,6 +939,100 @@ mod tests {
             fs::metadata(&path).expect("exists").modified().ok(),
             written,
             "the file must not have been rewritten"
+        );
+    }
+
+    /// The other half of the rule above, and the one the byte-equality check
+    /// cannot cover: an edit that mutated and *then* refused. `update_*` writes
+    /// whatever the closure leaves behind, so a half-applied edit reached the
+    /// file even though its caller was handed an error. `try_update_*` is the
+    /// door for anything that can refuse.
+    #[test]
+    fn an_edit_that_refuses_does_not_write_what_it_had_already_changed() {
+        let (_directory, store) = store();
+        let slug = slug("thesis");
+        store
+            .create_project(&Project::new(slug.clone(), "Thesis", date()))
+            .expect("creates");
+
+        let outcome: std::result::Result<(), Error> = store
+            .try_update_project(&slug, |project| {
+                project.name = "Renamed".to_owned();
+                Err(Error::Invalid("the edit refused".to_owned()))
+            })
+            .expect("the store call itself succeeds");
+
+        assert!(outcome.is_err(), "the closure's error must travel out");
+        assert_eq!(
+            store
+                .read_project(&slug)
+                .expect("reads")
+                .expect("exists")
+                .name,
+            "Thesis",
+            "a refused edit must not be written"
+        );
+    }
+
+    /// The success half: `try_update_*` still writes, and still hands back the
+    /// closure's value.
+    #[test]
+    fn an_edit_that_succeeds_is_written_and_answers_with_its_value() {
+        let (_directory, store) = store();
+        let slug = slug("thesis");
+        store
+            .create_project(&Project::new(slug.clone(), "Thesis", date()))
+            .expect("creates");
+
+        let renamed = store
+            .try_update_project(&slug, |project| {
+                project.name = "Renamed".to_owned();
+                Ok::<_, Error>(project.name.clone())
+            })
+            .expect("the store call")
+            .expect("the edit");
+
+        assert_eq!(renamed, "Renamed");
+        assert_eq!(
+            store
+                .read_project(&slug)
+                .expect("reads")
+                .expect("exists")
+                .name,
+            "Renamed"
+        );
+    }
+
+    /// A day and the settings carry the same guarantee — every list a fallible
+    /// caller reaches for is behind one of the three.
+    #[test]
+    fn a_refused_day_or_settings_edit_writes_nothing_either() {
+        let (_directory, store) = store();
+        store
+            .update_day(date(), |day| {
+                day.add_session(Session::new(at(9, 0), at(9, 25), None, "work"));
+            })
+            .expect("writes");
+
+        let refused: std::result::Result<(), Error> = store
+            .try_update_day(date(), |day| {
+                day.add_session(Session::new(at(14, 0), at(15, 0), None, "extra"));
+                Err(Error::Invalid("the edit refused".to_owned()))
+            })
+            .expect("the store call");
+        assert!(refused.is_err());
+        assert_eq!(store.read_day(date()).expect("reads").sessions().len(), 1);
+
+        let refused: std::result::Result<(), Error> = store
+            .try_update_settings(|settings| {
+                settings.focus = Minutes::new(99);
+                Err(Error::Invalid("the edit refused".to_owned()))
+            })
+            .expect("the store call");
+        assert!(refused.is_err());
+        assert_eq!(
+            store.read_settings().expect("reads").focus,
+            Settings::default().focus
         );
     }
 
