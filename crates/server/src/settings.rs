@@ -74,7 +74,7 @@ async fn write(
         remind_before: optional_minutes(request.remind_before)?,
     };
 
-    let view = state.store().update_settings(|settings| {
+    let view = state.store().try_update_settings(|settings| {
         settings.apply(patch)?;
         Ok::<_, timemd_core::Error>(SettingsView::from(&*settings))
     })??;

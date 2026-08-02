@@ -181,6 +181,37 @@ async fn rejects_a_milestone_list_carrying_one_title_twice() {
     assert_eq!(body["milestones"].as_array().map(Vec::len), Some(1));
 }
 
+/// The test above passes even when the write is not suppressed, because a
+/// refused list leaves the render byte-identical and `write_atomic` notices.
+/// This one changes a field that does land first, so it fails unless the store
+/// is told the edit refused.
+#[tokio::test]
+async fn a_refused_milestone_list_does_not_persist_the_rest_of_the_patch() {
+    let harness = Harness::new();
+    harness
+        .post("/api/projects", json!({ "name": "Thesis" }))
+        .await;
+
+    let (status, _) = harness
+        .patch(
+            "/api/projects/thesis",
+            json!({
+                "name": "Renamed",
+                "target": "10h",
+                "milestones": [
+                    { "done": false, "title": "Ch. 4" },
+                    { "done": true, "title": "Ch. 4" }
+                ]
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (_, body) = harness.get("/api/projects/thesis").await;
+    assert_eq!(body["name"], "Thesis", "a 400 must not have renamed it");
+    assert_eq!(body["target"], serde_json::Value::Null);
+}
+
 #[tokio::test]
 async fn clears_a_target_with_an_explicit_null() {
     let harness = Harness::new();

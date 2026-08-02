@@ -175,7 +175,7 @@ async fn update(
     };
     let milestones = patch.milestones.map(milestones_from).transpose()?;
 
-    let view = state.store().update_project(&slug, |project| {
+    let view = state.store().try_update_project(&slug, |project| {
         if let Some(name) = patch.name {
             project.name = name;
         }
