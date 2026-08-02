@@ -3013,7 +3013,7 @@ dependencies = [
  "http-body-util",
  "mime_guess",
  "p256 0.14.0",
- "rand 0.8.7",
+ "rand 0.10.2",
  "reqwest",
  "rust-embed",
  "serde",
