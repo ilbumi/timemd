@@ -279,6 +279,21 @@ impl TimeMd {
     }
 
     #[tool(
+        name = "cancel_session",
+        description = "Discard the running session without logging it."
+    )]
+    fn cancel_session(&self, _params: Parameters<NoParams>) -> Result<Json<Outcome>, ErrorData> {
+        let discarded = Timer::new(&self.store).cancel().map_err(failed)?;
+        Ok(Json(Outcome {
+            message: if discarded {
+                "discarded".to_owned()
+            } else {
+                "nothing was running".to_owned()
+            },
+        }))
+    }
+
+    #[tool(
         name = "current_session",
         description = "What is running right now, and how much has been tracked today."
     )]
@@ -691,6 +706,7 @@ mod tests {
         for expected in [
             "start_session",
             "stop_session",
+            "cancel_session",
             "current_session",
             "log_time",
             "day",
@@ -721,6 +737,35 @@ mod tests {
                 tool.name
             );
         }
+    }
+
+    /// The CLI and the web app could both discard a session; an agent that
+    /// started one by mistake had to stop it and then delete what it logged.
+    #[test]
+    fn a_running_session_can_be_discarded_without_logging_it() {
+        let (_directory, server) = server();
+        server
+            .start_session(Parameters(StartParams::default()))
+            .expect("starts");
+
+        let outcome = server
+            .cancel_session(Parameters(NoParams {}))
+            .expect("cancels")
+            .0;
+        assert_eq!(outcome.message, "discarded");
+
+        let state = server
+            .current_session(Parameters(NoParams {}))
+            .expect("reads")
+            .0;
+        assert!(!state.running);
+        assert_eq!(state.tracked_today, "0m");
+
+        let outcome = server
+            .cancel_session(Parameters(NoParams {}))
+            .expect("cancels")
+            .0;
+        assert_eq!(outcome.message, "nothing was running");
     }
 
     /// Sessions have no name, so an index is the only handle there is — and a
