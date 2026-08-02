@@ -20,9 +20,14 @@
 
 	let error = $state<string | null>(null);
 	let loading = $state(true);
-	let adding = $state(false);
-	/** The session being amended, or null. Shares the form below with `adding`. */
-	let editing = $state<{ date: string; index: number } | null>(null);
+	/**
+	 * The open form: adding at the foot, or amending one session inline. One
+	 * value rather than an `adding` flag beside an `editing` target, because
+	 * only one is ever open and nothing had to keep the pair consistent.
+	 */
+	let editor = $state<{ mode: 'add' } | { mode: 'amend'; date: string; index: number } | null>(
+		null
+	);
 
 	let start = $state('09:00');
 	let end = $state('10:00');
@@ -58,9 +63,28 @@
 		loading = false;
 	}
 
+	/**
+	 * Runs an edit and re-reads the week.
+	 *
+	 * The re-read is in the wrapper rather than at each call site so a new
+	 * mutation cannot forget it — and it is what covers the trap here: a day
+	 * re-sorts around a changed start time, so an index held across a write may
+	 * afterwards name a different session.
+	 */
 	async function run(work: () => Promise<void>): Promise<void> {
-		error = await attempt(work);
+		error = await attempt(async () => {
+			await work();
+			await load();
+		});
 	}
+
+	/** The four fields both forms carry, in the shape the API takes. */
+	const draft = () => ({
+		start: `${start}:00`,
+		end: `${end}:00`,
+		project: project || null,
+		note: note.trim()
+	});
 
 	/**
 	 * Opens the form against the week on screen.
@@ -71,29 +95,20 @@
 	 */
 	function openAdder(): void {
 		date = week.includes(today()) ? today() : monday;
-		adding = true;
+		editor = { mode: 'add' };
 	}
 
 	const addSession = (event: SubmitEvent): Promise<void> => {
 		event.preventDefault();
 		return run(async () => {
-			await api.addSession(date, {
-				start: `${start}:00`,
-				end: `${end}:00`,
-				project: project || null,
-				note: note.trim()
-			});
+			await api.addSession(date, draft());
 			note = '';
-			adding = false;
-			await load();
+			editor = null;
 		});
 	};
 
 	const removeSession = (date: string, index: number): Promise<void> =>
-		run(async () => {
-			await api.deleteSession(date, index);
-			await load();
-		});
+		run(() => api.deleteSession(date, index));
 
 	/**
 	 * Opens the editor on one session, pre-filled.
@@ -103,30 +118,21 @@
 	 * it probes vertically — while still failing a thumb.
 	 */
 	function openEditor(date: string, session: LoggedSession): void {
-		editing = { date, index: session.index };
+		editor = { mode: 'amend', date, index: session.index };
 		start = session.start.slice(0, 5);
 		end = session.end.slice(0, 5);
 		project = session.project ?? '';
 		note = session.note;
-		adding = false;
 	}
 
 	const saveSession = (event: SubmitEvent): Promise<void> => {
 		event.preventDefault();
-		const target = editing;
-		if (target === null) return Promise.resolve();
+		const target = editor;
+		if (target?.mode !== 'amend') return Promise.resolve();
 
 		return run(async () => {
-			await api.updateSession(target.date, target.index, {
-				start: `${start}:00`,
-				end: `${end}:00`,
-				project: project || null,
-				note: note.trim()
-			});
-			editing = null;
-			// The day re-sorts around a changed start time, so the index just
-			// used may now name a different session. Re-read rather than reuse.
-			await load();
+			await api.updateSession(target.date, target.index, draft());
+			editor = null;
 		});
 	};
 
@@ -193,21 +199,11 @@
 						>
 					</li>
 
-					{#if editing?.date === band.date && editing.index === session.index}
+					{#if editor?.mode === 'amend' && editor.date === band.date && editor.index === session.index}
 						<form onsubmit={saveSession}>
-							<div class="row">
-								<input type="time" aria-label="Start" bind:value={start} />
-								<input type="time" aria-label="End" bind:value={end} />
-							</div>
-							<select aria-label="Project" bind:value={project}>
-								<option value="">No project</option>
-								{#each projects as candidate (candidate.slug)}
-									<option value={candidate.slug}>{candidate.name}</option>
-								{/each}
-							</select>
-							<input type="text" placeholder="Note" aria-label="Note" bind:value={note} />
+							{@render fields()}
 							<div class="actions">
-								<button type="button" onclick={() => (editing = null)}>Cancel</button>
+								<button type="button" onclick={() => (editor = null)}>Cancel</button>
 								<button class="primary" type="submit">Save</button>
 							</div>
 						</form>
@@ -216,7 +212,7 @@
 			</ul>
 		{/each}
 
-		{#if adding}
+		{#if editor?.mode === 'add'}
 			<form onsubmit={addSession}>
 				<input
 					type="date"
@@ -225,19 +221,9 @@
 					max={week[week.length - 1]}
 					bind:value={date}
 				/>
-				<div class="row">
-					<input type="time" aria-label="Start" bind:value={start} />
-					<input type="time" aria-label="End" bind:value={end} />
-				</div>
-				<select aria-label="Project" bind:value={project}>
-					<option value="">No project</option>
-					{#each projects as candidate (candidate.slug)}
-						<option value={candidate.slug}>{candidate.name}</option>
-					{/each}
-				</select>
-				<input type="text" placeholder="Note" aria-label="Note" bind:value={note} />
+				{@render fields()}
 				<div class="actions">
-					<button type="button" onclick={() => (adding = false)}>Cancel</button>
+					<button type="button" onclick={() => (editor = null)}>Cancel</button>
 					<button class="primary" type="submit">Log it</button>
 				</div>
 			</form>
@@ -246,10 +232,28 @@
 
 	<div class="foot">
 		<div class="actions">
-			<button onclick={() => (adding ? (adding = false) : openAdder())}>+ Time by hand</button>
+			<button onclick={() => (editor?.mode === 'add' ? (editor = null) : openAdder())}>
+				+ Time by hand
+			</button>
 		</div>
 	</div>
 </section>
+
+<!-- What a session is, in both the form that creates one and the form that
+     amends one. Rendered twice so the two cannot drift apart. -->
+{#snippet fields()}
+	<div class="row">
+		<input type="time" aria-label="Start" bind:value={start} />
+		<input type="time" aria-label="End" bind:value={end} />
+	</div>
+	<select aria-label="Project" bind:value={project}>
+		<option value="">No project</option>
+		{#each projects as candidate (candidate.slug)}
+			<option value={candidate.slug}>{candidate.name}</option>
+		{/each}
+	</select>
+	<input type="text" placeholder="Note" aria-label="Note" bind:value={note} />
+{/snippet}
 
 <style>
 	.body {

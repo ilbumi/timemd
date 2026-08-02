@@ -389,12 +389,6 @@
 											}
 										}}
 									/>
-									<button
-										class="quiet"
-										aria-label="Remove {milestone.title}"
-										onclick={() => removeMilestone(position)}
-										disabled={busy}>×</button
-									>
 								{:else}
 									<button
 										class="tick"
@@ -410,6 +404,10 @@
 										/>
 										<span class:done={milestone.done}>{milestone.title}</span>
 									</button>
+								{/if}
+								<!-- The row ends the same way whether it is being arranged or
+								     ticked, so the button that ends it is written once. -->
+								{#if !archived}
 									<button
 										class="quiet"
 										aria-label="Remove {milestone.title}"

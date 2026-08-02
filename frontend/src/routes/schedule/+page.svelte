@@ -32,9 +32,15 @@
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 	let nowMinutes = $state(minutesNow());
-	let adding = $state(false);
-	/** The `oneOffIndex` being amended, or null when the form is creating one. */
-	let editing = $state<number | null>(null);
+	/**
+	 * The open block form: `{ index: null }` while creating, `{ index }` while
+	 * amending that one-off. Closed when null.
+	 *
+	 * One value rather than an `adding` flag beside an `editing` target, because
+	 * the target only ever meant anything while the flag was set and nothing
+	 * enforced that.
+	 */
+	let form = $state<{ index: number | null } | null>(null);
 
 	let blockStart = $state('09:00');
 	let blockEnd = $state('10:00');
@@ -106,7 +112,7 @@
 	 */
 	const saveBlock = (event: SubmitEvent): Promise<void> => {
 		event.preventDefault();
-		const target = editing;
+		const target = form?.index ?? null;
 		return mutate(async () => {
 			const block = {
 				start: `${blockStart}:00`,
@@ -120,25 +126,22 @@
 				await api.updateBlock(date, target, block);
 			}
 			blockTitle = '';
-			editing = null;
-			adding = false;
+			form = null;
 		});
 	};
 
 	/** Opens the form on an existing one-off, pre-filled. */
 	function openEditor(block: Occurrence, index: number): void {
-		editing = index;
 		blockStart = block.start.slice(0, 5);
 		blockEnd = block.end.slice(0, 5);
 		blockProject = block.project ?? '';
 		blockTitle = block.title;
-		adding = true;
+		form = { index };
 	}
 
 	function openAdder(): void {
-		editing = null;
 		blockTitle = '';
-		adding = true;
+		form = { index: null };
 	}
 
 	const skip = (id: string): Promise<void> => mutate(() => api.skipBlock(date, id));
@@ -288,7 +291,7 @@
 			</p>
 		{/each}
 
-		{#if adding}
+		{#if form}
 			<form class="add" onsubmit={saveBlock}>
 				<div class="row">
 					<input type="time" aria-label="Start" bind:value={blockStart} />
@@ -302,9 +305,9 @@
 				</select>
 				<input type="text" placeholder="Title" aria-label="Title" bind:value={blockTitle} />
 				<div class="actions">
-					<button type="button" onclick={() => ((adding = false), (editing = null))}>Cancel</button>
+					<button type="button" onclick={() => (form = null)}>Cancel</button>
 					<button class="primary" type="submit">
-						{editing === null ? 'Add block' : 'Save block'}
+						{form?.index == null ? 'Add block' : 'Save block'}
 					</button>
 				</div>
 			</form>
@@ -313,9 +316,7 @@
 
 	<div class="foot">
 		<div class="actions">
-			<button onclick={() => (adding ? ((adding = false), (editing = null)) : openAdder())}>
-				+ Block
-			</button>
+			<button onclick={() => (form ? (form = null) : openAdder())}> + Block </button>
 			{#if upcoming}
 				{@const block = upcoming}
 				{@const look = lookOf(looks, block.project)}
