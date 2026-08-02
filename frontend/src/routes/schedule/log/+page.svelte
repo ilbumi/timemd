@@ -21,6 +21,8 @@
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 	let adding = $state(false);
+	/** The session being amended, or null. Shares the form below with `adding`. */
+	let editing = $state<{ date: string; index: number } | null>(null);
 
 	let start = $state('09:00');
 	let end = $state('10:00');
@@ -93,6 +95,41 @@
 			await load();
 		});
 
+	/**
+	 * Opens the editor on one session, pre-filled.
+	 *
+	 * Tapping the entry rather than a second trailing button: the row already
+	 * ends in one, and two adjacent 44px reach-overlays pass the layout gate —
+	 * it probes vertically — while still failing a thumb.
+	 */
+	function openEditor(date: string, session: LoggedSession): void {
+		editing = { date, index: session.index };
+		start = session.start.slice(0, 5);
+		end = session.end.slice(0, 5);
+		project = session.project ?? '';
+		note = session.note;
+		adding = false;
+	}
+
+	const saveSession = (event: SubmitEvent): Promise<void> => {
+		event.preventDefault();
+		const target = editing;
+		if (target === null) return Promise.resolve();
+
+		return run(async () => {
+			await api.updateSession(target.date, target.index, {
+				start: `${start}:00`,
+				end: `${end}:00`,
+				project: project || null,
+				note: note.trim()
+			});
+			editing = null;
+			// The day re-sorts around a changed start time, so the index just
+			// used may now name a different session. Re-read rather than reuse.
+			await load();
+		});
+	};
+
 	$effect(() => {
 		void monday;
 		void load();
@@ -136,21 +173,45 @@
 					{@const look = lookOf(looks, session.project)}
 					<li>
 						<Mark mark={look.mark} color={look.color} size={14} />
-						<div class="entry">
-							<div class="line">
+						<button
+							class="entry"
+							aria-label="Edit {look.name} at {clockTime(session.start)}"
+							onclick={() => openEditor(band.date, session)}
+						>
+							<span class="line">
 								<span class="who">{look.name}</span>
 								<span class="numeric when">
 									{clockTime(session.start)} · {session.duration}
 								</span>
-							</div>
-							<p class="note" class:none={session.note === ''}>{session.note || 'No note'}</p>
-						</div>
+							</span>
+							<span class="note" class:none={session.note === ''}>{session.note || 'No note'}</span>
+						</button>
 						<button
 							class="quiet danger"
 							aria-label="Delete session"
 							onclick={() => removeSession(band.date, session.index)}>×</button
 						>
 					</li>
+
+					{#if editing?.date === band.date && editing.index === session.index}
+						<form onsubmit={saveSession}>
+							<div class="row">
+								<input type="time" aria-label="Start" bind:value={start} />
+								<input type="time" aria-label="End" bind:value={end} />
+							</div>
+							<select aria-label="Project" bind:value={project}>
+								<option value="">No project</option>
+								{#each projects as candidate (candidate.slug)}
+									<option value={candidate.slug}>{candidate.name}</option>
+								{/each}
+							</select>
+							<input type="text" placeholder="Note" aria-label="Note" bind:value={note} />
+							<div class="actions">
+								<button type="button" onclick={() => (editing = null)}>Cancel</button>
+								<button class="primary" type="submit">Save</button>
+							</div>
+						</form>
+					{/if}
 				{/each}
 			</ul>
 		{/each}
@@ -228,9 +289,22 @@
 		margin-top: 3px;
 	}
 
+	/*
+	 * A button, so the whole entry opens the editor — but Chrome centres a
+	 * button's contents, so it is a left-aligned flex column like the day
+	 * screen's block text.
+	 */
 	.entry {
 		flex: 1;
 		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		padding: 0;
+		border: none;
+		background: none;
+		font: inherit;
+		color: inherit;
+		text-align: left;
 	}
 
 	.line {
