@@ -1837,14 +1837,13 @@ mod tests {
         let (_directory, server) = server();
         let slug = ProjectSlug::new("thesis").expect("a slug");
         thesis(&server, &["Ch. 4"]);
-        server
-            .store
-            .update_project(&slug, |project| {
-                project
-                    .milestones
-                    .push(Milestone::new(true, "Ch. 4").expect("a milestone"));
-            })
-            .expect("writes");
+
+        // Appended to the file, not pushed onto the list: every door in refuses
+        // a repeated title, so the only way to get one is the way the test says
+        // it happened — a hand edit.
+        let path = server.store.project_path(&slug);
+        let text = std::fs::read_to_string(&path).expect("reads");
+        std::fs::write(&path, format!("{text}- [x] Ch. 4\n")).expect("writes");
 
         let summary = server
             .project(Parameters(SlugParams {
