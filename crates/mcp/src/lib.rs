@@ -19,8 +19,8 @@ use timemd_core::day::Session;
 use timemd_core::report::{self, GroupBy};
 use timemd_core::schedule::{planned, planned_range};
 use timemd_core::{
-    Color, DateRange, Mark, Milestone, Minutes, Project, ProjectSlug, ProjectStatus, StartRequest,
-    Stopped, Store, Timer,
+    BlockId, Color, DateRange, DayBlock, Mark, Milestone, Minutes, Project, ProjectSlug,
+    ProjectStatus, Recurring, RecurringBlock, Settings, StartRequest, Stopped, Store, Timer,
 };
 
 /// The MCP server. One store, no other state.
@@ -163,6 +163,84 @@ pub struct IndexParams {
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct SettingsParams {
+    /// Focus length, as `25m` or `1h30m`. Omit to leave it alone.
+    pub focus: Option<String>,
+    /// Omit to leave it alone.
+    pub short_break: Option<String>,
+    /// Omit to leave it alone.
+    pub long_break: Option<String>,
+    /// Default reminder lead for blocks that do not set their own. Omit to
+    /// leave it alone.
+    pub remind_before: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct BlockParams {
+    /// `YYYY-MM-DD`. Defaults to today.
+    pub date: Option<String>,
+    /// Start time, `HH:MM`.
+    pub start: String,
+    /// End time, `HH:MM`.
+    pub end: String,
+    pub project: Option<String>,
+    pub title: String,
+    /// How long before the start to remind, as `5m`. Omit for no reminder.
+    pub remind_before: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct EditBlockParams {
+    /// `YYYY-MM-DD`. Defaults to today.
+    pub date: Option<String>,
+    /// The block's `one_off_index`, as `day` reports it. Blocks are stored in
+    /// start order, so changing a start time renumbers them — the day this
+    /// answers with carries the fresh indexes.
+    pub index: usize,
+    /// Omit to leave it alone.
+    pub start: Option<String>,
+    /// Omit to leave it alone.
+    pub end: Option<String>,
+    /// An empty string clears the project. Omit to leave it alone.
+    pub project: Option<String>,
+    /// Omit to leave it alone.
+    pub title: Option<String>,
+    /// An empty string clears the reminder. Omit to leave it alone.
+    pub remind_before: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct SkipParams {
+    /// `YYYY-MM-DD`. Defaults to today.
+    pub date: Option<String>,
+    /// The repeating block's id, as `day` reports it in `block`.
+    pub id: String,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct RecurringBlockParams {
+    /// Identifies the block. Creating one that already exists replaces it.
+    pub id: String,
+    /// Weekday names, `mon` to `sun`. A range like `mon-fri` or `daily` also
+    /// works, as a single entry.
+    pub days: Vec<String>,
+    /// Start time, `HH:MM`.
+    pub start: String,
+    /// End time, `HH:MM`.
+    pub end: String,
+    pub project: Option<String>,
+    pub title: String,
+    /// How long before the start to remind, as `5m`. Omit for no reminder.
+    pub remind_before: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct BlockIdParams {
+    /// The repeating block's id.
+    pub id: String,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct NoParams {}
 
 // ---- tool results ----------------------------------------------------------
@@ -238,6 +316,42 @@ pub struct Schedule {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ProjectList {
     pub projects: Vec<ProjectSummary>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SettingsSummary {
+    /// Read-only here: it is what turns every bare wall-clock time in the tree
+    /// into an instant, so it is changed by editing `settings.md`.
+    pub timezone: String,
+    pub focus: String,
+    pub short_break: String,
+    pub long_break: String,
+    /// Focus sessions between long breaks. Read-only here.
+    pub long_break_every: u32,
+    pub remind_before: String,
+}
+
+/// A recurring block in both directions, like `MilestoneIo`.
+#[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RecurringBlockIo {
+    pub id: String,
+    /// Weekday names, Monday first. The file spells runs as ranges and `daily`;
+    /// core owns that, so the wire carries the plain set.
+    pub days: Vec<String>,
+    pub start: String,
+    pub end: String,
+    pub project: Option<String>,
+    pub title: String,
+    pub remind_before: Option<String>,
+}
+
+/// Wrapped for the same reason as `Schedule`: a bare array is not a legal
+/// tool result.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct RecurringList {
+    pub blocks: Vec<RecurringBlockIo>,
+    /// Lines in `schedule/recurring.md` the parser could not read.
+    pub problems: Vec<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -751,6 +865,242 @@ impl TimeMd {
             .map_err(failed)?
     }
 
+    #[tool(
+        name = "settings",
+        description = "Read the pomodoro lengths and reminder default. Give a field to change it; give none to just read."
+    )]
+    fn settings(
+        &self,
+        Parameters(params): Parameters<SettingsParams>,
+    ) -> Result<Json<SettingsSummary>, ErrorData> {
+        let focus = params.focus.as_deref().map(minutes).transpose()?;
+        let short_break = params.short_break.as_deref().map(minutes).transpose()?;
+        let long_break = params.long_break.as_deref().map(minutes).transpose()?;
+        let remind_before = params.remind_before.as_deref().map(minutes).transpose()?;
+
+        // A pure read must not write: an agent asking what the lengths are
+        // should not dirty a git-tracked tree.
+        if focus.is_none()
+            && short_break.is_none()
+            && long_break.is_none()
+            && remind_before.is_none()
+        {
+            let settings = self.store.read_settings().map_err(failed)?;
+            return Ok(Json(summarise_settings(&settings)));
+        }
+
+        let summary = self
+            .store
+            .update_settings(|settings| {
+                if let Some(focus) = focus {
+                    settings.focus = focus;
+                }
+                if let Some(short_break) = short_break {
+                    settings.short_break = short_break;
+                }
+                if let Some(long_break) = long_break {
+                    settings.long_break = long_break;
+                }
+                if let Some(remind_before) = remind_before {
+                    settings.remind_before = remind_before;
+                }
+                summarise_settings(settings)
+            })
+            .map_err(failed)?;
+
+        Ok(Json(summary))
+    }
+
+    #[tool(
+        name = "recurring",
+        description = "The weekly repeating schedule, as stored."
+    )]
+    fn recurring(&self, _params: Parameters<NoParams>) -> Result<Json<RecurringList>, ErrorData> {
+        let recurring = self.store.read_recurring().map_err(failed)?;
+        Ok(Json(summarise_recurring(&recurring)))
+    }
+
+    #[tool(
+        name = "set_recurring_block",
+        description = "Create or replace one repeating block, keyed on its id. Leaves every other block alone."
+    )]
+    fn set_recurring_block(
+        &self,
+        Parameters(params): Parameters<RecurringBlockParams>,
+    ) -> Result<Json<RecurringList>, ErrorData> {
+        let block = RecurringBlock {
+            id: block_id(&params.id)?,
+            // Joined and handed to core's parser, so there is one definition of
+            // what a day spec means. An empty list is refused there, which is
+            // right: a block on no days would never fire.
+            days: params
+                .days
+                .join(",")
+                .parse()
+                .map_err(|error: timemd_core::ParseErrorKind| invalid(error.to_string()))?,
+            start: time(&params.start)?,
+            end: time(&params.end)?,
+            project: params.project.as_deref().map(slug).transpose()?,
+            title: params.title.trim().to_owned(),
+            remind_before: params.remind_before.as_deref().map(minutes).transpose()?,
+        };
+
+        // Keyed on the id rather than replacing the whole list, for the same
+        // reason milestones are addressed by title: an agent that had to
+        // read-modify-write every block to change one would race the UI.
+        let summary = self
+            .store
+            .update_recurring(|recurring| {
+                recurring.upsert(block);
+                summarise_recurring(recurring)
+            })
+            .map_err(failed)?;
+
+        Ok(Json(summary))
+    }
+
+    #[tool(
+        name = "remove_recurring_block",
+        description = "Delete one repeating block by id."
+    )]
+    fn remove_recurring_block(
+        &self,
+        Parameters(params): Parameters<BlockIdParams>,
+    ) -> Result<Json<RecurringList>, ErrorData> {
+        let id = block_id(&params.id)?;
+        let removed = self
+            .store
+            .update_recurring(|recurring| {
+                recurring
+                    .remove(&id)
+                    .then(|| summarise_recurring(recurring))
+            })
+            .map_err(failed)?;
+
+        removed
+            .map(Json)
+            .ok_or_else(|| invalid(format!("no repeating block named {id:?}")))
+    }
+
+    #[tool(
+        name = "add_block",
+        description = "Plan a one-off block on a day. Answers with the whole day, renumbered."
+    )]
+    fn add_block(
+        &self,
+        Parameters(params): Parameters<BlockParams>,
+    ) -> Result<Json<DaySummary>, ErrorData> {
+        let on = self.on(params.date.as_deref())?;
+        let block = DayBlock {
+            start: time(&params.start)?,
+            end: time(&params.end)?,
+            project: params.project.as_deref().map(slug).transpose()?,
+            title: params.title.trim().to_owned(),
+            remind_before: params.remind_before.as_deref().map(minutes).transpose()?,
+        };
+
+        self.edit_day(on, |day| {
+            day.add_block(block);
+            Ok(())
+        })
+    }
+
+    #[tool(
+        name = "edit_block",
+        description = "Amend a one-off block. Only the fields given change. Answers with the whole day, renumbered."
+    )]
+    fn edit_block(
+        &self,
+        Parameters(params): Parameters<EditBlockParams>,
+    ) -> Result<Json<DaySummary>, ErrorData> {
+        let on = self.on(params.date.as_deref())?;
+        let start = params.start.as_deref().map(time).transpose()?;
+        let end = params.end.as_deref().map(time).transpose()?;
+        let project = match params.project.as_deref() {
+            Some("") => Some(None),
+            Some(raw) => Some(Some(slug(raw)?)),
+            None => None,
+        };
+        let remind_before = match params.remind_before.as_deref() {
+            Some("") => Some(None),
+            Some(raw) => Some(Some(minutes(raw)?)),
+            None => None,
+        };
+
+        self.edit_day(on, |day| {
+            let existing =
+                day.schedule().get(params.index).cloned().ok_or_else(|| {
+                    invalid(format!("no block at index {} on {on}", params.index))
+                })?;
+
+            day.replace_block(
+                params.index,
+                DayBlock {
+                    start: start.unwrap_or(existing.start),
+                    end: end.unwrap_or(existing.end),
+                    project: project.unwrap_or(existing.project),
+                    title: params
+                        .title
+                        .map_or(existing.title, |title| title.trim().to_owned()),
+                    remind_before: remind_before.unwrap_or(existing.remind_before),
+                },
+            );
+            Ok(())
+        })
+    }
+
+    #[tool(
+        name = "remove_block",
+        description = "Delete a one-off block. Answers with the whole day, renumbered."
+    )]
+    fn remove_block(
+        &self,
+        Parameters(params): Parameters<IndexParams>,
+    ) -> Result<Json<DaySummary>, ErrorData> {
+        let on = self.on(params.date.as_deref())?;
+
+        self.edit_day(on, |day| {
+            day.remove_block(params.index)
+                .map(|_| ())
+                .ok_or_else(|| invalid(format!("no block at index {} on {on}", params.index)))
+        })
+    }
+
+    #[tool(
+        name = "skip_block",
+        description = "Suppress one repeating block on one day, leaving the pattern alone."
+    )]
+    fn skip_block(
+        &self,
+        Parameters(params): Parameters<SkipParams>,
+    ) -> Result<Json<DaySummary>, ErrorData> {
+        let on = self.on(params.date.as_deref())?;
+        let id = block_id(&params.id)?;
+
+        self.edit_day(on, |day| {
+            day.skip(id);
+            Ok(())
+        })
+    }
+
+    #[tool(
+        name = "unskip_block",
+        description = "Restore a repeating block that was skipped on a day."
+    )]
+    fn unskip_block(
+        &self,
+        Parameters(params): Parameters<SkipParams>,
+    ) -> Result<Json<DaySummary>, ErrorData> {
+        let on = self.on(params.date.as_deref())?;
+        let id = block_id(&params.id)?;
+
+        self.edit_day(on, |day| {
+            day.unskip(&id)
+                .then_some(())
+                .ok_or_else(|| invalid(format!("{id} was not skipped on {on}")))
+        })
+    }
+
     /// The date a tool was pointed at, defaulting to today.
     fn on(&self, requested: Option<&str>) -> Result<NaiveDate, ErrorData> {
         match requested {
@@ -843,6 +1193,45 @@ fn summarise(project: &Project) -> ProjectSummary {
     }
 }
 
+fn summarise_settings(settings: &Settings) -> SettingsSummary {
+    SettingsSummary {
+        timezone: settings.timezone.to_string(),
+        focus: settings.focus.to_string(),
+        short_break: settings.short_break.to_string(),
+        long_break: settings.long_break.to_string(),
+        long_break_every: settings.long_break_every,
+        remind_before: settings.remind_before.to_string(),
+    }
+}
+
+fn summarise_recurring(recurring: &Recurring) -> RecurringList {
+    RecurringList {
+        blocks: recurring
+            .blocks()
+            .iter()
+            .map(|block| RecurringBlockIo {
+                id: block.id.to_string(),
+                days: block
+                    .days
+                    .names()
+                    .iter()
+                    .map(|name| (*name).to_owned())
+                    .collect(),
+                start: block.start.format("%H:%M").to_string(),
+                end: block.end.format("%H:%M").to_string(),
+                project: block.project.as_ref().map(ToString::to_string),
+                title: block.title.clone(),
+                remind_before: block.remind_before.map(|lead| lead.to_string()),
+            })
+            .collect(),
+        problems: recurring
+            .problems()
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+    }
+}
+
 /// A whole day, freshly numbered.
 ///
 /// Every tool that writes a session or a block answers with this rather than a
@@ -913,6 +1302,10 @@ fn invalid(message: String) -> ErrorData {
 
 fn slug(raw: &str) -> Result<ProjectSlug, ErrorData> {
     ProjectSlug::new(raw).map_err(|error| invalid(error.to_string()))
+}
+
+fn block_id(raw: &str) -> Result<BlockId, ErrorData> {
+    BlockId::new(raw).map_err(|error| invalid(error.to_string()))
 }
 
 fn colour(raw: &str) -> Result<Color, ErrorData> {
@@ -997,6 +1390,15 @@ mod tests {
             "delete_session",
             "day",
             "schedule",
+            "recurring",
+            "set_recurring_block",
+            "remove_recurring_block",
+            "add_block",
+            "edit_block",
+            "remove_block",
+            "skip_block",
+            "unskip_block",
+            "settings",
             "report",
             "list_projects",
             "project",
@@ -1028,6 +1430,183 @@ mod tests {
                 tool.name
             );
         }
+    }
+
+    /// Asking what the lengths are must not dirty a git-tracked tree, so a call
+    /// with no field given reads and does not write.
+    #[test]
+    fn reading_settings_does_not_write_the_file() {
+        let (_directory, server) = server();
+        let path = server.store.settings_path();
+        let before = std::fs::read(&path).expect("settings exist");
+
+        let summary = server
+            .settings(Parameters(SettingsParams::default()))
+            .expect("reads")
+            .0;
+        assert_eq!(summary.focus, "25m");
+        assert_eq!(summary.timezone, "UTC");
+        assert_eq!(summary.long_break_every, 4);
+
+        assert_eq!(
+            std::fs::read(&path).expect("settings exist"),
+            before,
+            "a pure read must not rewrite the file"
+        );
+
+        let summary = server
+            .settings(Parameters(SettingsParams {
+                focus: Some("50m".to_owned()),
+                ..SettingsParams::default()
+            }))
+            .expect("writes")
+            .0;
+        assert_eq!(summary.focus, "50m");
+        assert_eq!(summary.short_break, "5m", "omitted fields stay put");
+    }
+
+    /// Keyed on the id, not on position: an agent that had to read-modify-write
+    /// the whole pattern to change one block would race the web editor.
+    #[test]
+    fn a_recurring_block_is_upserted_by_id_and_removed_by_id() {
+        let (_directory, server) = server();
+
+        let block = |id: &str, title: &str, start: &str| RecurringBlockParams {
+            id: id.to_owned(),
+            days: vec!["mon-fri".to_owned()],
+            start: start.to_owned(),
+            end: "11:00".to_owned(),
+            title: title.to_owned(),
+            project: None,
+            remind_before: Some("5m".to_owned()),
+        };
+
+        server
+            .set_recurring_block(Parameters(block("deep-work", "Deep work", "09:00")))
+            .expect("creates");
+        let list = server
+            .set_recurring_block(Parameters(block("standup", "Standup", "08:00")))
+            .expect("creates")
+            .0;
+
+        assert_eq!(list.blocks.len(), 2);
+        assert_eq!(list.blocks[0].days, ["mon", "tue", "wed", "thu", "fri"]);
+
+        // Setting an existing id replaces that block and leaves the other one.
+        let list = server
+            .set_recurring_block(Parameters(block("deep-work", "Focus", "10:00")))
+            .expect("replaces")
+            .0;
+        assert_eq!(list.blocks.len(), 2);
+        let deep = list
+            .blocks
+            .iter()
+            .find(|block| block.id == "deep-work")
+            .expect("still there");
+        assert_eq!(deep.title, "Focus");
+        assert_eq!(deep.start, "10:00");
+
+        let list = server
+            .remove_recurring_block(Parameters(BlockIdParams {
+                id: "deep-work".to_owned(),
+            }))
+            .expect("removes")
+            .0;
+        assert_eq!(list.blocks.len(), 1);
+        assert_eq!(list.blocks[0].id, "standup");
+
+        assert!(
+            server
+                .remove_recurring_block(Parameters(BlockIdParams {
+                    id: "deep-work".to_owned(),
+                }))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_one_off_block_can_be_planned_amended_and_removed() {
+        let (_directory, server) = server();
+        let on = || Some("2026-08-05".to_owned());
+
+        let day = server
+            .add_block(Parameters(BlockParams {
+                date: on(),
+                start: "12:00".to_owned(),
+                end: "12:30".to_owned(),
+                title: "Lunch".to_owned(),
+                project: None,
+                remind_before: None,
+            }))
+            .expect("plans")
+            .0;
+        assert_eq!(day.planned[0].title, "Lunch");
+        assert_eq!(day.planned[0].one_off_index, Some(0));
+
+        let day = server
+            .edit_block(Parameters(EditBlockParams {
+                date: on(),
+                index: 0,
+                end: Some("13:00".to_owned()),
+                title: Some("Long lunch".to_owned()),
+                ..EditBlockParams::default()
+            }))
+            .expect("edits")
+            .0;
+        assert_eq!(day.planned[0].title, "Long lunch");
+        assert_eq!(day.planned[0].start, "12:00", "omitted fields stay put");
+        assert_eq!(day.planned[0].end, "13:00");
+
+        let day = server
+            .remove_block(Parameters(IndexParams {
+                date: on(),
+                index: 0,
+            }))
+            .expect("removes")
+            .0;
+        assert!(day.planned.is_empty());
+    }
+
+    /// Skipping suppresses one occurrence without touching the pattern, so the
+    /// same block still appears on every other day it falls on.
+    #[test]
+    fn a_repeat_is_skipped_on_one_day_and_restored() {
+        let (_directory, server) = server();
+        server
+            .set_recurring_block(Parameters(RecurringBlockParams {
+                id: "deep-work".to_owned(),
+                days: vec!["mon-fri".to_owned()],
+                start: "09:00".to_owned(),
+                end: "11:00".to_owned(),
+                title: "Deep work".to_owned(),
+                project: None,
+                remind_before: None,
+            }))
+            .expect("creates");
+
+        let skip = || SkipParams {
+            date: Some("2026-08-05".to_owned()),
+            id: "deep-work".to_owned(),
+        };
+
+        let day = server.skip_block(Parameters(skip())).expect("skips").0;
+        assert!(day.planned.is_empty());
+        assert_eq!(day.skipped, vec!["deep-work".to_owned()]);
+
+        // Thursday is untouched: the pattern itself did not change.
+        let thursday = server
+            .day(Parameters(DateParams {
+                date: Some("2026-08-06".to_owned()),
+            }))
+            .expect("reads")
+            .0;
+        assert_eq!(thursday.planned.len(), 1);
+
+        let day = server.unskip_block(Parameters(skip())).expect("restores").0;
+        assert_eq!(day.planned.len(), 1);
+        assert!(day.skipped.is_empty());
+
+        assert!(server.unskip_block(Parameters(skip())).is_err());
     }
 
     /// An agent that mis-logged time had to hand-edit the markdown, which is
@@ -1832,6 +2411,75 @@ mod tests {
                     group_by: Some("colour".to_owned()),
                 }))
                 .is_err()
+        );
+        assert!(
+            server
+                .set_recurring_block(Parameters(RecurringBlockParams {
+                    id: "Not An Id".to_owned(),
+                    days: vec!["mon".to_owned()],
+                    start: "09:00".to_owned(),
+                    end: "10:00".to_owned(),
+                    title: "x".to_owned(),
+                    ..RecurringBlockParams::default()
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .set_recurring_block(Parameters(RecurringBlockParams {
+                    id: "deep-work".to_owned(),
+                    days: vec!["someday".to_owned()],
+                    start: "09:00".to_owned(),
+                    end: "10:00".to_owned(),
+                    title: "x".to_owned(),
+                    ..RecurringBlockParams::default()
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .add_block(Parameters(BlockParams {
+                    start: "elevenish".to_owned(),
+                    end: "12:00".to_owned(),
+                    title: "x".to_owned(),
+                    ..BlockParams::default()
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .settings(Parameters(SettingsParams {
+                    focus: Some("a while".to_owned()),
+                    ..SettingsParams::default()
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .add_milestone(Parameters(AddMilestoneParams {
+                    project: "timemd".to_owned(),
+                    title: "   ".to_owned(),
+                    ..AddMilestoneParams::default()
+                }))
+                .is_err()
+        );
+
+        // Nothing above should have reached a file.
+        assert!(
+            server
+                .recurring(Parameters(NoParams {}))
+                .expect("reads")
+                .0
+                .blocks
+                .is_empty()
+        );
+        assert_eq!(
+            server
+                .settings(Parameters(SettingsParams::default()))
+                .expect("reads")
+                .0
+                .focus,
+            "25m"
         );
     }
 

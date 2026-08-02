@@ -130,11 +130,20 @@ Point an agent at the MCP server:
 }
 ```
 
-Tools: `start_session`, `stop_session`, `cancel_session`, `current_session`,
-`log_time`, `edit_session`, `delete_session`, `day`, `schedule`, `report`,
-`list_projects`, `project`,
-`upsert_project`, `delete_project`, `add_milestone`, `update_milestone`,
-`remove_milestone`.
+Tools, by what they touch:
+
+| | |
+|---|---|
+| Timer | `start_session`, `stop_session`, `cancel_session`, `current_session` |
+| Logged time | `log_time`, `edit_session`, `delete_session`, `day` |
+| Projects | `list_projects`, `project`, `upsert_project`, `delete_project` |
+| Milestones | `add_milestone`, `update_milestone`, `remove_milestone` |
+| Schedule | `schedule`, `recurring`, `set_recurring_block`, `remove_recurring_block`, `add_block`, `edit_block`, `remove_block`, `skip_block`, `unskip_block` |
+| Everything else | `report`, `settings` |
+
+Sessions and one-off blocks are addressed by index, milestones by title, and
+repeating blocks by id. Every tool that writes a session or a block answers with
+the whole day, renumbered, because both lists re-sort on write.
 
 Agents can equally just edit the files. Anything the app does not understand —
 your own `##` sections, prose, extra frontmatter keys — survives untouched, and a
