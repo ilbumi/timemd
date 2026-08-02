@@ -19,6 +19,9 @@ data/days/2026/2026-08-01.md
 [`docs/format.md`](docs/format.md) is the specification. It is worth reading
 before pointing an agent at the tree.
 
+[`docs/surfaces.md`](docs/surfaces.md) says which operations the API, the MCP
+tools, the command and the web app each offer, and how each thing is addressed.
+
 ## What it does
 
 - **Projects** — each with a shape, a colour, a weekly hour target and a
