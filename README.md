@@ -50,7 +50,32 @@ and the screens use the width — the project detail puts its identity panel bes
 the milestones, the day timeline sits next to its block list, and the week raster
 simply gets bigger. Same rules, same palette, more room.
 
+## Installing it
+
+Every release ships one self-contained binary per platform, with the web UI
+compiled in. Pick your target from `x86_64-unknown-linux-gnu`,
+`aarch64-unknown-linux-gnu`, `aarch64-apple-darwin` or `x86_64-apple-darwin`:
+
+```sh
+VERSION=0.1.0 # x-release-please-version
+TARGET=aarch64-apple-darwin
+BASE=https://github.com/ilbumi/timemd/releases/download/v$VERSION
+
+curl -LO "$BASE/timemd-$VERSION-$TARGET.tar.gz"
+curl -LO "$BASE/timemd-$VERSION-$TARGET.tar.gz.sha256"
+shasum -a 256 -c "timemd-$VERSION-$TARGET.tar.gz.sha256"
+
+tar xzf "timemd-$VERSION-$TARGET.tar.gz"
+./timemd-$VERSION-$TARGET/timemd --version
+```
+
+The Linux builds need glibc 2.39 or newer — Ubuntu 24.04, Debian 13, Fedora 40.
+On anything older, build from source. There is deliberately no Docker image and
+nothing on crates.io: this is one binary and a directory of markdown.
+
 ## Running it
+
+From a release, that is `./timemd --data ./data serve`. From source:
 
 ```sh
 make frontend          # build the web UI into the server crate
@@ -138,3 +163,16 @@ crates/mcp      Model Context Protocol server
 crates/cli      the `timemd` binary
 frontend/       SvelteKit, built into crates/server/assets
 ```
+
+### Releasing
+
+Commit subjects choose the version: `feat:` bumps the minor, `fix:` and `perf:`
+the patch. While the version is below 1.0 a `!` or a `BREAKING CHANGE:` footer
+also bumps the minor rather than the major, so nothing reaches 1.0 by accident.
+release-please reads them and keeps a `chore(main): release X.Y.Z` pull request
+open; merging it writes the changelog, tags, and builds the four binaries.
+Nothing is tagged by hand.
+
+CI runs the same `make` targets, so a change to a gate belongs in the Makefile
+rather than in a workflow. The `rust` job installs no Node — `cargo test` and
+`cargo clippy` must keep working on a clone where the UI has never been built.
