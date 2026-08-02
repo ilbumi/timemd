@@ -18,11 +18,25 @@ const FENCE: &str = "---";
 /// A `##` section: its title and its raw body lines, heading excluded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
+    /// The trimmed name, which is what every lookup matches on.
     pub title: String,
     pub lines: Vec<String>,
+    /// The heading line exactly as it was read. Rebuilding it from `title`
+    /// would reformat `##  Retrospective` on the way out, and reformatting a
+    /// section the app does not own is the one thing a write may not do.
+    heading: String,
 }
 
 impl Section {
+    /// A section whose heading is the canonical `## Title`.
+    fn new(title: &str, lines: Vec<String>) -> Self {
+        Self {
+            title: title.to_owned(),
+            lines,
+            heading: format!("## {title}"),
+        }
+    }
+
     /// Body lines with blanks dropped, paired with their 1-based line number in
     /// the section body. Typed parsers work from this.
     pub fn content(&self) -> impl Iterator<Item = (usize, &str)> {
@@ -68,6 +82,7 @@ impl Document {
                 Some(title) => sections.push(Section {
                     title: title.trim().to_owned(),
                     lines: Vec::new(),
+                    heading: line.to_owned(),
                 }),
                 None => match sections.last_mut() {
                     Some(section) => section.lines.push(line.to_owned()),
@@ -113,7 +128,7 @@ impl Document {
             line(text, &mut output);
         }
         for section in &self.sections {
-            line(&format!("## {}", section.title), &mut output);
+            line(&section.heading, &mut output);
             for text in &section.lines {
                 line(text, &mut output);
             }
@@ -153,13 +168,7 @@ impl Document {
                     .filter_map(|preceding| self.position(preceding))
                     .max()
                     .map_or(0, |index| index + 1);
-                self.sections.insert(
-                    insert_at,
-                    Section {
-                        title: title.to_owned(),
-                        lines,
-                    },
-                );
+                self.sections.insert(insert_at, Section::new(title, lines));
             }
         }
     }
@@ -342,6 +351,23 @@ mod tests {
         );
         assert!(rendered.contains("- 10:00-10:25 (25m) [[timemd]] new"));
         assert!(!rendered.contains("old"));
+    }
+
+    #[test]
+    fn preserves_the_spacing_of_a_hand_written_heading() {
+        // A heading is matched on its trimmed name but written back exactly as
+        // it was typed. Rebuilding it from the name would silently reformat a
+        // section the app does not own, which is the one thing a write may not
+        // do to hand-edited text.
+        let source = "---\ndate: 2026-08-01\n---\n\n##  Retrospective  \n\nprose\n";
+        let document = Document::parse(source).expect("parses");
+
+        assert_eq!(
+            document.section("Retrospective").map(|s| s.title.as_str()),
+            Some("Retrospective"),
+            "the trimmed name is what lookups use"
+        );
+        assert_eq!(document.render(), source);
     }
 
     #[test]
