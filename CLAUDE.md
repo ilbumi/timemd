@@ -58,8 +58,12 @@ make serve             # build the UI and run locally
   `#[allow_missing]` on `Assets` buys, so do not undo it.
 - Commit subjects pick the version and write the changelog: `feat:` → minor,
   `fix:`/`perf:` → patch, `!` or a `BREAKING CHANGE:` footer → minor while below
-  1.0, everything else → no release. Releases are cut by merging the
-  `chore(main): release X.Y.Z` pull request; nothing is tagged by hand.
-- release-please edits `Cargo.toml` through the GitHub API and cannot run cargo,
-  so `release.yml` pushes the matching `Cargo.lock` onto the release branch. If
-  you change how the version is stored, that step has to follow.
+  1.0, everything else → no release. The rules live in `cliff.toml`, and
+  `git cliff --bumped-version` answers "what would ship?" without a workflow run.
+- Releasing is a manual `workflow_dispatch` on `release.yml`. It is the only
+  thing that writes a version: `[workspace.package] version`, `Cargo.lock`,
+  `CHANGELOG.md` and the tag all move together in one commit. Do not bump a
+  version by hand.
+- Release tarballs are named for the target only, with no version, so
+  `releases/latest/download/…` always resolves and the README never has to name
+  one. If you put the version back in the filename, that link breaks.

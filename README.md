@@ -57,16 +57,15 @@ compiled in. Pick your target from `x86_64-unknown-linux-gnu`,
 `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin` or `x86_64-apple-darwin`:
 
 ```sh
-VERSION=0.1.0 # x-release-please-version
 TARGET=aarch64-apple-darwin
-BASE=https://github.com/ilbumi/timemd/releases/download/v$VERSION
+BASE=https://github.com/ilbumi/timemd/releases/latest/download
 
-curl -LO "$BASE/timemd-$VERSION-$TARGET.tar.gz"
-curl -LO "$BASE/timemd-$VERSION-$TARGET.tar.gz.sha256"
-shasum -a 256 -c "timemd-$VERSION-$TARGET.tar.gz.sha256"
+curl -LO "$BASE/timemd-$TARGET.tar.gz"
+curl -LO "$BASE/timemd-$TARGET.tar.gz.sha256"
+shasum -a 256 -c "timemd-$TARGET.tar.gz.sha256"
 
-tar xzf "timemd-$VERSION-$TARGET.tar.gz"
-./timemd-$VERSION-$TARGET/timemd --version
+tar xzf "timemd-$TARGET.tar.gz"
+./timemd-$TARGET/timemd --version
 ```
 
 The Linux builds need glibc 2.39 or newer — Ubuntu 24.04, Debian 13, Fedora 40.
@@ -166,12 +165,23 @@ frontend/       SvelteKit, built into crates/server/assets
 
 ### Releasing
 
-Commit subjects choose the version: `feat:` bumps the minor, `fix:` and `perf:`
-the patch. While the version is below 1.0 a `!` or a `BREAKING CHANGE:` footer
-also bumps the minor rather than the major, so nothing reaches 1.0 by accident.
-release-please reads them and keeps a `chore(main): release X.Y.Z` pull request
-open; merging it writes the changelog, tags, and builds the four binaries.
-Nothing is tagged by hand.
+Releases are cut by hand, from the Actions tab: run the **release** workflow and
+pick a bump, or leave it on `auto` to take the version from the commits. It sets
+the version, writes the changelog, tags, builds the four binaries and publishes
+the release. Nothing releases on its own.
+
+Commit subjects are what `auto` reads: `feat:` bumps the minor, `fix:` and
+`perf:` the patch. While the version is below 1.0 a `!` or a `BREAKING CHANGE:`
+footer also bumps the minor rather than the major, so nothing reaches 1.0 by
+accident. Every rule lives in [`cliff.toml`](cliff.toml), and
+
+```sh
+git cliff --bumped-version    # what would the next release be?
+git cliff --unreleased        # what would its notes say?
+```
+
+gives the same answer locally that the workflow will. The workflow also takes a
+`dry_run` input if you would rather ask it directly.
 
 CI runs the same `make` targets, so a change to a gate belongs in the Makefile
 rather than in a workflow. The `rust` job installs no Node — `cargo test` and

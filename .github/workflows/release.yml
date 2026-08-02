@@ -1,18 +1,23 @@
-# Versioning and releasing, both driven by the conventional-commit history.
+# Cut a release. Run it from the Actions tab; nothing here fires on its own.
 #
-# An ordinary commit on main updates the "chore(main): release X.Y.Z" pull
-# request. Merging that pull request is itself a push to main, and on that run
-# release-please tags it, opens the GitHub release, and the binaries attach to
-# it. Nothing is ever tagged by hand.
-#
-# It is all one workflow run because a tag pushed by a GitHub token does not
-# trigger `on: push: tags:` — a separate release workflow would never fire.
+# git-cliff reads the conventional commits since the last tag and decides the
+# version — `cliff.toml` holds every rule it uses, and `git cliff --bumped-version`
+# locally gives the same answer this workflow will. Run with `dry_run` first if
+# you want to see the notes before anything is written.
 name: release
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version step. `auto` reads it from the commits."
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+      dry_run:
+        description: "Report the version and notes, change nothing."
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -24,101 +29,138 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The layout suite gates the tag: it runs on every main push, and nothing is
-  # released before it passes.
+  # The layout suite gates the tag, the same as it gates a merge to main.
   e2e:
+    if: ${{ !inputs.dry_run }}
     uses: ./.github/workflows/e2e.yml
     permissions:
-      contents: read # a called workflow cannot ask for more than its caller grants
+      contents: read
 
-  release-please:
+  tag:
     name: version and tag
     needs: e2e
+    # `needs` on a skipped job would skip this too, and a dry run wants no e2e.
+    if: ${{ always() && (inputs.dry_run || needs.e2e.result == 'success') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      pull-requests: write
-      issues: write # release-please labels its own pull request
-    env:
-      # `secrets` is unreachable from a step `if`, so the test happens here.
-      HAS_APP_TOKEN: ${{ secrets.RELEASE_PLEASE_APP_ID != '' }}
     outputs:
-      released: ${{ steps.release.outputs.release_created }}
-      tag: ${{ steps.release.outputs.tag_name }}
-      pr_branch: ${{ fromJSON(steps.release.outputs.pr || '{}').headBranchName }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
-      # A pull request opened by the default GITHUB_TOKEN triggers no workflow,
-      # so the release PR would get no CI and could never satisfy a required
-      # status check. An app token is a real actor and does not have that
-      # problem, so it is used when the secrets are present. Without them
-      # everything still works — just do not turn on required checks.
-      - uses: actions/create-github-app-token@v3
-        id: app-token
-        if: env.HAS_APP_TOKEN == 'true'
-        with:
-          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
-
-      - uses: googleapis/release-please-action@v5
-        id: release
-        with:
-          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-
-  # release-please edits `[workspace.package] version` through the GitHub API, so
-  # it cannot run cargo. Without this the lockfile would still name the old
-  # version and the `--locked` release build below would refuse to start.
-  lockfile:
-    name: sync the lockfile
-    needs: release-please
-    if: needs.release-please.outputs.pr_branch != ''
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    env:
-      HAS_APP_TOKEN: ${{ secrets.RELEASE_PLEASE_APP_ID != '' }}
-    steps:
-      - uses: actions/create-github-app-token@v3
-        id: app-token
-        if: env.HAS_APP_TOKEN == 'true'
-        with:
-          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
-
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release-please.outputs.pr_branch }}
-          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0 # git-cliff reads the whole history
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          cache: false # nothing is compiled here, and the entry no job can read
+          cache: false # only `cargo update` runs here
 
-      - name: Rewrite the workspace versions in Cargo.lock
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Work out the next version
+        id: version
         shell: bash
+        env:
+          BUMP: ${{ inputs.bump }}
         run: |
           set -euo pipefail
-          # `--workspace` restricts this to the four timemd packages, so no
-          # third-party dependency moves. Not `--offline`: a cold runner has no
-          # registry cache to resolve the graph against.
+          bump_arg=()
+          [ "$BUMP" = auto ] || bump_arg=(--bump "$BUMP")
+          tag="$(git cliff "${bump_arg[@]}" --bumped-version)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "Next release: $tag"
+
+      - name: Write the notes
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: git cliff --tag "$TAG" --unreleased --strip all --output "$RUNNER_TEMP/notes.md"
+
+      - name: Report and stop
+        if: ${{ inputs.dry_run }}
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          {
+            echo "## Dry run — nothing was written"
+            echo
+            echo "Next release would be \`$TAG\`."
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set the version
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Only the version inside `[workspace.package]`, which every crate
+          # inherits. The range keeps it away from any other `version =` line.
+          sed -i -E "/^\[workspace\.package\]/,/^\[/ \
+            s/^version([[:space:]]*)=[[:space:]]*\"[^\"]+\"/version\1= \"$VERSION\"/" Cargo.toml
+          grep -qE "^version[[:space:]]*=[[:space:]]*\"$VERSION\"" Cargo.toml \
+            || { echo "::error::the workspace version was not rewritten"; exit 1; }
+          # Restricted to the four timemd packages, so no dependency moves.
           cargo update --workspace
-          if git diff --quiet -- Cargo.lock; then
-            echo "Cargo.lock already matches the manifest."
-            exit 0
-          fi
+
+      - name: Write the changelog
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: git cliff --tag "$TAG" --prepend CHANGELOG.md
+
+      - name: Commit and tag
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock
-          git commit -m "chore: sync Cargo.lock with the release version"
-          git push
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "chore(release): $TAG"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin HEAD:main "$TAG"
+
+      - name: Open the release
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+        # Draft until the binaries are attached, so nobody downloads an empty release.
+        run: gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --draft
 
   binaries:
-    needs: release-please
-    if: needs.release-please.outputs.released == 'true'
+    needs: tag
+    if: ${{ !inputs.dry_run }}
     uses: ./.github/workflows/build-binaries.yml
     permissions:
       contents: write
     with:
-      tag: ${{ needs.release-please.outputs.tag }}
+      tag: ${{ needs.tag.outputs.tag }}
       upload: true
+
+  publish:
+    name: publish the release
+    needs: [tag, binaries]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Un-draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.tag.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false --latest
