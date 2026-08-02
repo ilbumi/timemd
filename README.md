@@ -131,7 +131,8 @@ Point an agent at the MCP server:
 ```
 
 Tools: `start_session`, `stop_session`, `cancel_session`, `current_session`,
-`log_time`, `day`, `schedule`, `report`, `list_projects`, `project`,
+`log_time`, `edit_session`, `delete_session`, `day`, `schedule`, `report`,
+`list_projects`, `project`,
 `upsert_project`, `delete_project`, `add_milestone`, `update_milestone`,
 `remove_milestone`.
 

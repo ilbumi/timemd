@@ -137,6 +137,32 @@ pub struct MilestoneParams {
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct EditSessionParams {
+    /// `YYYY-MM-DD`. Defaults to today.
+    pub date: Option<String>,
+    /// Position in the day's sessions, as `day` reports it. Sessions are stored
+    /// in start order, so changing a start time renumbers them — the day this
+    /// answers with carries the fresh indexes.
+    pub index: usize,
+    /// Start time, `HH:MM`. Omit to leave it alone.
+    pub start: Option<String>,
+    /// End time, `HH:MM`. Omit to leave it alone.
+    pub end: Option<String>,
+    /// Project slug. An empty string clears it; omit to leave it alone.
+    pub project: Option<String>,
+    /// Omit to leave it alone.
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct IndexParams {
+    /// `YYYY-MM-DD`. Defaults to today.
+    pub date: Option<String>,
+    /// Position in the day, as `day` reports it.
+    pub index: usize,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct NoParams {}
 
 // ---- tool results ----------------------------------------------------------
@@ -367,10 +393,7 @@ impl TimeMd {
         &self,
         Parameters(params): Parameters<LogParams>,
     ) -> Result<Json<Outcome>, ErrorData> {
-        let on = match params.date.as_deref() {
-            Some(raw) => date(raw)?,
-            None => self.now()?.date(),
-        };
+        let on = self.on(params.date.as_deref())?;
         let session = Session::new(
             time(&params.start)?,
             time(&params.end)?,
@@ -396,14 +419,68 @@ impl TimeMd {
         &self,
         Parameters(params): Parameters<DateParams>,
     ) -> Result<Json<DaySummary>, ErrorData> {
-        let on = match params.date.as_deref() {
-            Some(raw) => date(raw)?,
-            None => self.now()?.date(),
-        };
+        let on = self.on(params.date.as_deref())?;
         let day = self.store.read_day(on).map_err(failed)?;
         let recurring = self.store.read_recurring().map_err(failed)?;
 
         Ok(Json(summarise_day(&day, &recurring)))
+    }
+
+    #[tool(
+        name = "edit_session",
+        description = "Amend a logged session. Only the fields given change. Answers with the whole day, renumbered."
+    )]
+    fn edit_session(
+        &self,
+        Parameters(params): Parameters<EditSessionParams>,
+    ) -> Result<Json<DaySummary>, ErrorData> {
+        let on = self.on(params.date.as_deref())?;
+        // Every conversion before the store is touched, so a rejected value
+        // cannot leave the day half-updated.
+        let start = params.start.as_deref().map(time).transpose()?;
+        let end = params.end.as_deref().map(time).transpose()?;
+        let project = match params.project.as_deref() {
+            // An empty string is how a caller says "no project"; there is no
+            // other way to spell it in JSON that `None` does not already mean.
+            Some("") => Some(None),
+            Some(raw) => Some(Some(slug(raw)?)),
+            None => None,
+        };
+
+        self.edit_day(on, |day| {
+            let existing =
+                day.sessions().get(params.index).cloned().ok_or_else(|| {
+                    invalid(format!("no session at index {} on {on}", params.index))
+                })?;
+
+            day.replace_session(
+                params.index,
+                Session::new(
+                    start.unwrap_or(existing.start),
+                    end.unwrap_or(existing.end),
+                    project.unwrap_or(existing.project),
+                    params.note.unwrap_or(existing.note),
+                ),
+            );
+            Ok(())
+        })
+    }
+
+    #[tool(
+        name = "delete_session",
+        description = "Remove a logged session. Answers with the whole day, renumbered."
+    )]
+    fn delete_session(
+        &self,
+        Parameters(params): Parameters<IndexParams>,
+    ) -> Result<Json<DaySummary>, ErrorData> {
+        let on = self.on(params.date.as_deref())?;
+
+        self.edit_day(on, |day| {
+            day.remove_session(params.index)
+                .map(|_| ())
+                .ok_or_else(|| invalid(format!("no session at index {} on {on}", params.index)))
+        })
     }
 
     #[tool(name = "schedule", description = "Planned blocks over a date range.")]
@@ -674,6 +751,34 @@ impl TimeMd {
             .map_err(failed)?
     }
 
+    /// The date a tool was pointed at, defaulting to today.
+    fn on(&self, requested: Option<&str>) -> Result<NaiveDate, ErrorData> {
+        match requested {
+            Some(raw) => date(raw),
+            None => Ok(self.now()?.date()),
+        }
+    }
+
+    /// Edits a day and answers with all of it, freshly numbered.
+    ///
+    /// Sessions and one-off blocks are addressed by index and both lists
+    /// re-sort on write, so an index the agent is holding may already name
+    /// something else. Returning the day means its next handle arrives with the
+    /// answer to its last call, and there is no window in between.
+    fn edit_day(
+        &self,
+        on: NaiveDate,
+        edit: impl FnOnce(&mut timemd_core::day::Day) -> Result<(), ErrorData>,
+    ) -> Result<Json<DaySummary>, ErrorData> {
+        let recurring = self.store.read_recurring().map_err(failed)?;
+        self.store
+            .update_day(on, |day| {
+                edit(day)?;
+                Ok(Json(summarise_day(day, &recurring)))
+            })
+            .map_err(failed)?
+    }
+
     /// Now, as wall-clock time in the configured timezone.
     fn now(&self) -> Result<NaiveDateTime, ErrorData> {
         self.store.wall_clock(Utc::now()).map_err(failed)
@@ -888,6 +993,8 @@ mod tests {
             "cancel_session",
             "current_session",
             "log_time",
+            "edit_session",
+            "delete_session",
             "day",
             "schedule",
             "report",
@@ -920,6 +1027,124 @@ mod tests {
                 "{} answers with a {schema:?}",
                 tool.name
             );
+        }
+    }
+
+    /// An agent that mis-logged time had to hand-edit the markdown, which is
+    /// what the server instructions told it to do because nothing else could.
+    #[test]
+    fn a_logged_session_can_be_amended_field_by_field() {
+        let (_directory, server) = server();
+        log(&server, "2026-08-05", "09:00", "09:25", Some("timemd"));
+
+        let day = server
+            .edit_session(Parameters(EditSessionParams {
+                date: Some("2026-08-05".to_owned()),
+                index: 0,
+                end: Some("10:00".to_owned()),
+                ..EditSessionParams::default()
+            }))
+            .expect("edits")
+            .0;
+
+        // Only `end` was given, so everything else is as it was.
+        assert_eq!(day.sessions[0].start, "09:00");
+        assert_eq!(day.sessions[0].end, "10:00");
+        assert_eq!(day.sessions[0].duration, "1h");
+        assert_eq!(day.sessions[0].project.as_deref(), Some("timemd"));
+        assert_eq!(day.sessions[0].note, "work");
+        assert_eq!(day.tracked, "1h");
+    }
+
+    /// There is no other way to spell "no project" in JSON that an omitted key
+    /// does not already mean.
+    #[test]
+    fn an_empty_project_clears_a_session_tag() {
+        let (_directory, server) = server();
+        log(&server, "2026-08-05", "09:00", "09:25", Some("timemd"));
+
+        let day = server
+            .edit_session(Parameters(EditSessionParams {
+                date: Some("2026-08-05".to_owned()),
+                index: 0,
+                project: Some(String::new()),
+                ..EditSessionParams::default()
+            }))
+            .expect("edits")
+            .0;
+        assert_eq!(day.sessions[0].project, None);
+    }
+
+    /// The reason every session tool answers with the whole day: moving a start
+    /// time re-sorts it, so the index the agent just used now names something
+    /// else. The fresh numbering arrives with the answer to the call that
+    /// invalidated it.
+    #[test]
+    fn editing_a_session_answers_with_the_re_sorted_day() {
+        let (_directory, server) = server();
+        log(&server, "2026-08-05", "09:00", "09:25", Some("timemd"));
+        log(&server, "2026-08-05", "10:30", "10:45", None);
+
+        let day = server
+            .edit_session(Parameters(EditSessionParams {
+                date: Some("2026-08-05".to_owned()),
+                index: 0,
+                start: Some("14:00".to_owned()),
+                end: Some("14:30".to_owned()),
+                ..EditSessionParams::default()
+            }))
+            .expect("edits")
+            .0;
+
+        assert_eq!(day.sessions[0].index, 0);
+        assert_eq!(day.sessions[0].start, "10:30");
+        assert_eq!(day.sessions[1].index, 1);
+        assert_eq!(day.sessions[1].start, "14:00");
+    }
+
+    #[test]
+    fn a_logged_session_can_be_deleted() {
+        let (_directory, server) = server();
+        log(&server, "2026-08-05", "09:00", "09:25", Some("timemd"));
+        log(&server, "2026-08-05", "10:30", "10:45", None);
+
+        let day = server
+            .delete_session(Parameters(IndexParams {
+                date: Some("2026-08-05".to_owned()),
+                index: 0,
+            }))
+            .expect("deletes")
+            .0;
+
+        assert_eq!(day.sessions.len(), 1);
+        assert_eq!(day.sessions[0].start, "10:30");
+        assert_eq!(day.sessions[0].index, 0);
+        assert_eq!(day.tracked, "15m");
+    }
+
+    #[test]
+    fn addressing_a_session_that_is_not_there_is_refused() {
+        let (_directory, server) = server();
+        log(&server, "2026-08-05", "09:00", "09:25", None);
+
+        for attempt in [
+            server
+                .edit_session(Parameters(EditSessionParams {
+                    date: Some("2026-08-05".to_owned()),
+                    index: 7,
+                    note: Some("nowhere".to_owned()),
+                    ..EditSessionParams::default()
+                }))
+                .err(),
+            server
+                .delete_session(Parameters(IndexParams {
+                    date: Some("2026-08-05".to_owned()),
+                    index: 7,
+                }))
+                .err(),
+        ] {
+            let error = attempt.expect("no session there");
+            assert!(error.message.contains('7'), "{}", error.message);
         }
     }
 
