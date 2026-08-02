@@ -26,8 +26,10 @@
 	let end = $state('10:00');
 	let project = $state('');
 	let note = $state('');
+	let date = $state(today());
 
 	const monday = $derived(startOfWeek(anchor));
+	const week = $derived(weekDates(monday));
 	const totalMinutes = $derived(bands.reduce((total, band) => total + band.minutes, 0));
 	const sessionCount = $derived(bands.reduce((total, band) => total + band.sessions.length, 0));
 
@@ -40,7 +42,7 @@
 	 */
 	async function load(): Promise<void> {
 		error = await attempt(async () => {
-			const days = await Promise.all(weekDates(monday).map((date) => api.readDay(date)));
+			const days = await Promise.all(week.map((each) => api.readDay(each)));
 
 			bands = days
 				.map((day) => ({
@@ -58,10 +60,22 @@
 		error = await attempt(work);
 	}
 
+	/**
+	 * Opens the form against the week on screen.
+	 *
+	 * Today when the shown week contains it, and its Monday otherwise: the
+	 * header browses back through past weeks, and logging into one of them used
+	 * to be impossible from here even though the endpoint is date-addressed.
+	 */
+	function openAdder(): void {
+		date = week.includes(today()) ? today() : monday;
+		adding = true;
+	}
+
 	const addSession = (event: SubmitEvent): Promise<void> => {
 		event.preventDefault();
 		return run(async () => {
-			await api.addSession(today(), {
+			await api.addSession(date, {
 				start: `${start}:00`,
 				end: `${end}:00`,
 				project: project || null,
@@ -69,7 +83,6 @@
 			});
 			note = '';
 			adding = false;
-			anchor = today();
 			await load();
 		});
 	};
@@ -144,7 +157,13 @@
 
 		{#if adding}
 			<form onsubmit={addSession}>
-				<p class="meta">Logged against today.</p>
+				<input
+					type="date"
+					aria-label="Date"
+					min={week[0]}
+					max={week[week.length - 1]}
+					bind:value={date}
+				/>
 				<div class="row">
 					<input type="time" aria-label="Start" bind:value={start} />
 					<input type="time" aria-label="End" bind:value={end} />
@@ -166,7 +185,7 @@
 
 	<div class="foot">
 		<div class="actions">
-			<button onclick={() => (adding = !adding)}>+ Time by hand</button>
+			<button onclick={() => (adding ? (adding = false) : openAdder())}>+ Time by hand</button>
 		</div>
 	</div>
 </section>
@@ -251,10 +270,6 @@
 		flex-direction: column;
 		gap: 8px;
 		padding: var(--gap) var(--pad) 0;
-	}
-
-	form p {
-		margin: 0;
 	}
 
 	.row {
