@@ -118,6 +118,11 @@ pub struct CurrentSession {
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct LoggedSession {
+    /// Position in the day, which is what editing and deleting address. A
+    /// session has no name, so this is the only handle there is. Sessions are
+    /// stored in start order, so changing a start time renumbers the day —
+    /// every tool that writes one answers with the day it produced.
+    pub index: usize,
     pub start: String,
     pub end: String,
     pub duration: String,
@@ -133,8 +138,14 @@ pub struct PlannedBlock {
     pub duration: String,
     pub project: Option<String>,
     pub title: String,
-    /// The repeating block this came from, or null for a one-off.
+    /// How long before the start a reminder fires, or null for none.
+    pub remind_before: Option<String>,
+    /// The repeating block this came from, or null for a one-off. Repeats are
+    /// addressed by this id; one-offs by `one_off_index`.
     pub block: Option<String>,
+    /// Position among that day's one-off blocks, which is what editing and
+    /// removing address. Null for a repeat.
+    pub one_off_index: Option<usize>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -143,6 +154,8 @@ pub struct DaySummary {
     pub tracked: String,
     pub sessions: Vec<LoggedSession>,
     pub planned: Vec<PlannedBlock>,
+    /// Ids of repeating blocks suppressed on this day.
+    pub skipped: Vec<String>,
     /// Lines in the file the parser could not read, kept verbatim.
     pub problems: Vec<String>,
 }
@@ -333,13 +346,7 @@ impl TimeMd {
         let day = self.store.read_day(on).map_err(failed)?;
         let recurring = self.store.read_recurring().map_err(failed)?;
 
-        Ok(Json(DaySummary {
-            date: on.to_string(),
-            tracked: day.total().to_string(),
-            sessions: day.sessions().iter().map(logged).collect(),
-            planned: planned(&day, &recurring).iter().map(block).collect(),
-            problems: day.problems().iter().map(ToString::to_string).collect(),
-        }))
+        Ok(Json(summarise_day(&day, &recurring)))
     }
 
     #[tool(name = "schedule", description = "Planned blocks over a date range.")]
@@ -350,7 +357,7 @@ impl TimeMd {
         let occurrences =
             planned_range(&self.store, range(&params.from, &params.to)?).map_err(failed)?;
         Ok(Json(Schedule {
-            blocks: occurrences.iter().map(block).collect(),
+            blocks: blocks(&occurrences),
         }))
     }
 
@@ -537,8 +544,26 @@ fn summarise(project: &Project) -> ProjectSummary {
     }
 }
 
-fn logged(session: &Session) -> LoggedSession {
+/// A whole day, freshly numbered.
+///
+/// Every tool that writes a session or a block answers with this rather than a
+/// message, because both are addressed by index and both lists re-sort on
+/// write. Returning the day means the agent's next handle arrives with the
+/// answer to its last call, so there is no window in which it holds a stale one.
+fn summarise_day(day: &timemd_core::day::Day, recurring: &timemd_core::Recurring) -> DaySummary {
+    DaySummary {
+        date: day.date().to_string(),
+        tracked: day.total().to_string(),
+        sessions: day.sessions().iter().enumerate().map(logged).collect(),
+        planned: blocks(&planned(day, recurring)),
+        skipped: day.skipped().iter().map(ToString::to_string).collect(),
+        problems: day.problems().iter().map(ToString::to_string).collect(),
+    }
+}
+
+fn logged((index, session): (usize, &Session)) -> LoggedSession {
     LoggedSession {
+        index,
         start: session.start.format("%H:%M").to_string(),
         end: session.end.format("%H:%M").to_string(),
         duration: session.duration().to_string(),
@@ -547,16 +572,36 @@ fn logged(session: &Session) -> LoggedSession {
     }
 }
 
-fn block(occurrence: &timemd_core::Occurrence) -> PlannedBlock {
-    PlannedBlock {
-        date: occurrence.date.to_string(),
-        start: occurrence.start.format("%H:%M").to_string(),
-        end: occurrence.end.format("%H:%M").to_string(),
-        duration: occurrence.duration().to_string(),
-        project: occurrence.project.as_ref().map(ToString::to_string),
-        title: occurrence.title.clone(),
-        block: occurrence.block.as_ref().map(ToString::to_string),
-    }
+/// Numbers the one-offs in one day's merged list, leaving repeats at `None`.
+///
+/// The same pass the HTTP API makes, and for the same reason: the index is a
+/// position among the one-offs, not a position in the merged list, so a caller
+/// that recovered it by counting entries would depend on how `planned` sorts.
+fn blocks(occurrences: &[timemd_core::Occurrence]) -> Vec<PlannedBlock> {
+    let mut one_offs = 0;
+
+    occurrences
+        .iter()
+        .map(|occurrence| {
+            let one_off_index = occurrence.block.is_none().then(|| {
+                let index = one_offs;
+                one_offs += 1;
+                index
+            });
+
+            PlannedBlock {
+                date: occurrence.date.to_string(),
+                start: occurrence.start.format("%H:%M").to_string(),
+                end: occurrence.end.format("%H:%M").to_string(),
+                duration: occurrence.duration().to_string(),
+                project: occurrence.project.as_ref().map(ToString::to_string),
+                title: occurrence.title.clone(),
+                remind_before: occurrence.remind_before.map(|lead| lead.to_string()),
+                block: occurrence.block.as_ref().map(ToString::to_string),
+                one_off_index,
+            }
+        })
+        .collect()
 }
 
 fn failed(error: timemd_core::Error) -> ErrorData {
@@ -676,6 +721,79 @@ mod tests {
                 tool.name
             );
         }
+    }
+
+    /// Sessions have no name, so an index is the only handle there is — and a
+    /// day that did not carry one left an agent unable to address the session
+    /// it had just read.
+    #[test]
+    fn a_day_numbers_its_sessions_blocks_and_skips() {
+        let (_directory, server) = server();
+        log(&server, "2026-08-05", "09:00", "09:25", Some("timemd"));
+        log(&server, "2026-08-05", "10:30", "10:45", None);
+
+        server
+            .store
+            .update_day("2026-08-05".parse().expect("a date"), |day| {
+                day.add_block(timemd_core::DayBlock::parse("12:00-12:30 Lunch").expect("a block"));
+                day.skip(timemd_core::BlockId::new("deep-work").expect("an id"));
+            })
+            .expect("writes the day");
+
+        let day = server
+            .day(Parameters(DateParams {
+                date: Some("2026-08-05".to_owned()),
+            }))
+            .expect("reads the day")
+            .0;
+
+        assert_eq!(day.sessions[0].index, 0);
+        assert_eq!(day.sessions[1].index, 1);
+        assert_eq!(day.planned[0].one_off_index, Some(0));
+        assert_eq!(day.skipped, vec!["deep-work".to_owned()]);
+    }
+
+    /// A repeat is addressed by its id and a one-off by its position among the
+    /// one-offs, so the two must not be numbered from the same counter.
+    #[test]
+    fn a_repeat_carries_its_id_and_a_one_off_its_position() {
+        let (_directory, server) = server();
+        server
+            .store
+            .update_recurring(|recurring| {
+                recurring.upsert(timemd_core::RecurringBlock {
+                    id: timemd_core::BlockId::new("deep-work").expect("an id"),
+                    days: "mon-fri".parse().expect("a day set"),
+                    start: time("09:00").expect("a time"),
+                    end: time("11:00").expect("a time"),
+                    project: None,
+                    title: "Deep work".to_owned(),
+                    remind_before: Some(Minutes::new(5)),
+                });
+            })
+            .expect("writes the pattern");
+        server
+            .store
+            .update_day("2026-08-05".parse().expect("a date"), |day| {
+                day.add_block(timemd_core::DayBlock::parse("12:00-12:30 Lunch").expect("a block"));
+            })
+            .expect("writes the day");
+
+        let day = server
+            .day(Parameters(DateParams {
+                date: Some("2026-08-05".to_owned()),
+            }))
+            .expect("reads the day")
+            .0;
+
+        assert_eq!(day.planned[0].title, "Deep work");
+        assert_eq!(day.planned[0].block.as_deref(), Some("deep-work"));
+        assert_eq!(day.planned[0].one_off_index, None);
+        assert_eq!(day.planned[0].remind_before.as_deref(), Some("5m"));
+
+        assert_eq!(day.planned[1].title, "Lunch");
+        assert_eq!(day.planned[1].block, None);
+        assert_eq!(day.planned[1].one_off_index, Some(0));
     }
 
     #[test]
