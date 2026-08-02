@@ -436,13 +436,18 @@ impl Project {
         Ok(())
     }
 
-    /// Ticks, retitles and moves the milestone carrying `title`, in that order,
+    /// Retitles, ticks and moves the milestone carrying `title`, in that order,
     /// returning where it ended up.
     ///
     /// One method rather than one per verb because the three share an address,
     /// a transaction and an ordering — `position` is read against the list as
     /// it stands *after* the rename — and that ordering is a decision to make
     /// once. MCP and the CLI had each made it separately.
+    ///
+    /// The rename goes first because it is the only step that can refuse, and a
+    /// refusal must not leave half of itself behind: ticking first handed the
+    /// caller an error over a project that was already ticked, and whatever
+    /// summarised that same `&mut Project` afterwards reported the tick.
     pub fn update_milestone(
         &mut self,
         title: &str,
@@ -450,11 +455,13 @@ impl Project {
     ) -> crate::error::Result<usize> {
         let index = self.milestone_titled(title)?;
 
-        if let Some(done) = edit.done {
-            self.milestones[index].done = done;
-        }
         if let Some(new_title) = &edit.title {
             self.rename_milestone(index, new_title)?;
+        }
+        // `rename_milestone` carries the existing tick forward, so applying it
+        // after the rename lands the same value it would have before.
+        if let Some(done) = edit.done {
+            self.milestones[index].done = done;
         }
         match edit.position {
             Some(position) => Ok(self.move_milestone(index, position).unwrap_or(index)),
@@ -763,6 +770,33 @@ mod tests {
                 .update_milestone("Ch. 9", MilestoneEdit::default())
                 .is_err(),
             "a title nothing carries"
+        );
+    }
+
+    /// A refusal must not leave half of itself behind. The tick is applied by
+    /// assignment and cannot fail; the rename can, so it goes first — otherwise
+    /// the caller is handed an error holding a project that was already ticked,
+    /// and anything summarising that same `&mut Project` reports the tick.
+    #[test]
+    fn a_refused_rename_leaves_the_tick_alone() {
+        let mut project = Project::parse(slug(), SAMPLE).expect("parses");
+
+        let error = project
+            .update_milestone(
+                "Ch. 4 — first draft",
+                MilestoneEdit {
+                    done: Some(true),
+                    title: Some("Ch. 1 — lit review".to_owned()),
+                    position: None,
+                },
+            )
+            .expect_err("the title is taken");
+        assert!(error.to_string().contains("Ch. 1 — lit review"), "{error}");
+
+        assert!(!project.milestones[1].done, "the tick must not have landed");
+        assert_eq!(
+            titles(&project),
+            ["Ch. 1 — lit review", "Ch. 4 — first draft"]
         );
     }
 
