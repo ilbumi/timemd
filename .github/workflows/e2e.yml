@@ -1,0 +1,44 @@
+# The design language, checked in a real browser.
+#
+# There is no `push` trigger on purpose: this is called by `release.yml` (which
+# runs on every main push) and by hand. That is the whole "on main and releases,
+# not on every pull request" rule, in one place.
+name: e2e
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  e2e:
+    name: layout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-web
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+
+      # Builds the UI and compiles the server before Playwright's webServer
+      # budget starts; both belong to the target, not to this file.
+      - run: make e2e
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
