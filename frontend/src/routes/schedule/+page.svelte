@@ -259,7 +259,11 @@
 							<!-- The row opens the editor, so the one trailing button stays
 							     the one destructive action. A second button beside it would
 							     put two 44px reach-overlays side by side. -->
-							<button class="what edit" onclick={() => openEditor(block, index)}>
+							<button
+								class="what edit"
+								aria-label="Edit {block.title || look.name}"
+								onclick={() => openEditor(block, index)}
+							>
 								<span class="numeric when">{clockTime(block.start)}</span>
 								<span class="title">{block.title || look.name}</span>
 							</button>
