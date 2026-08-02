@@ -254,11 +254,13 @@ describe('reports', () => {
 			to: '2026-08-31',
 			groupBy: 'day',
 			total: '3h',
+			planned: '4h',
 			buckets: []
 		});
 		const report = await api.readReport('2026-08-01', '2026-08-31', 'day');
 
 		expect(report.total).toBe('3h');
+		expect(report.planned).toBe('4h');
 		expect(calls[0]?.url).toBe('/api/reports?from=2026-08-01&to=2026-08-31&groupBy=day');
 	});
 });

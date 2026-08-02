@@ -7,15 +7,22 @@ afterEach(() => {
 });
 
 function report(buckets: Report['buckets']): Report {
-	return { from: '2026-07-27', to: '2026-08-02', groupBy: 'project', total: '7h', buckets };
+	return {
+		from: '2026-07-27',
+		to: '2026-08-02',
+		groupBy: 'project',
+		total: '7h',
+		planned: '9h',
+		buckets
+	};
 }
 
 describe('totalsFrom', () => {
 	it('keys the rows by slug and reads the durations as minutes', () => {
 		const rows = totalsFrom(
 			report([
-				{ key: 'thesis', tracked: '6h20m', sessions: 14 },
-				{ key: 'russian', tracked: '1h10m', sessions: 3 }
+				{ key: 'thesis', tracked: '6h20m', planned: '10h', sessions: 14 },
+				{ key: 'russian', tracked: '1h10m', planned: '30m', sessions: 3 }
 			])
 		);
 
@@ -27,7 +34,7 @@ describe('totalsFrom', () => {
 
 	/** A null key is untagged time, which belongs to no project's target. */
 	it('drops the bucket for time tracked against no project', () => {
-		const rows = totalsFrom(report([{ key: null, tracked: '45m', sessions: 2 }]));
+		const rows = totalsFrom(report([{ key: null, tracked: '45m', planned: '1h', sessions: 2 }]));
 		expect(rows).toEqual({});
 	});
 });
@@ -51,9 +58,10 @@ describe('readTotals', () => {
 		vi.stubGlobal('fetch', (url: string) => {
 			asked = url;
 			return Promise.resolve(
-				new Response(JSON.stringify(report([{ key: 'thesis', tracked: '2h', sessions: 4 }])), {
-					headers: { 'content-type': 'application/json' }
-				})
+				new Response(
+					JSON.stringify(report([{ key: 'thesis', tracked: '2h', planned: '3h', sessions: 4 }])),
+					{ headers: { 'content-type': 'application/json' } }
+				)
 			);
 		});
 

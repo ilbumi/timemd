@@ -69,6 +69,13 @@ jobs:
           bump_arg=()
           [ "$BUMP" = auto ] || bump_arg=(--bump "$BUMP")
           tag="$(git cliff "${bump_arg[@]}" --bumped-version)"
+          # Re-running with no new commits computes the tag that already exists.
+          # Say so here rather than failing at `git tag` with the version and the
+          # changelog already written.
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::$tag already exists — there is nothing new to release"
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
           echo "Next release: $tag"
@@ -114,7 +121,16 @@ jobs:
         shell: bash
         env:
           TAG: ${{ steps.version.outputs.tag }}
-        run: git cliff --tag "$TAG" --prepend CHANGELOG.md
+        run: |
+          set -euo pipefail
+          # `--prepend` inserts one section into an existing file, so it needs
+          # `--unreleased` to know which, and needs the file to exist. The first
+          # release has neither, and writes the whole thing header and all.
+          if [ -f CHANGELOG.md ]; then
+            git cliff --tag "$TAG" --unreleased --prepend CHANGELOG.md
+          else
+            git cliff --tag "$TAG" --output CHANGELOG.md
+          fi
 
       - name: Commit and tag
         if: ${{ !inputs.dry_run }}
