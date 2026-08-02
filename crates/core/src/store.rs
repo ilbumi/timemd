@@ -455,7 +455,20 @@ fn read_to_string(path: &Path) -> Result<Option<String>> {
 ///
 /// The rename is atomic, so a reader — an agent, an editor, another request —
 /// sees either the old file or the new one, never a torn half-write.
+/// Writes `contents` to `path` through a temporary file and a rename, and does
+/// nothing at all when the file already says exactly that.
+///
+/// The no-op check is here rather than at each caller because every write goes
+/// through this one door. `update_day` and friends hand their closure the file
+/// and then write whatever comes back, so an edit that refused — no session at
+/// that index, a title already taken — would otherwise re-render and rewrite a
+/// git-tracked file it had just declined to change. Comparing costs one read on
+/// a path that was about to do a create, a write, an fsync and a rename.
 fn write_atomic(path: &Path, contents: &str) -> Result<()> {
+    if read_to_string(path)?.is_some_and(|current| current == contents) {
+        return Ok(());
+    }
+
     let directory = path.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(directory).map_err(|source| Error::Io {
         path: directory.to_path_buf(),
@@ -812,6 +825,37 @@ mod tests {
         let day = store.read_day(date()).expect("reads");
         assert_eq!(day.sessions()[0].start.hour(), 23);
         assert_eq!(day.total(), Minutes::new(30));
+    }
+
+    /// An edit that refused must leave the file alone. `update_*` writes back
+    /// whatever the closure hands it, so without this a rejected edit would
+    /// move the mtime of a git-tracked file it had just declined to change.
+    #[test]
+    fn an_edit_that_changes_nothing_does_not_touch_the_file() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = Store::new(directory.path());
+        store
+            .update_day(date(), |day| {
+                day.add_session(Session::new(at(9, 0), at(9, 25), None, "work"));
+            })
+            .expect("writes");
+
+        let path = store.day_path(date());
+        let written = fs::metadata(&path).expect("exists").modified().ok();
+
+        store
+            .update_day(date(), |day| {
+                // What every refusing edit does: looks, decides nothing
+                // happened, and returns.
+                assert!(day.remove_session(7).is_none());
+            })
+            .expect("no-ops");
+
+        assert_eq!(
+            fs::metadata(&path).expect("exists").modified().ok(),
+            written,
+            "the file must not have been rewritten"
+        );
     }
 
     fn walk(root: &Path) -> Vec<PathBuf> {
