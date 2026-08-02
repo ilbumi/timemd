@@ -11,6 +11,10 @@ use rust_embed::{Embed, EmbeddedFile};
 
 #[derive(Embed)]
 #[folder = "assets/"]
+// The UI is a build artifact, so a fresh clone has no `assets/` at all. Without
+// this the crate would not compile until pnpm had run; with it the binary simply
+// has no shell, which `serve` below already reports.
+#[allow_missing = true]
 struct Assets;
 
 /// Hashed bundles never change under a given name, so they can be cached hard.

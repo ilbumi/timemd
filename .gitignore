@@ -8,9 +8,9 @@ frontend/.svelte-kit/
 frontend/build/
 frontend/dist/
 
-# the server embeds this at compile time; it is a build artifact
-crates/server/assets/*
-!crates/server/assets/.gitkeep
+# the server embeds this at compile time; it is a build artifact. The crate
+# compiles without it, so there is nothing to keep the directory alive for.
+crates/server/assets/
 
 # coverage
 lcov.info
