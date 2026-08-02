@@ -101,6 +101,42 @@ pub struct SlugParams {
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct AddMilestoneParams {
+    /// Project slug.
+    pub project: String,
+    /// The line's text. Must be non-empty, on one line, and not already used by
+    /// another milestone on this project.
+    pub title: String,
+    /// Whether it starts ticked. Defaults to false.
+    pub done: Option<bool>,
+    /// 0-based position to insert at. Omit to append.
+    pub position: Option<usize>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct UpdateMilestoneParams {
+    /// Project slug.
+    pub project: String,
+    /// The milestone to change, named by its current title. Must match exactly
+    /// one: two milestones with the same title is an error, not a coin flip.
+    pub title: String,
+    /// Tick or untick it. Omit to leave it alone.
+    pub done: Option<bool>,
+    /// Retitle it. Omit to leave it alone.
+    pub new_title: Option<String>,
+    /// Move it to this 0-based position. Omit to leave it where it is.
+    pub position: Option<usize>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct MilestoneParams {
+    /// Project slug.
+    pub project: String,
+    /// The milestone to remove, named by its title.
+    pub title: String,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct NoParams {}
 
 // ---- tool results ----------------------------------------------------------
@@ -533,6 +569,111 @@ impl TimeMd {
         Ok(Json(summary))
     }
 
+    #[tool(
+        name = "add_milestone",
+        description = "Add a milestone to a project. Titles address milestones, so they must be unique within one."
+    )]
+    fn add_milestone(
+        &self,
+        Parameters(params): Parameters<AddMilestoneParams>,
+    ) -> Result<Json<ProjectSummary>, ErrorData> {
+        let slug = slug(&params.project)?;
+        let milestone = Milestone::new(params.done.unwrap_or_default(), &params.title)
+            .map_err(|error| invalid(error.to_string()))?;
+
+        self.edit_project(&slug, |project| {
+            // A duplicate title is addressable by nobody, so refusing to write
+            // one is what keeps every other milestone tool usable.
+            if project.milestone_titled(milestone.title()).is_ok() {
+                return Err(invalid(format!(
+                    "{slug} already has a milestone titled {:?}",
+                    milestone.title()
+                )));
+            }
+            project.insert_milestone(params.position.unwrap_or(usize::MAX), milestone);
+            Ok(())
+        })
+    }
+
+    #[tool(
+        name = "update_milestone",
+        description = "Tick, retitle or reorder one milestone, named by its current title."
+    )]
+    fn update_milestone(
+        &self,
+        Parameters(params): Parameters<UpdateMilestoneParams>,
+    ) -> Result<Json<ProjectSummary>, ErrorData> {
+        let slug = slug(&params.project)?;
+
+        self.edit_project(&slug, |project| {
+            let index = project
+                .milestone_titled(&params.title)
+                .map_err(|error| invalid(error.to_string()))?;
+
+            if let Some(done) = params.done {
+                project.milestones[index].done = done;
+            }
+            if let Some(new_title) = &params.new_title {
+                if project
+                    .milestone_titled(new_title)
+                    .is_ok_and(|existing| existing != index)
+                {
+                    return Err(invalid(format!(
+                        "{slug} already has a milestone titled {new_title:?}"
+                    )));
+                }
+                project
+                    .rename_milestone(index, new_title)
+                    .map_err(|error| invalid(error.to_string()))?;
+            }
+            if let Some(position) = params.position {
+                project.move_milestone(index, position);
+            }
+            Ok(())
+        })
+    }
+
+    #[tool(
+        name = "remove_milestone",
+        description = "Delete one milestone, named by its title."
+    )]
+    fn remove_milestone(
+        &self,
+        Parameters(params): Parameters<MilestoneParams>,
+    ) -> Result<Json<ProjectSummary>, ErrorData> {
+        let slug = slug(&params.project)?;
+
+        self.edit_project(&slug, |project| {
+            let index = project
+                .milestone_titled(&params.title)
+                .map_err(|error| invalid(error.to_string()))?;
+            project.milestones.remove(index);
+            Ok(())
+        })
+    }
+
+    /// Reads, edits and writes a project inside one transaction, answering with
+    /// the whole project.
+    ///
+    /// One transaction because the alternative — read with one tool, write with
+    /// another — is the two-call race that made ticking a milestone unsafe. The
+    /// whole project comes back because an edit may reorder the list, and the
+    /// agent's next call has to be made against what is now on disk.
+    fn edit_project(
+        &self,
+        slug: &ProjectSlug,
+        edit: impl FnOnce(&mut Project) -> Result<(), ErrorData>,
+    ) -> Result<Json<ProjectSummary>, ErrorData> {
+        // `update_project` gives back the closure's value, so the inner error
+        // travels out rather than being swallowed by the store's own type.
+        self.store
+            .update_project(slug, |project| {
+                edit(project)?;
+                Ok(Json(summarise(project)))
+            })
+            .map_err(failed)?
+    }
+
     /// Now, as wall-clock time in the configured timezone.
     fn now(&self) -> Result<NaiveDateTime, ErrorData> {
         self.store.wall_clock(Utc::now()).map_err(failed)
@@ -754,6 +895,9 @@ mod tests {
             "project",
             "upsert_project",
             "delete_project",
+            "add_milestone",
+            "update_milestone",
+            "remove_milestone",
         ] {
             assert!(
                 names.contains(&expected.to_owned()),
@@ -777,6 +921,274 @@ mod tests {
                 tool.name
             );
         }
+    }
+
+    fn thesis(server: &TimeMd, titles: &[&str]) {
+        server
+            .upsert_project(Parameters(UpsertProjectParams {
+                slug: "thesis".to_owned(),
+                name: Some("Thesis".to_owned()),
+                milestones: Some(
+                    titles
+                        .iter()
+                        .map(|title| MilestoneIo {
+                            done: false,
+                            title: (*title).to_owned(),
+                        })
+                        .collect(),
+                ),
+                ..UpsertProjectParams::default()
+            }))
+            .expect("creates");
+    }
+
+    fn milestone_titles(summary: &ProjectSummary) -> Vec<&str> {
+        summary
+            .milestones
+            .iter()
+            .map(|milestone| milestone.title.as_str())
+            .collect()
+    }
+
+    /// Ticking one milestone used to mean reading every project and writing the
+    /// whole list back, so a concurrent hand edit was silently clobbered. One
+    /// call, one transaction, addressed by the title the agent already has.
+    #[test]
+    fn a_milestone_is_ticked_by_title_in_one_call() {
+        let (_directory, server) = server();
+        thesis(&server, &["Ch. 1", "Ch. 2"]);
+
+        let summary = server
+            .update_milestone(Parameters(UpdateMilestoneParams {
+                project: "thesis".to_owned(),
+                title: "Ch. 1".to_owned(),
+                done: Some(true),
+                ..UpdateMilestoneParams::default()
+            }))
+            .expect("ticks")
+            .0;
+
+        assert!(summary.milestones[0].done);
+        assert!(!summary.milestones[1].done);
+    }
+
+    #[test]
+    fn a_milestone_is_added_renamed_reordered_and_removed() {
+        let (_directory, server) = server();
+        thesis(&server, &["Ch. 1", "Ch. 2"]);
+
+        let summary = server
+            .add_milestone(Parameters(AddMilestoneParams {
+                project: "thesis".to_owned(),
+                title: "Ch. 0".to_owned(),
+                position: Some(0),
+                done: None,
+            }))
+            .expect("adds")
+            .0;
+        assert_eq!(milestone_titles(&summary), ["Ch. 0", "Ch. 1", "Ch. 2"]);
+
+        // Retitling and reordering in one call, so the two cannot race.
+        let summary = server
+            .update_milestone(Parameters(UpdateMilestoneParams {
+                project: "thesis".to_owned(),
+                title: "Ch. 0".to_owned(),
+                new_title: Some("Preface".to_owned()),
+                position: Some(2),
+                done: None,
+            }))
+            .expect("updates")
+            .0;
+        assert_eq!(milestone_titles(&summary), ["Ch. 1", "Ch. 2", "Preface"]);
+
+        let summary = server
+            .remove_milestone(Parameters(MilestoneParams {
+                project: "thesis".to_owned(),
+                title: "Ch. 2".to_owned(),
+            }))
+            .expect("removes")
+            .0;
+        assert_eq!(milestone_titles(&summary), ["Ch. 1", "Preface"]);
+    }
+
+    /// The summary is only worth trusting if it is what landed on disk.
+    #[test]
+    fn reordering_a_milestone_reorders_the_file() {
+        let (_directory, server) = server();
+        thesis(&server, &["a", "b", "c"]);
+
+        server
+            .update_milestone(Parameters(UpdateMilestoneParams {
+                project: "thesis".to_owned(),
+                title: "a".to_owned(),
+                position: Some(2),
+                ..UpdateMilestoneParams::default()
+            }))
+            .expect("moves");
+
+        let project = server
+            .store
+            .read_project(&ProjectSlug::new("thesis").expect("a slug"))
+            .expect("reads")
+            .expect("exists");
+        let titles: Vec<&str> = project.milestones.iter().map(Milestone::title).collect();
+        assert_eq!(titles, ["b", "c", "a"]);
+    }
+
+    /// Reads are lenient, so a hand-written duplicate lists fine. Writes are
+    /// strict, so addressing one is refused rather than resolved by guessing —
+    /// and the file is left exactly as it was.
+    #[test]
+    fn a_hand_written_duplicate_title_lists_but_is_not_addressable() {
+        let (_directory, server) = server();
+        let slug = ProjectSlug::new("thesis").expect("a slug");
+        thesis(&server, &["Ch. 4"]);
+        server
+            .store
+            .update_project(&slug, |project| {
+                project
+                    .milestones
+                    .push(Milestone::new(true, "Ch. 4").expect("a milestone"));
+            })
+            .expect("writes");
+
+        let summary = server
+            .project(Parameters(SlugParams {
+                slug: "thesis".to_owned(),
+            }))
+            .expect("reads")
+            .0;
+        assert_eq!(milestone_titles(&summary), ["Ch. 4", "Ch. 4"]);
+
+        let error = server
+            .update_milestone(Parameters(UpdateMilestoneParams {
+                project: "thesis".to_owned(),
+                title: "Ch. 4".to_owned(),
+                done: Some(true),
+                ..UpdateMilestoneParams::default()
+            }))
+            .err()
+            .expect("ambiguous");
+        assert!(error.message.contains('2'), "{}", error.message);
+
+        let after = server
+            .store
+            .read_project(&slug)
+            .expect("reads")
+            .expect("exists");
+        assert!(!after.milestones[0].done, "the file must be untouched");
+    }
+
+    /// A title nobody can address is a title nobody can edit, so writing a
+    /// second one is refused — by `add_milestone` and by a rename alike.
+    #[test]
+    fn a_duplicate_title_is_refused_on_the_way_in() {
+        let (_directory, server) = server();
+        thesis(&server, &["Ch. 1", "Ch. 2"]);
+
+        assert!(
+            server
+                .add_milestone(Parameters(AddMilestoneParams {
+                    project: "thesis".to_owned(),
+                    title: "Ch. 1".to_owned(),
+                    done: None,
+                    position: None,
+                }))
+                .is_err()
+        );
+        assert!(
+            server
+                .update_milestone(Parameters(UpdateMilestoneParams {
+                    project: "thesis".to_owned(),
+                    title: "Ch. 2".to_owned(),
+                    new_title: Some("Ch. 1".to_owned()),
+                    ..UpdateMilestoneParams::default()
+                }))
+                .is_err()
+        );
+
+        // Renaming a milestone to what it is already called is not a duplicate.
+        assert!(
+            server
+                .update_milestone(Parameters(UpdateMilestoneParams {
+                    project: "thesis".to_owned(),
+                    title: "Ch. 2".to_owned(),
+                    new_title: Some("Ch. 2".to_owned()),
+                    ..UpdateMilestoneParams::default()
+                }))
+                .is_ok(),
+            "renaming a milestone to its own title is a no-op, not a clash"
+        );
+    }
+
+    #[test]
+    fn an_unknown_milestone_title_is_refused() {
+        let (_directory, server) = server();
+        thesis(&server, &["Ch. 1"]);
+
+        for attempt in [
+            server
+                .update_milestone(Parameters(UpdateMilestoneParams {
+                    project: "thesis".to_owned(),
+                    title: "Ch. 9".to_owned(),
+                    done: Some(true),
+                    ..UpdateMilestoneParams::default()
+                }))
+                .err(),
+            server
+                .remove_milestone(Parameters(MilestoneParams {
+                    project: "thesis".to_owned(),
+                    title: "Ch. 9".to_owned(),
+                }))
+                .err(),
+        ] {
+            let error = attempt.expect("no such milestone");
+            assert!(error.message.contains("Ch. 9"), "{}", error.message);
+        }
+    }
+
+    /// `Milestone::new` is the write-side gate, and a rename is the one path
+    /// that could have walked past it.
+    #[test]
+    fn renaming_rejects_a_title_the_reader_could_not_read() {
+        let (_directory, server) = server();
+        thesis(&server, &["Ch. 1"]);
+
+        for candidate in ["", "   ", "two\nlines"] {
+            assert!(
+                server
+                    .update_milestone(Parameters(UpdateMilestoneParams {
+                        project: "thesis".to_owned(),
+                        title: "Ch. 1".to_owned(),
+                        new_title: Some(candidate.to_owned()),
+                        ..UpdateMilestoneParams::default()
+                    }))
+                    .is_err(),
+                "{candidate:?} should be rejected"
+            );
+        }
+    }
+
+    /// The targeted tools are additions, not a replacement: bulk-setting the
+    /// whole list is still the right call when an agent is building a project.
+    #[test]
+    fn upsert_project_still_replaces_the_whole_milestone_list() {
+        let (_directory, server) = server();
+        thesis(&server, &["Ch. 1", "Ch. 2"]);
+
+        let summary = server
+            .upsert_project(Parameters(UpsertProjectParams {
+                slug: "thesis".to_owned(),
+                milestones: Some(vec![MilestoneIo {
+                    done: true,
+                    title: "Only this".to_owned(),
+                }]),
+                ..UpsertProjectParams::default()
+            }))
+            .expect("updates")
+            .0;
+
+        assert_eq!(milestone_titles(&summary), ["Only this"]);
     }
 
     /// Reading one project meant listing every project and their whole

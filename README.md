@@ -132,7 +132,8 @@ Point an agent at the MCP server:
 
 Tools: `start_session`, `stop_session`, `cancel_session`, `current_session`,
 `log_time`, `day`, `schedule`, `report`, `list_projects`, `project`,
-`upsert_project`, `delete_project`.
+`upsert_project`, `delete_project`, `add_milestone`, `update_milestone`,
+`remove_milestone`.
 
 Agents can equally just edit the files. Anything the app does not understand —
 your own `##` sections, prose, extra frontmatter keys — survives untouched, and a
