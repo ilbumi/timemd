@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import Mark from '$lib/Mark.svelte';
 	import PeriodHeader from '$lib/PeriodHeader.svelte';
 	import { api, type DayView, type Occurrence, type Project } from '$lib/api';
@@ -18,7 +19,13 @@
 	/** How often the now-bar moves. A minute is as fine as it needs to be. */
 	const NOW_MS = 60_000;
 
-	let date = $state(today());
+	/**
+	 * Read from the URL once, so the week view can link to a day.
+	 *
+	 * Only the initial value: the day arrows below move it without pushing
+	 * history, which is the behaviour that was already here.
+	 */
+	let date = $state(page.url.searchParams.get('date') ?? today());
 	let day = $state<DayView | null>(null);
 	let allProjects = $state<Project[]>([]);
 	let looks = $state<Record<string, Look>>({});

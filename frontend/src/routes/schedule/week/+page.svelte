@@ -125,7 +125,12 @@
 							<span class="now" style:top="{offsetIn(span, nowMinutes)}%" aria-hidden="true"></span>
 						{/if}
 					</div>
-					<div class="letter" class:weekend={index > 4}>{DAY_LETTERS[index]}</div>
+					<!-- The column header, not the chips: a chip's height is its
+					     duration, so a short block would be a sub-44px target. One
+					     link per day gets to the same place. -->
+					<a class="letter" class:weekend={index > 4} href="/schedule?date={date}">
+						{DAY_LETTERS[index]}
+					</a>
 				</div>
 			{/each}
 		</div>
@@ -250,12 +255,23 @@
 		background: var(--ink);
 	}
 
+	/* 44px of reach with 22px of ink: the overlay grows the target without
+	   moving the raster the columns are measured against. */
 	.letter {
+		position: relative;
 		height: 22px;
 		display: grid;
 		place-items: center;
 		font-size: 0.6875rem;
 		font-weight: 600;
+		color: inherit;
+		text-decoration: none;
+	}
+
+	.letter::after {
+		content: '';
+		position: absolute;
+		inset: -11px 0;
 	}
 
 	.letter.weekend {
