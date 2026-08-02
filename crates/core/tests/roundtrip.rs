@@ -4,6 +4,9 @@
 //! guarantees worth pinning are structural rather than example-shaped: whatever
 //! goes in comes back out, and a second write changes nothing.
 
+use std::collections::HashSet;
+use std::ops::Range;
+
 use chrono::{NaiveDate, NaiveTime};
 use proptest::prelude::*;
 use timemd_core::day::{Day, Session};
@@ -97,6 +100,29 @@ fn milestone() -> impl Strategy<Value = Milestone> {
         }),
     )
         .prop_map(|(done, title)| Milestone::new(done, title).expect("valid milestone"))
+}
+
+/// Milestone lists a writer could actually produce: no title carried twice.
+///
+/// De-duplicated rather than filtered. Proptest shrinks towards short titles
+/// from a small alphabet, so a filter over the whole vector would reject most
+/// draws exactly when the list gets long — quietly stopping the coverage of the
+/// long lists these properties were written for.
+///
+/// It is also the more faithful shape. `Project::set_milestones` refuses a
+/// repeated title, so a list carrying one is not something any surface can
+/// write; it is a file somebody hand-edited. That case is a *read* guarantee and
+/// has its own tests — `refuses_a_title_two_milestones_share` in core, and
+/// `a_hand_written_duplicate_title_lists_but_is_not_addressable` in MCP. What
+/// this file pins is that whatever the writer accepts comes back out.
+fn milestones(count: Range<usize>) -> impl Strategy<Value = Vec<Milestone>> {
+    prop::collection::vec(milestone(), count).prop_map(|drawn| {
+        let mut seen = HashSet::new();
+        drawn
+            .into_iter()
+            .filter(|milestone| seen.insert(milestone.title().to_owned()))
+            .collect()
+    })
 }
 
 /// Lines a hand-edited file might realistically contain, valid or not.
@@ -211,11 +237,9 @@ proptest! {
 
     /// The same guarantee as sessions, for the other owned body list.
     #[test]
-    fn milestones_survive_a_write_and_a_read(
-        milestones in prop::collection::vec(milestone(), 0..8),
-    ) {
+    fn milestones_survive_a_write_and_a_read(milestones in milestones(0..8)) {
         let mut project = Project::new(slug(), "Thesis", date());
-        project.milestones = milestones.clone();
+        project.set_milestones(milestones.clone()).expect("distinct titles");
 
         let reparsed = Project::parse(slug(), &project.render()).expect("parses");
 
@@ -228,12 +252,12 @@ proptest! {
     /// the file, so the property is checked against a re-read.
     #[test]
     fn moving_a_milestone_is_a_permutation(
-        milestones in prop::collection::vec(milestone(), 1..8),
+        milestones in milestones(1..8),
         from in 0_usize..8,
         to in 0_usize..8,
     ) {
         let mut project = Project::new(slug(), "Thesis", date());
-        project.milestones = milestones.clone();
+        project.set_milestones(milestones.clone()).expect("distinct titles");
 
         let moved = project.move_milestone(from, to);
         prop_assert_eq!(moved.is_some(), from < milestones.len());
@@ -254,11 +278,11 @@ proptest! {
     /// problem line.
     #[test]
     fn renaming_never_writes_a_line_the_reader_cannot_read(
-        milestones in prop::collection::vec(milestone(), 1..6),
+        milestones in milestones(1..6),
         title in r"[a-zA-Z0-9 .,'—\[\]()-]{0,40}",
     ) {
         let mut project = Project::new(slug(), "Thesis", date());
-        project.milestones = milestones;
+        project.set_milestones(milestones).expect("distinct titles");
 
         let Ok(()) = project.rename_milestone(0, &title) else {
             // Refused, so nothing was written and there is nothing to check.
