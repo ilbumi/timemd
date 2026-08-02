@@ -191,13 +191,23 @@ describe('days and schedule', () => {
 		]);
 	});
 
-	it('adds and deletes one-off blocks', async () => {
+	it('adds, edits and deletes one-off blocks', async () => {
 		const calls = mockFetch(204, null);
 		await api.addBlock('2026-08-05', { start: '12:00:00', end: '12:30:00', title: 'Lunch' });
+		await api.updateBlock('2026-08-05', 0, {
+			start: '12:15:00',
+			end: '13:00:00',
+			title: 'Long lunch'
+		});
 		await api.deleteBlock('2026-08-05', 0);
 
+		expect(calls.map((call) => `${call.init.method} ${call.url}`)).toEqual([
+			'POST /api/days/2026-08-05/blocks',
+			'PATCH /api/days/2026-08-05/blocks/0',
+			'DELETE /api/days/2026-08-05/blocks/0'
+		]);
 		expect(calls[0]?.init.body).toContain('"title":"Lunch"');
-		expect(calls[1]?.url).toBe('/api/days/2026-08-05/blocks/0');
+		expect(calls[1]?.init.body).toContain('"title":"Long lunch"');
 	});
 
 	it('skips and restores a repeating block', async () => {
