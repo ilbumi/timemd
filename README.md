@@ -57,7 +57,7 @@ compiled in. Pick your target from `x86_64-unknown-linux-gnu`,
 `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin` or `x86_64-apple-darwin`:
 
 ```sh
-VERSION=0.1.0 # x-release-please-version
+VERSION=0.2.0 # x-release-please-version
 TARGET=aarch64-apple-darwin
 BASE=https://github.com/ilbumi/timemd/releases/download/v$VERSION
 
