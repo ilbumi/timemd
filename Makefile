@@ -27,6 +27,12 @@ deps:
 
 test: test-rust test-web ## Run the Rust and frontend test suites
 
+# The property tests draw a fresh seed every run, so the default 256 cases can
+# pass here and fail on CI minutes later — which is exactly how a lossy `##`
+# heading round-trip reached main. Sixteen times the cases costs about a second
+# and makes the local gate mean what it claims. Failures found anywhere are
+# pinned in the `.proptest-regressions` files and replay first.
+test-rust: export PROPTEST_CASES ?= 4096
 test-rust:
 	$(CARGO) test --workspace --all-features
 
