@@ -841,10 +841,11 @@ impl TimeMd {
         slug: &ProjectSlug,
         edit: impl FnOnce(&mut Project) -> Result<(), ErrorData>,
     ) -> Result<Json<ProjectSummary>, ErrorData> {
-        // `update_project` gives back the closure's value, so the inner error
-        // travels out rather than being swallowed by the store's own type.
+        // `try_update_project` gives back the closure's value, so the inner
+        // error travels out rather than being swallowed by the store's own
+        // type — and leaves the file alone when that value is one.
         self.store
-            .update_project(slug, |project| {
+            .try_update_project(slug, |project| {
                 edit(project)?;
                 Ok(Json(summarise(project)))
             })
@@ -875,7 +876,7 @@ impl TimeMd {
 
         let summary = self
             .store
-            .update_settings(|settings| {
+            .try_update_settings(|settings| {
                 settings.apply(patch)?;
                 Ok(summarise_settings(settings))
             })
@@ -1088,7 +1089,7 @@ impl TimeMd {
     ) -> Result<Json<DaySummary>, ErrorData> {
         let recurring = self.store.read_recurring().map_err(failed)?;
         self.store
-            .update_day(on, |day| {
+            .try_update_day(on, |day| {
                 edit(day)?;
                 Ok(Json(summarise_day(day, &recurring)))
             })
@@ -1871,6 +1872,34 @@ mod tests {
             .expect("reads")
             .expect("exists");
         assert!(!after.milestones[0].done, "the file must be untouched");
+    }
+
+    /// The refusal an agent is most likely to hit: tick and retitle in one
+    /// call, onto a title another milestone already carries. The tick is
+    /// applied by assignment, so before this was fixed the tool answered with
+    /// an error and the file came back ticked anyway.
+    #[test]
+    fn a_refused_rename_leaves_the_tick_out_of_the_file() {
+        let (_directory, server) = server();
+        let slug = ProjectSlug::new("thesis").expect("a slug");
+        thesis(&server, &["Ch. 1", "Ch. 2"]);
+
+        server
+            .update_milestone(Parameters(UpdateMilestoneParams {
+                project: "thesis".to_owned(),
+                title: "Ch. 2".to_owned(),
+                done: Some(true),
+                new_title: Some("Ch. 1".to_owned()),
+                position: None,
+            }))
+            .err()
+            .expect("the title is taken");
+
+        // Read the text, not the parse: this must fail if either the store's
+        // suppression or `update_milestone`'s ordering is removed.
+        let text = std::fs::read_to_string(server.store.project_path(&slug)).expect("reads");
+        assert!(text.contains("- [ ] Ch. 2"), "{text}");
+        assert!(!text.contains("- [x]"), "{text}");
     }
 
     /// A title nobody can address is a title nobody can edit, so writing a
