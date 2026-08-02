@@ -157,7 +157,9 @@ impl FromStr for Mark {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Milestone {
     pub done: bool,
-    pub title: String,
+    /// Private so that `new` really is the only way a title reaches a file.
+    /// `done` stays public: a bool has no rule to break.
+    title: String,
 }
 
 impl Milestone {
@@ -175,6 +177,10 @@ impl Milestone {
             done,
             title: title.to_owned(),
         })
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
     }
 
     /// Reads `[x] Title` or `[ ] Title`, the bullet already stripped.

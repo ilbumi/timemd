@@ -182,7 +182,7 @@ impl From<&Milestone> for MilestoneIo {
     fn from(milestone: &Milestone) -> Self {
         Self {
             done: milestone.done,
-            title: milestone.title.clone(),
+            title: milestone.title().to_owned(),
         }
     }
 }
