@@ -178,7 +178,7 @@ pub fn milestone(store: &Store, command: MilestoneCommand) -> Result<String> {
         } => {
             let slug = ProjectSlug::new(project)?;
             let milestone = Milestone::new(false, &title)?;
-            store.update_project(&slug, |project| {
+            store.try_update_project(&slug, |project| {
                 project
                     .insert_milestone(position.unwrap_or(usize::MAX), milestone)
                     .map(|_| ())
@@ -195,7 +195,7 @@ pub fn milestone(store: &Store, command: MilestoneCommand) -> Result<String> {
             position,
         } => {
             let slug = ProjectSlug::new(project)?;
-            store.update_project(&slug, |project| {
+            store.try_update_project(&slug, |project| {
                 project
                     .update_milestone(
                         &title,
@@ -214,7 +214,7 @@ pub fn milestone(store: &Store, command: MilestoneCommand) -> Result<String> {
 
         MilestoneCommand::Rm { title, project } => {
             let slug = ProjectSlug::new(project)?;
-            store.update_project(&slug, |project| {
+            store.try_update_project(&slug, |project| {
                 let index = project.milestone_titled(&title)?;
                 project.milestones.remove(index);
                 Ok::<_, Error>(())
@@ -581,6 +581,46 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// The shell half of the reproduction: `--done` lands by assignment and
+    /// `--rename` can refuse, so the command used to report an error and leave
+    /// the milestone ticked.
+    #[test]
+    fn a_refused_rename_does_not_tick_the_milestone() {
+        let (_directory, store) = store();
+        thesis(&store);
+        run(&store, milestone(add("Ch. 1")), moment(9, 0)).expect("adds");
+        run(&store, milestone(add("Ch. 2")), moment(9, 0)).expect("adds");
+
+        assert!(
+            run(
+                &store,
+                milestone(MilestoneCommand::Set {
+                    title: "Ch. 2".to_owned(),
+                    project: "thesis".to_owned(),
+                    done: true,
+                    undone: false,
+                    rename: Some("Ch. 1".to_owned()),
+                    position: None,
+                }),
+                moment(9, 0),
+            )
+            .is_err(),
+            "the title is taken"
+        );
+
+        let output = run(
+            &store,
+            Command::Project {
+                operation: ProjectCommand::Show {
+                    slug: "thesis".to_owned(),
+                },
+            },
+            moment(9, 0),
+        )
+        .expect("shows");
+        assert!(output.contains("0/2 done"), "{output}");
     }
 
     #[test]

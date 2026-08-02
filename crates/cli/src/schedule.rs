@@ -182,7 +182,7 @@ pub fn block(store: &Store, command: BlockCommand, now: NaiveDateTime) -> Result
             let project = optional_slug(project)?;
             let remind = clearable(remind, |raw: String| raw.parse::<Minutes>())?;
 
-            store.update_day(date, |day| {
+            store.try_update_day(date, |day| {
                 let existing = day
                     .schedule()
                     .get(index)
@@ -206,7 +206,7 @@ pub fn block(store: &Store, command: BlockCommand, now: NaiveDateTime) -> Result
 
         BlockCommand::Rm { index, date } => {
             let date = date.unwrap_or_else(|| now.date());
-            store.update_day(date, |day| {
+            store.try_update_day(date, |day| {
                 day.remove_block(index)
                     .map(|_| ())
                     .ok_or_else(|| missing_block(index, date))

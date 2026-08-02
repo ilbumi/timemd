@@ -25,7 +25,7 @@ pub fn run(
         return Ok(show(&store.read_settings()?));
     }
 
-    store.update_settings(|settings| {
+    store.try_update_settings(|settings| {
         settings.apply(patch)?;
         Ok(show(settings))
     })?

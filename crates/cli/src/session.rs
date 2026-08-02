@@ -51,7 +51,7 @@ pub fn run(store: &Store, command: SessionCommand, now: NaiveDateTime) -> Result
             let date = date.unwrap_or_else(|| now.date());
             let project = optional_slug(project)?;
 
-            store.update_day(date, |day| {
+            store.try_update_day(date, |day| {
                 let existing = day
                     .sessions()
                     .get(index)
@@ -77,7 +77,7 @@ pub fn run(store: &Store, command: SessionCommand, now: NaiveDateTime) -> Result
 
         SessionCommand::Rm { index, date } => {
             let date = date.unwrap_or_else(|| now.date());
-            store.update_day(date, |day| {
+            store.try_update_day(date, |day| {
                 day.remove_session(index)
                     .map(|_| ())
                     .ok_or_else(|| missing(index, date))
