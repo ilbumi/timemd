@@ -21,3 +21,6 @@ frontend/coverage/
 /.e2e-data
 frontend/test-results/
 frontend/playwright-report/
+
+# Local agent permission grants, not a project setting.
+.claude/
