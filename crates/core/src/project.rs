@@ -386,6 +386,17 @@ impl Project {
         Ok(position)
     }
 
+    /// Removes the milestone carrying `title`, giving it back.
+    ///
+    /// Here rather than at the caller because MCP and the shell had each
+    /// written the same two lines — look the title up, then remove that index —
+    /// and that second line is the only reason the list needed to be public.
+    /// Addressing is one rule, so it belongs behind one door.
+    pub fn remove_milestone(&mut self, title: &str) -> crate::error::Result<Milestone> {
+        let index = self.milestone_titled(title)?;
+        Ok(self.milestones.remove(index))
+    }
+
     /// Replaces the whole list, refusing one that carries a title twice.
     ///
     /// The door for the whole-list `PATCH`: the web app holds the list and
@@ -671,6 +682,28 @@ mod tests {
         assert_eq!(project.milestones.len(), 2);
         let error = project.milestone_titled("Ch. 4").expect_err("ambiguous");
         assert!(error.to_string().contains('2'), "{error}");
+    }
+
+    /// The other half of addressing by title, and the last reason the list
+    /// itself had to be reachable from outside core.
+    #[test]
+    fn removes_a_milestone_by_its_title() {
+        let mut project = Project::parse(slug(), SAMPLE).expect("parses");
+
+        let removed = project
+            .remove_milestone("Ch. 1 — lit review")
+            .expect("removes");
+        assert_eq!(removed.title(), "Ch. 1 — lit review");
+        assert!(removed.done);
+        assert_eq!(titles(&project), ["Ch. 4 — first draft"]);
+
+        let error = project.remove_milestone("Ch. 9").expect_err("no such title");
+        assert!(error.to_string().contains("Ch. 9"), "{error}");
+        assert_eq!(
+            titles(&project),
+            ["Ch. 4 — first draft"],
+            "a refused removal changes nothing"
+        );
     }
 
     #[test]

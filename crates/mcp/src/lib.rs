@@ -821,11 +821,10 @@ impl TimeMd {
         let slug = slug(&params.project)?;
 
         self.edit_project(&slug, |project| {
-            let index = project
-                .milestone_titled(&params.title)
-                .map_err(|error| invalid(error.to_string()))?;
-            project.milestones.remove(index);
-            Ok(())
+            project
+                .remove_milestone(&params.title)
+                .map(|_| ())
+                .map_err(|error| invalid(error.to_string()))
         })
     }
 

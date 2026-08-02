@@ -215,9 +215,7 @@ pub fn milestone(store: &Store, command: MilestoneCommand) -> Result<String> {
         MilestoneCommand::Rm { title, project } => {
             let slug = ProjectSlug::new(project)?;
             store.try_update_project(&slug, |project| {
-                let index = project.milestone_titled(&title)?;
-                project.milestones.remove(index);
-                Ok::<_, Error>(())
+                project.remove_milestone(&title).map(|_| ())
             })??;
             show(store, &slug)
         }
