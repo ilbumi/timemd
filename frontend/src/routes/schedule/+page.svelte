@@ -42,10 +42,18 @@
 	 */
 	let form = $state<{ index: number | null } | null>(null);
 
-	let blockStart = $state('09:00');
-	let blockEnd = $state('10:00');
-	let blockProject = $state('');
-	let blockTitle = $state('');
+	/** What the form opens with when it is creating rather than amending. */
+	const NEW_BLOCK: Record<'start' | 'end' | 'project' | 'title', string> = {
+		start: '09:00',
+		end: '10:00',
+		project: '',
+		title: ''
+	};
+
+	let blockStart = $state(NEW_BLOCK.start);
+	let blockEnd = $state(NEW_BLOCK.end);
+	let blockProject = $state(NEW_BLOCK.project);
+	let blockTitle = $state(NEW_BLOCK.title);
 
 	const planned = $derived(day?.planned ?? []);
 	const isToday = $derived(date === today());
@@ -125,10 +133,24 @@
 			} else {
 				await api.updateBlock(date, target, block);
 			}
-			blockTitle = '';
+			resetBlock();
 			form = null;
 		});
 	};
+
+	/**
+	 * Puts all four fields back.
+	 *
+	 * All four, not the title alone: one set of state serves the create form and
+	 * the amend form both, so whatever an edit left behind was what the next
+	 * "+ Block" opened with — the other block's times and project.
+	 */
+	function resetBlock(): void {
+		blockStart = NEW_BLOCK.start;
+		blockEnd = NEW_BLOCK.end;
+		blockProject = NEW_BLOCK.project;
+		blockTitle = NEW_BLOCK.title;
+	}
 
 	/** Opens the form on an existing one-off, pre-filled. */
 	function openEditor(block: Occurrence, index: number): void {
@@ -140,7 +162,7 @@
 	}
 
 	function openAdder(): void {
-		blockTitle = '';
+		resetBlock();
 		form = { index: null };
 	}
 

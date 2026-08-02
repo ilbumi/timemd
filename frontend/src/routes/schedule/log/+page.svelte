@@ -29,10 +29,18 @@
 		null
 	);
 
-	let start = $state('09:00');
-	let end = $state('10:00');
-	let project = $state('');
-	let note = $state('');
+	/** What the form opens with when it is adding rather than amending. */
+	const NEW_SESSION: Record<'start' | 'end' | 'project' | 'note', string> = {
+		start: '09:00',
+		end: '10:00',
+		project: '',
+		note: ''
+	};
+
+	let start = $state(NEW_SESSION.start);
+	let end = $state(NEW_SESSION.end);
+	let project = $state(NEW_SESSION.project);
+	let note = $state(NEW_SESSION.note);
 	let date = $state(today());
 
 	const monday = $derived(startOfWeek(anchor));
@@ -91,6 +99,20 @@
 		});
 	}
 
+	/**
+	 * Puts the four shared fields back.
+	 *
+	 * `date` is deliberately not among them: it belongs to the add form alone —
+	 * the amend form keeps its target on `editor` — and `openAdder` sets it
+	 * against the week on screen for the reason recorded there.
+	 */
+	function resetDraft(): void {
+		start = NEW_SESSION.start;
+		end = NEW_SESSION.end;
+		project = NEW_SESSION.project;
+		note = NEW_SESSION.note;
+	}
+
 	/** The four fields both forms carry, in the shape the API takes. */
 	const draft = () => ({
 		start: `${start}:00`,
@@ -108,6 +130,7 @@
 	 */
 	function openAdder(): void {
 		date = week.includes(today()) ? today() : monday;
+		resetDraft();
 		editor = { mode: 'add' };
 	}
 
@@ -115,7 +138,7 @@
 		event.preventDefault();
 		return run(async () => {
 			await api.addSession(date, draft());
-			note = '';
+			resetDraft();
 			editor = null;
 		});
 	};
@@ -145,6 +168,7 @@
 
 		return run(async () => {
 			await api.updateSession(target.date, target.index, draft());
+			resetDraft();
 			editor = null;
 		});
 	};
