@@ -1,0 +1,68 @@
+# Everything the project knows about versioning and changelogs.
+#
+# `git cliff --bumped-version` answers "what would ship?" from the conventional
+# commits since the last tag, and the release workflow uses nothing else to
+# decide. Run it locally before triggering a release.
+
+[changelog]
+header = """
+# Changelog
+
+Written from the conventional commits in each release.
+
+"""
+body = """
+{% set repo = "https://github.com/ilbumi/timemd" %}\
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}]\
+{% if previous.version %}({{ repo }}/compare/{{ previous.version }}...{{ version }})\
+{% else %}({{ repo }}/releases/tag/{{ version }})\
+{% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+
+{% for commit in commits %}\
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{% if commit.breaking %}**breaking:** {% endif %}\
+{{ commit.message }} \
+([{{ commit.id | truncate(length=7, end="") }}]({{ repo }}/commit/{{ commit.id }}))
+{% endfor %}\
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+# A breaking change is reported even when its type would otherwise be skipped.
+protect_breaking_commits = true
+tag_pattern = "v[0-9]*"
+sort_commits = "oldest"
+
+# Only the types that describe a change to the shipped binary reach the
+# changelog. The rest still count as commits; they just do not earn a line.
+commit_parsers = [
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^revert", group = "Reverted" },
+  { message = "^docs", skip = true },
+  { message = "^test", skip = true },
+  { message = "^style", skip = true },
+  { message = "^build", skip = true },
+  { message = "^ci", skip = true },
+  { message = "^chore", skip = true },
+]
+
+[bump]
+# With no tags yet there is nothing to infer the `v` prefix from, and a bare
+# `0.1.0` would fail `tag_pattern` above.
+initial_tag = "v0.1.0"
+features_always_bump_minor = true
+# Below 1.0 a breaking change takes the minor, so nothing reaches 1.0 by
+# accident. From 1.0 on it takes the major, as semver requires.
+breaking_always_bump_major = false

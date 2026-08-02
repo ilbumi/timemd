@@ -89,17 +89,13 @@ jobs:
         id: package
         shell: bash
         env:
-          TAG: ${{ inputs.tag }}
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          if [ -n "$TAG" ]; then
-            VERSION="${TAG#v}"
-          else
-            VERSION="$(cargo metadata --no-deps --format-version 1 \
-              | jq -r '.packages[] | select(.name == "timemd") | .version')"
-          fi
-          NAME="timemd-${VERSION}-${TARGET}"
+          # No version in the name, so `releases/latest/download/<asset>` always
+          # resolves and the README never has to name a version. The binary
+          # reports its own through `timemd --version`.
+          NAME="timemd-${TARGET}"
           mkdir -p "dist/${NAME}"
           cp "target/${TARGET}/release/timemd" "dist/${NAME}/"
           cp README.md LICENSE docs/format.md "dist/${NAME}/"
