@@ -63,6 +63,9 @@ pub enum MilestoneCommand {
         title: String,
         #[arg(long)]
         project: String,
+        /// Add it already ticked.
+        #[arg(long)]
+        done: bool,
         /// 0-based position. Omit to append.
         #[arg(long)]
         position: Option<usize>,
@@ -174,10 +177,11 @@ pub fn milestone(store: &Store, command: MilestoneCommand) -> Result<String> {
         MilestoneCommand::Add {
             title,
             project,
+            done,
             position,
         } => {
             let slug = ProjectSlug::new(project)?;
-            let milestone = Milestone::new(false, &title)?;
+            let milestone = Milestone::new(done, &title)?;
             store.try_update_project(&slug, |project| {
                 project
                     .insert_milestone(position.unwrap_or(usize::MAX), milestone)
@@ -376,6 +380,7 @@ mod tests {
         MilestoneCommand::Add {
             title: title.to_owned(),
             project: "thesis".to_owned(),
+            done: false,
             position: None,
         }
     }
@@ -560,6 +565,29 @@ mod tests {
 
         assert!(tick(true, false).contains("1/1 done"));
         assert!(tick(false, true).contains("0/1 done"));
+    }
+
+    /// Recording something already finished should not take two commands. MCP's
+    /// `add_milestone` has always taken `done`; the shell had no way to say it.
+    #[test]
+    fn a_milestone_can_be_added_already_done() {
+        let (_directory, store) = store();
+        thesis(&store);
+
+        let output = run(
+            &store,
+            milestone(MilestoneCommand::Add {
+                title: "Ch. 1".to_owned(),
+                project: "thesis".to_owned(),
+                done: true,
+                position: None,
+            }),
+            moment(9, 0),
+        )
+        .expect("adds");
+
+        assert!(output.contains("1/1 done"), "{output}");
+        assert!(output.contains("[x] Ch. 1"), "{output}");
     }
 
     /// A title nobody can address is a title nobody can edit.
