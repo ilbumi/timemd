@@ -23,7 +23,7 @@ tower-http .workspace = true
 tracing    .workspace = true
 web-push = { version = "0.11", default-features = false }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "charset"] }
-p256 = { version = "0.13", features = ["arithmetic"] }
+p256 = { version = "0.14", features = ["arithmetic"] }
 base64 = "0.23"
 rand = "0.8"
 futures = "0.3"
