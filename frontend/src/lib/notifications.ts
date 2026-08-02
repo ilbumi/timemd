@@ -92,6 +92,27 @@ export async function enablePush(): Promise<PushOutcome> {
 	}
 }
 
+/**
+ * Drops this device's subscription, here and on the server.
+ *
+ * Both halves, because either one alone leaves a wrong state: dropping it
+ * locally would leave the server pushing into a dead endpoint, and dropping it
+ * only on the server would leave the browser thinking it is still subscribed.
+ *
+ * Returns whether there was one to drop.
+ */
+export async function disablePush(): Promise<boolean> {
+	if (!isSupported()) return false;
+
+	const registration = await navigator.serviceWorker.getRegistration('/');
+	const subscription = await registration?.pushManager.getSubscription();
+	if (!subscription) return false;
+
+	await api.unsubscribePush(subscription.endpoint);
+	await subscription.unsubscribe();
+	return true;
+}
+
 /** Whether this device already has a subscription registered. */
 export async function isSubscribed(): Promise<boolean> {
 	if (!isSupported()) return false;

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+	disablePush,
 	enablePush,
 	isIos,
 	isStandalone,
@@ -171,6 +172,39 @@ describe('enablePush', () => {
 	it('reports a failure when the subscription is missing its keys', async () => {
 		stubBrowser({ subscription: { toJSON: () => ({ endpoint: 'https://push.example/abc' }) } });
 		await expect(enablePush()).resolves.toBe('failed');
+	});
+});
+
+describe('disablePush', () => {
+	/** Both halves: either one alone leaves a wrong state behind. */
+	it('drops the subscription locally and on the server', async () => {
+		const unsubscribe = vi.fn(() => Promise.resolve(true));
+		const requests: string[] = [];
+		stubBrowser({ subscription: { ...validSubscription, unsubscribe } });
+		vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+			requests.push(`${init.method} ${url}`);
+			return Promise.resolve(new Response(null, { status: 204 }));
+		});
+
+		await expect(disablePush()).resolves.toBe(true);
+		expect(requests).toEqual(['DELETE /api/push/subscribe']);
+		expect(unsubscribe).toHaveBeenCalledOnce();
+	});
+
+	it('is a no-op with no subscription or on an unsupported browser', async () => {
+		const calls: string[] = [];
+		stubBrowser({});
+		vi.stubGlobal('fetch', (url: string) => {
+			calls.push(url);
+			return Promise.resolve(new Response(null, { status: 204 }));
+		});
+		await expect(disablePush()).resolves.toBe(false);
+
+		vi.stubGlobal('navigator', { userAgent: 'test' });
+		vi.stubGlobal('window', {});
+		await expect(disablePush()).resolves.toBe(false);
+
+		expect(calls).toEqual([]);
 	});
 });
 

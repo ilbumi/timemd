@@ -3,6 +3,7 @@
 	import { attempt } from '$lib/attempt';
 	import { parseMinutes } from '$lib/countdown';
 	import {
+		disablePush,
 		enablePush,
 		isIos,
 		isStandalone,
@@ -53,10 +54,20 @@
 		busy = false;
 	}
 
-	async function turnOn(): Promise<void> {
+	/**
+	 * One button, both ways. The wrapper existed and had no caller: turning
+	 * notifications on was permanent from here, short of clearing site data.
+	 */
+	async function togglePush(): Promise<void> {
 		busy = true;
-		outcome = await enablePush();
-		subscribed = outcome === 'enabled';
+		if (subscribed) {
+			await disablePush();
+			subscribed = false;
+			outcome = null;
+		} else {
+			outcome = await enablePush();
+			subscribed = outcome === 'enabled';
+		}
 		busy = false;
 	}
 
@@ -129,12 +140,8 @@
 				<p class="meta">This browser cannot do push notifications.</p>
 			{/if}
 
-			<button
-				class="primary wide"
-				onclick={turnOn}
-				disabled={busy || subscribed || mustInstallFirst}
-			>
-				{subscribed ? 'Notifications are on' : 'Turn on notifications'}
+			<button class="primary wide" onclick={togglePush} disabled={busy || mustInstallFirst}>
+				{subscribed ? 'Turn off notifications' : 'Turn on notifications'}
 			</button>
 
 			{#if outcome}
