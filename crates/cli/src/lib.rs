@@ -620,16 +620,10 @@ mod tests {
         )
         .expect("logs");
         // The CLI has no schedule command, so the plan is seeded through the store.
+        let block =
+            timemd_core::DayBlock::parse("09:00-11:00 [[timemd]] Deep work").expect("parses");
         store
-            .update_day(moment(9, 0).date(), |day| {
-                day.add_block(timemd_core::DayBlock {
-                    start: at(9, 0),
-                    end: at(11, 0),
-                    project: Some(ProjectSlug::new("timemd").expect("valid slug")),
-                    title: "Deep work".to_owned(),
-                    remind_before: None,
-                });
-            })
+            .update_day(moment(9, 0).date(), |day| day.add_block(block))
             .expect("writes");
 
         let output = run(
@@ -644,12 +638,12 @@ mod tests {
         .expect("reads");
 
         assert!(output.contains("1h total · 2h planned"), "{output}");
-        let row = output
-            .lines()
-            .find(|line| line.contains("timemd"))
-            .expect("has a timemd row");
-        assert!(row.contains("1h"), "{row}");
-        assert!(row.contains("2h"), "{row}");
+        assert!(
+            output
+                .lines()
+                .any(|line| line.contains("timemd") && line.contains("1h") && line.contains("2h")),
+            "{output}"
+        );
     }
 
     #[test]

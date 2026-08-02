@@ -137,13 +137,11 @@ pub fn build(store: &Store, range: DateRange, group_by: GroupBy) -> Result<Repor
 
     for date in range.dates() {
         let day = store.read_day(date)?;
-        // Hoisted: the key is per day, not per session.
-        let day_key = matches!(group_by, GroupBy::Day).then(|| date.to_string());
         // Sessions and blocks name their project the same way, so they share one
         // key space — including the `None` bucket for time against no project.
         let key_for = |project: Option<&ProjectSlug>| match group_by {
             GroupBy::Project => project.map(ProjectSlug::to_string),
-            GroupBy::Day => day_key.clone(),
+            GroupBy::Day => Some(date.to_string()),
         };
 
         for session in day.sessions() {
@@ -191,23 +189,21 @@ fn bucket_for(buckets: &mut Vec<Bucket>, key: Option<String>) -> &mut Bucket {
     // Grouping by day appends in date order, so the live bucket is almost always
     // the last one; checking it first keeps a year-long report linear. The search
     // below is what makes it correct — this only makes it fast.
-    let found = match buckets.last() {
-        Some(bucket) if bucket.key == key => Some(buckets.len() - 1),
-        _ => buckets.iter().position(|bucket| bucket.key == key),
+    let found = if buckets.last().is_some_and(|bucket| bucket.key == key) {
+        Some(buckets.len() - 1)
+    } else {
+        buckets.iter().position(|bucket| bucket.key == key)
     };
 
-    let index = match found {
-        Some(index) => index,
-        None => {
-            buckets.push(Bucket {
-                key,
-                tracked: Minutes::default(),
-                planned: Minutes::default(),
-                sessions: 0,
-            });
-            buckets.len() - 1
-        }
-    };
+    let index = found.unwrap_or_else(|| {
+        buckets.push(Bucket {
+            key,
+            tracked: Minutes::default(),
+            planned: Minutes::default(),
+            sessions: 0,
+        });
+        buckets.len() - 1
+    });
 
     &mut buckets[index]
 }
@@ -219,7 +215,7 @@ mod tests {
 
     use crate::day::Session;
     use crate::ids::BlockId;
-    use crate::schedule::{DayBlock, RecurringBlock};
+    use crate::schedule::{DayBlock, DaySet, RecurringBlock};
 
     fn at(hours: u32, minutes: u32) -> NaiveTime {
         NaiveTime::from_hms_opt(hours, minutes, 0).expect("valid time")
@@ -284,39 +280,27 @@ mod tests {
         (directory, store)
     }
 
-    /// Writes a one-off block into a day's `## Schedule`.
-    fn plan(store: &Store, day: u32, from: NaiveTime, to: NaiveTime, project: Option<ProjectSlug>) {
+    /// Writes a one-off block into a day's `## Schedule`, spelled as the grammar.
+    fn plan(store: &Store, day: u32, line: &str) {
+        let block = DayBlock::parse(line).expect("parses");
         store
-            .update_day(date(day), |file| {
-                file.add_block(DayBlock {
-                    start: from,
-                    end: to,
-                    project,
-                    title: "Block".to_owned(),
-                    remind_before: None,
-                });
-            })
+            .update_day(date(day), |file| file.add_block(block))
             .expect("writes");
     }
 
     /// Writes a block that repeats every day, so no test needs weekday arithmetic.
-    fn repeats(
-        store: &Store,
-        id: &str,
-        from: NaiveTime,
-        to: NaiveTime,
-        project: Option<ProjectSlug>,
-    ) {
+    fn repeats(store: &Store, id: &str, line: &str) {
+        let block = DayBlock::parse(line).expect("parses");
         store
             .update_recurring(|recurring| {
                 recurring.upsert(RecurringBlock {
                     id: BlockId::new(id).expect("valid id"),
-                    days: "daily".parse().expect("valid days"),
-                    start: from,
-                    end: to,
-                    project,
-                    title: "Block".to_owned(),
-                    remind_before: None,
+                    days: DaySet::ALL,
+                    start: block.start,
+                    end: block.end,
+                    project: block.project,
+                    title: block.title,
+                    remind_before: block.remind_before,
                 });
             })
             .expect("writes");
@@ -421,7 +405,7 @@ mod tests {
     #[test]
     fn planned_time_lands_in_the_same_bucket_as_the_work_done_on_it() {
         let (_directory, store) = filled();
-        plan(&store, 1, at(9, 0), at(11, 0), slug("timemd"));
+        plan(&store, 1, "09:00-11:00 [[timemd]] Block");
 
         let report = build(&store, span(1, 31), GroupBy::Project).expect("builds");
 
@@ -435,7 +419,7 @@ mod tests {
     #[test]
     fn a_project_that_was_only_planned_gets_a_bucket_and_sorts_last() {
         let (_directory, store) = filled();
-        plan(&store, 2, at(9, 0), at(10, 0), slug("russian"));
+        plan(&store, 2, "09:00-10:00 [[russian]] Block");
 
         let report = build(&store, span(1, 31), GroupBy::Project).expect("builds");
 
@@ -464,8 +448,8 @@ mod tests {
     fn buckets_with_nothing_tracked_order_by_how_much_was_planned() {
         let directory = tempfile::tempdir().expect("temp dir");
         let store = Store::new(directory.path());
-        plan(&store, 1, at(9, 0), at(10, 0), slug("russian"));
-        plan(&store, 1, at(14, 0), at(16, 0), slug("piano"));
+        plan(&store, 1, "09:00-10:00 [[russian]] Block");
+        plan(&store, 1, "14:00-16:00 [[piano]] Block");
 
         let report = build(&store, span(1, 31), GroupBy::Project).expect("builds");
 
@@ -482,21 +466,26 @@ mod tests {
         );
     }
 
+    /// Both arms of `schedule::planned` reach the report, on every date in range.
     #[test]
-    fn a_repeat_counts_on_every_day_it_falls_on() {
+    fn a_repeat_counts_on_every_day_it_falls_on_and_one_offs_join_it() {
         let directory = tempfile::tempdir().expect("temp dir");
         let store = Store::new(directory.path());
-        repeats(&store, "deep-work", at(9, 0), at(11, 0), slug("timemd"));
+        repeats(&store, "deep-work", "09:00-11:00 [[timemd]] Block");
+        plan(&store, 1, "14:00-15:00 [[timemd]] Block");
 
         let report = build(&store, span(1, 3), GroupBy::Project).expect("builds");
-        assert_eq!(report.planned, Minutes::new(360));
+        assert_eq!(report.planned, Minutes::new(420));
+        assert_eq!(report.buckets.len(), 1);
     }
 
+    /// Guards the tempting wrong shortcut: reading `recurring.blocks()` straight
+    /// rather than going through `schedule::planned`, which is what applies skips.
     #[test]
     fn a_skipped_repeat_is_not_planned_time() {
         let directory = tempfile::tempdir().expect("temp dir");
         let store = Store::new(directory.path());
-        repeats(&store, "deep-work", at(9, 0), at(11, 0), slug("timemd"));
+        repeats(&store, "deep-work", "09:00-11:00 [[timemd]] Block");
         store
             .update_day(date(2), |day| {
                 day.skip(BlockId::new("deep-work").expect("valid id"));
@@ -508,21 +497,9 @@ mod tests {
     }
 
     #[test]
-    fn repeats_and_one_offs_both_feed_the_report() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let store = Store::new(directory.path());
-        repeats(&store, "deep-work", at(9, 0), at(11, 0), slug("timemd"));
-        plan(&store, 1, at(14, 0), at(15, 0), slug("timemd"));
-
-        let report = build(&store, span(1, 1), GroupBy::Project).expect("builds");
-        assert_eq!(report.planned, Minutes::new(180));
-        assert_eq!(report.buckets.len(), 1);
-    }
-
-    #[test]
     fn a_day_that_was_planned_and_never_worked_still_lands_in_date_order() {
         let (_directory, store) = filled();
-        plan(&store, 2, at(9, 0), at(10, 0), slug("timemd"));
+        plan(&store, 2, "09:00-10:00 [[timemd]] Block");
 
         let report = build(&store, span(1, 31), GroupBy::Day).expect("builds");
 
@@ -556,7 +533,7 @@ mod tests {
     fn a_block_crossing_midnight_counts_once_on_its_start_day() {
         let directory = tempfile::tempdir().expect("temp dir");
         let store = Store::new(directory.path());
-        plan(&store, 1, at(23, 50), at(0, 20), slug("timemd"));
+        plan(&store, 1, "23:50-00:20 [[timemd]] Block");
 
         let report = build(&store, span(1, 2), GroupBy::Day).expect("builds");
         assert_eq!(report.planned, Minutes::new(30));

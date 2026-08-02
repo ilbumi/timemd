@@ -870,19 +870,13 @@ mod tests {
     fn a_report_carries_the_plan_beside_the_work() {
         let (_directory, server) = server();
         log(&server, "2026-08-05", "09:00", "10:00", Some("timemd"));
+        let block =
+            timemd_core::DayBlock::parse("09:00-11:00 [[timemd]] Deep work").expect("parses");
         server
             .store
             .update_day(
                 NaiveDate::from_ymd_opt(2026, 8, 5).expect("valid date"),
-                |day| {
-                    day.add_block(timemd_core::DayBlock {
-                        start: NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"),
-                        end: NaiveTime::from_hms_opt(11, 0, 0).expect("valid time"),
-                        project: Some(ProjectSlug::new("timemd").expect("valid slug")),
-                        title: "Deep work".to_owned(),
-                        remind_before: None,
-                    });
-                },
+                |day| day.add_block(block),
             )
             .expect("writes");
 

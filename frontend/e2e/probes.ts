@@ -5,6 +5,8 @@
  * hand, so a regression fails here rather than in someone's eye:
  *
  *   horizontalOverflow — a track that refused to shrink below its content
+ *   clippedText        — a flex item squeezed below its own text, which then
+ *                        spilled over its neighbour without scrolling the page
  *   unsharedEdges      — "a screen's rules end where its content ends" (2140a19)
  *   doubledRules       — two 2px rules meeting and both drawing (6fc1b2f)
  *   roundedCorners     — the design has no radius token; a radius is a bug
@@ -301,9 +303,49 @@ export async function smallTapTargets(page: Page): Promise<string[]> {
 	});
 }
 
+/**
+ * Text that does not fit the box it was given.
+ *
+ * `horizontalOverflow` only sees the document and `main`, so a flex item squeezed
+ * below its own content passes it: the text spills over a sibling instead, and
+ * the page still does not scroll. That is how a longer total crushed the schedule
+ * header's title until the title stopped shrinking.
+ *
+ * Only leaves are checked — a wrapper's `scrollWidth` is its children's, and a
+ * deliberate scroller (a wide table, a code block) opts out through `overflow-x`.
+ */
+export async function clippedText(page: Page): Promise<string[]> {
+	return page.evaluate((slack: number) => {
+		const label = (el: Element) =>
+			el.tagName.toLowerCase() +
+			(typeof el.className === 'string' && el.className.trim()
+				? `.${el.className.trim().split(/\s+/).join('.')}`
+				: '');
+
+		const bad: string[] = [];
+		const range = document.createRange();
+		for (const el of document.querySelectorAll('.screen *')) {
+			if (el.children.length > 0 || !el.textContent?.trim()) continue;
+			const style = getComputedStyle(el);
+			if (style.overflowX !== 'visible' || style.display === 'none') continue;
+
+			// The text itself, not `scrollWidth` — an absolutely positioned `::after`
+			// inflates that, and the settings stepper uses one as its 44px overlay.
+			range.selectNodeContents(el);
+			const text = range.getBoundingClientRect().width;
+			const box = el.getBoundingClientRect().width;
+			if (text > box + slack) {
+				bad.push(`${label(el)} is ${box.toFixed(0)}px wide for ${text.toFixed(0)}px of text`);
+			}
+		}
+		return bad;
+	}, SLACK);
+}
+
 /** Every probe, run against whatever is currently on screen. */
 export async function expectWellAligned(page: Page, width: number): Promise<void> {
 	expect(await horizontalOverflow(page), 'horizontal overflow').toEqual([]);
+	expect(await clippedText(page), 'text overflowing its own box').toEqual([]);
 	expect(await unsharedEdges(page), 'bands do not share an edge').toEqual([]);
 	expect(await doubledRules(page), 'two rules drawing where one should').toEqual([]);
 	expect(await roundedCorners(page), 'the design has no radius').toEqual([]);

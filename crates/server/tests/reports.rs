@@ -15,6 +15,15 @@ async fn logged(harness: &Harness, date: &str, start: &str, end: &str, project: 
         .await;
 }
 
+async fn planned(harness: &Harness, date: &str, start: &str, end: &str, project: Option<&str>) {
+    harness
+        .post(
+            &format!("/api/days/{date}/blocks"),
+            json!({ "start": start, "end": end, "project": project, "title": "Deep work" }),
+        )
+        .await;
+}
+
 #[tokio::test]
 async fn groups_by_project_largest_first_by_default() {
     let harness = Harness::new();
@@ -57,15 +66,6 @@ async fn groups_by_project_largest_first_by_default() {
     assert_eq!(body["buckets"][0]["planned"], "0m");
     assert_eq!(body["buckets"][0]["sessions"], 2);
     assert_eq!(body["buckets"][1]["key"], "admin");
-}
-
-async fn planned(harness: &Harness, date: &str, start: &str, end: &str, project: Option<&str>) {
-    harness
-        .post(
-            &format!("/api/days/{date}/blocks"),
-            json!({ "start": start, "end": end, "project": project, "title": "Deep work" }),
-        )
-        .await;
 }
 
 #[tokio::test]
