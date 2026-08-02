@@ -232,14 +232,14 @@ fn show(store: &Store, slug: &ProjectSlug) -> Result<String> {
         .ok_or_else(|| Error::UnknownProject(slug.to_string()))?;
 
     let done = project
-        .milestones
+        .milestones()
         .iter()
         .filter(|milestone| milestone.done)
         .count();
     let mut lines = vec![format!(
         "{} — {done}/{} done{}{}",
         project.name,
-        project.milestones.len(),
+        project.milestones().len(),
         project
             .target
             .map_or_else(String::new, |target| format!("  {target}/wk")),
@@ -249,7 +249,7 @@ fn show(store: &Store, slug: &ProjectSlug) -> Result<String> {
             ""
         },
     )];
-    for milestone in &project.milestones {
+    for milestone in project.milestones() {
         lines.push(format!(
             "  [{}] {}",
             if milestone.done { "x" } else { " " },
@@ -273,15 +273,15 @@ pub fn list(store: &Store) -> Result<String> {
             let target = project
                 .target
                 .map_or_else(String::new, |target| format!("  {target}/wk"));
-            let milestones = if project.milestones.is_empty() {
+            let milestones = if project.milestones().is_empty() {
                 String::new()
             } else {
                 let done = project
-                    .milestones
+                    .milestones()
                     .iter()
                     .filter(|milestone| milestone.done)
                     .count();
-                format!("  {done}/{} done", project.milestones.len())
+                format!("  {done}/{} done", project.milestones().len())
             };
             let slug = project.slug().as_str();
             let name = &project.name;
@@ -329,10 +329,12 @@ mod tests {
         store
             .update_project(&ProjectSlug::new("thesis").expect("valid"), |project| {
                 project.target = Some(Minutes::new(600));
-                project.milestones = vec![
-                    Milestone::new(true, "Ch. 1").expect("valid"),
-                    Milestone::new(false, "Ch. 2").expect("valid"),
-                ];
+                project
+                    .set_milestones(vec![
+                        Milestone::new(true, "Ch. 1").expect("valid"),
+                        Milestone::new(false, "Ch. 2").expect("valid"),
+                    ])
+                    .expect("distinct titles");
             })
             .expect("updates");
 

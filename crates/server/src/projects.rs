@@ -62,7 +62,11 @@ impl From<&Project> for ProjectView {
             target: project.target.map(|target| target.to_string()),
             status: project.status,
             created: project.created,
-            milestones: project.milestones.iter().map(MilestoneView::from).collect(),
+            milestones: project
+                .milestones()
+                .iter()
+                .map(MilestoneView::from)
+                .collect(),
             problems: project.problems().iter().map(ToString::to_string).collect(),
         }
     }

@@ -244,7 +244,7 @@ proptest! {
         let reparsed = Project::parse(slug(), &project.render()).expect("parses");
 
         prop_assert!(reparsed.problems().is_empty());
-        prop_assert_eq!(reparsed.milestones, milestones);
+        prop_assert_eq!(reparsed.milestones(), milestones.as_slice());
     }
 
     /// Reordering may only permute. A move that dropped, duplicated or mangled
@@ -266,7 +266,7 @@ proptest! {
         prop_assert!(reparsed.problems().is_empty());
 
         let mut before = milestones;
-        let mut after = reparsed.milestones;
+        let mut after = reparsed.milestones().to_vec();
         before.sort_by(|a, b| (a.done, a.title()).cmp(&(b.done, b.title())));
         after.sort_by(|a, b| (a.done, a.title()).cmp(&(b.done, b.title())));
         prop_assert_eq!(after, before);
@@ -291,7 +291,7 @@ proptest! {
 
         let reparsed = Project::parse(slug(), &project.render()).expect("parses");
         prop_assert!(reparsed.problems().is_empty());
-        prop_assert_eq!(reparsed.milestones[0].title(), title.trim());
+        prop_assert_eq!(reparsed.milestones()[0].title(), title.trim());
     }
 
     /// A project file the app rewrites must reach a fixed point too, with the

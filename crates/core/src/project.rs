@@ -225,7 +225,8 @@ pub struct Project {
     pub target: Option<Minutes>,
     pub status: ProjectStatus,
     pub created: Option<NaiveDate>,
-    pub milestones: Vec<Milestone>,
+    /// Private so that the write doors below really are the only way in.
+    milestones: Vec<Milestone>,
     /// Milestone lines that failed to parse, kept verbatim and re-emitted at the
     /// end of the section rather than being dropped.
     unparsed_milestones: Vec<String>,
@@ -499,6 +500,18 @@ impl Project {
         Some(to)
     }
 
+    /// The milestones, in file order.
+    ///
+    /// A slice rather than the `Vec` it is stored in. `insert_milestone`,
+    /// `set_milestones`, `rename_milestone`, `update_milestone`,
+    /// `move_milestone` and `remove_milestone` are the doors, and each of them
+    /// enforces that a title is carried once — which is what makes addressing
+    /// by title work at all. A public `Vec` let a caller push a second `Ch. 4`
+    /// straight past all six, and one of our own tests was doing exactly that.
+    pub fn milestones(&self) -> &[Milestone] {
+        &self.milestones
+    }
+
     /// Milestone lines the app could not read, so a broken file is visible
     /// rather than silently half-loaded.
     pub fn problems(&self) -> &[ParseError] {
@@ -548,7 +561,7 @@ mod tests {
     fn parses_the_milestone_list() {
         let project = Project::parse(slug(), SAMPLE).expect("parses");
         assert_eq!(
-            project.milestones,
+            project.milestones(),
             vec![
                 milestone(true, "Ch. 1 — lit review"),
                 milestone(false, "Ch. 4 — first draft"),
@@ -562,7 +575,7 @@ mod tests {
         let source = "---\nname: timemd\n---\n\n## Milestones\n\n- [x] done\n- forgot the box\n";
         let project = Project::parse(slug(), source).expect("parses");
 
-        assert_eq!(project.milestones, vec![milestone(true, "done")]);
+        assert_eq!(project.milestones(), [milestone(true, "done")]);
         assert_eq!(project.problems().len(), 1);
         assert!(
             project.render().contains("- forgot the box"),
@@ -574,7 +587,9 @@ mod tests {
     #[test]
     fn writing_milestones_leaves_the_prose_alone() {
         let mut project = Project::parse(slug(), SAMPLE).expect("parses");
-        project.milestones.push(milestone(false, "Ch. 5"));
+        project
+            .insert_milestone(usize::MAX, milestone(false, "Ch. 5"))
+            .expect("a new title");
 
         let rendered = project.render();
         assert!(rendered.contains("- [ ] Ch. 5"), "{rendered}");
@@ -679,7 +694,7 @@ mod tests {
         let source = "---\nname: timemd\n---\n\n## Milestones\n\n- [ ] Ch. 4\n- [x] Ch. 4\n";
         let project = Project::parse(slug(), source).expect("parses");
 
-        assert_eq!(project.milestones.len(), 2);
+        assert_eq!(project.milestones().len(), 2);
         let error = project.milestone_titled("Ch. 4").expect_err("ambiguous");
         assert!(error.to_string().contains('2'), "{error}");
     }
@@ -697,7 +712,9 @@ mod tests {
         assert!(removed.done);
         assert_eq!(titles(&project), ["Ch. 4 — first draft"]);
 
-        let error = project.remove_milestone("Ch. 9").expect_err("no such title");
+        let error = project
+            .remove_milestone("Ch. 9")
+            .expect_err("no such title");
         assert!(error.to_string().contains("Ch. 9"), "{error}");
         assert_eq!(
             titles(&project),
@@ -796,7 +813,7 @@ mod tests {
 
         assert_eq!(landed, 1);
         assert_eq!(titles(&project), ["Ch. 4 — first draft", "Ch. 1"]);
-        assert!(!project.milestones[1].done);
+        assert!(!project.milestones()[1].done);
 
         assert!(
             project
@@ -826,7 +843,10 @@ mod tests {
             .expect_err("the title is taken");
         assert!(error.to_string().contains("Ch. 1 — lit review"), "{error}");
 
-        assert!(!project.milestones[1].done, "the tick must not have landed");
+        assert!(
+            !project.milestones()[1].done,
+            "the tick must not have landed"
+        );
         assert_eq!(
             titles(&project),
             ["Ch. 1 — lit review", "Ch. 4 — first draft"]
@@ -845,11 +865,11 @@ mod tests {
                 "{candidate:?} should be rejected"
             );
         }
-        assert_eq!(project.milestones[0].title(), "Ch. 1 — lit review");
+        assert_eq!(project.milestones()[0].title(), "Ch. 1 — lit review");
 
         project.rename_milestone(0, "  Ch. 1  ").expect("renames");
-        assert_eq!(project.milestones[0].title(), "Ch. 1");
-        assert!(project.milestones[0].done, "renaming must not untick it");
+        assert_eq!(project.milestones()[0].title(), "Ch. 1");
+        assert!(project.milestones()[0].done, "renaming must not untick it");
     }
 
     #[test]

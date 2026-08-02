@@ -1155,7 +1155,7 @@ fn summarise(project: &Project) -> ProjectSummary {
         mark: project.mark.to_string(),
         target: project.target.map(|target| target.to_string()),
         status: project.status.to_string(),
-        milestones: project.milestones.iter().map(MilestoneIo::from).collect(),
+        milestones: project.milestones().iter().map(MilestoneIo::from).collect(),
     }
 }
 
@@ -1825,7 +1825,7 @@ mod tests {
             .read_project(&ProjectSlug::new("thesis").expect("a slug"))
             .expect("reads")
             .expect("exists");
-        let titles: Vec<&str> = project.milestones.iter().map(Milestone::title).collect();
+        let titles: Vec<&str> = project.milestones().iter().map(Milestone::title).collect();
         assert_eq!(titles, ["b", "c", "a"]);
     }
 
@@ -1869,7 +1869,7 @@ mod tests {
             .read_project(&slug)
             .expect("reads")
             .expect("exists");
-        assert!(!after.milestones[0].done, "the file must be untouched");
+        assert!(!after.milestones()[0].done, "the file must be untouched");
     }
 
     /// The refusal an agent is most likely to hit: tick and retitle in one
