@@ -535,19 +535,22 @@ fn read_to_string(path: &Path) -> Result<Option<String>> {
     }
 }
 
-/// Writes via a temporary file in the same directory, then renames.
+/// Writes `contents` through a temporary file in the same directory and a
+/// rename, and does nothing at all when the file already says exactly that.
 ///
 /// The rename is atomic, so a reader — an agent, an editor, another request —
 /// sees either the old file or the new one, never a torn half-write.
-/// Writes `contents` to `path` through a temporary file and a rename, and does
-/// nothing at all when the file already says exactly that.
 ///
 /// The no-op check is here rather than at each caller because every write goes
 /// through this one door. `update_day` and friends hand their closure the file
-/// and then write whatever comes back, so an edit that refused — no session at
-/// that index, a title already taken — would otherwise re-render and rewrite a
+/// and then write whatever comes back, so an edit that looked, found no session
+/// at that index and returned would otherwise re-render and rewrite a
 /// git-tracked file it had just declined to change. Comparing costs one read on
 /// a path that was about to do a create, a write, an fsync and a rename.
+///
+/// This covers refusal signalled by *value* only, because the bytes are what it
+/// compares. An edit that mutates and then returns `Err` has changed them, and
+/// belongs on `try_update_*`, which does not call this at all.
 fn write_atomic(path: &Path, contents: &str) -> Result<()> {
     if read_to_string(path)?.is_some_and(|current| current == contents) {
         return Ok(());

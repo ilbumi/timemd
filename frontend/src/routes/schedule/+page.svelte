@@ -329,6 +329,9 @@
 				<div class="actions">
 					<button type="button" onclick={() => (form = null)}>Cancel</button>
 					<button class="primary" type="submit">
+						<!-- `==` on purpose, and the only loose comparison here:
+						     `form` may be null (closed) and `index` may be null
+						     (creating), and both have to read as "not amending". -->
 						{form?.index == null ? 'Add block' : 'Save block'}
 					</button>
 				</div>
