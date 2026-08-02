@@ -1,0 +1,20 @@
+# The web toolchain, in one place. Four jobs across three workflows need it and
+# none of them may choose a version: those come from `frontend/package.json`
+# and `frontend/.nvmrc`, which is the whole point of having this file.
+name: setup-web
+description: Install pnpm and Node at the versions the repo pins, with the store cached.
+
+runs:
+  using: composite
+  steps:
+    # pnpm before setup-node: `cache: pnpm` needs pnpm already on PATH. There is
+    # no package.json at the repo root, so the version has to be pointed at.
+    - uses: pnpm/action-setup@v6
+      with:
+        package_json_file: frontend/package.json
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: frontend/.nvmrc
+        cache: pnpm
+        cache-dependency-path: frontend/pnpm-lock.yaml

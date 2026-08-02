@@ -1,0 +1,72 @@
+# The gates from `CLAUDE.md`: test, lint and cov must all pass.
+#
+# Every step here calls a `make` target rather than cargo or pnpm directly. The
+# flags that *constitute* a gate — `--all-features`, the coverage floor, the
+# `main.rs` exclusion and its recorded reason — live in the Makefile and cannot
+# drift between a developer's terminal and a runner. CI supplies only the
+# environment: toolchains, caches, artifacts.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      # The toolchain comes from `rust-toolchain.toml`, so the pin lives in the
+      # repo rather than here.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # Deliberately no Node. This job is the standing proof that a fresh clone
+      # builds and tests without a frontend toolchain, which `assets.rs` relies on.
+      - run: make lint-rust
+      - run: make test-rust
+
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-web
+
+      # One `make` invocation, so the `deps` both halves need installs once.
+      # `cov-web` runs the same suite as `test-web` plus the thresholds in
+      # `vite.config.ts`, so running both would double the work for no signal.
+      - run: make lint-web cov-web
+
+  rust-coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # `cov-rust` builds the UI first — the Makefile records why — so this job
+      # needs both toolchains.
+      - uses: ./.github/actions/setup-web
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - run: make cov-rust
