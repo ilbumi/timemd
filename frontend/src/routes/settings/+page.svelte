@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { api, type Settings } from '$lib/api';
+	import { api, type Ntfy, type NtfyTest, type Settings } from '$lib/api';
 	import { attempt } from '$lib/attempt';
 	import { parseMinutes } from '$lib/countdown';
 	import {
@@ -25,6 +25,15 @@
 	let busy = $state(false);
 	let outcome = $state<PushOutcome | null>(null);
 
+	let ntfy = $state<Ntfy | null>(null);
+	// The form's own copy: typing must not fight the last server answer, and the
+	// token has no server value to hold — it is write-only.
+	let topic = $state('');
+	let server = $state('');
+	let token = $state('');
+	let appUrl = $state('');
+	let tested = $state<NtfyTest | null>(null);
+
 	// iOS delivers push only to an installed app, so a phone still in Safari
 	// needs the install step before the button can do anything useful.
 	const mustInstallFirst = $derived(isIos() && !isStandalone());
@@ -36,6 +45,19 @@
 		'needs-install':
 			'Add timemd to your Home Screen first — iOS only delivers push to installed apps.',
 		failed: 'Could not subscribe. Check that the server is reachable and try again.'
+	};
+
+	/*
+	 * A test send proves the server and the token, and cannot prove the topic:
+	 * ntfy answers 200 for any name it is given. Saying so is the whole reason
+	 * the message is worth showing — "delivered" on its own would read as a
+	 * guarantee it is not.
+	 */
+	const ntfyMessages: Record<NtfyTest, string> = {
+		delivered:
+			'Sent a test notification. If it does not arrive, check the topic — ntfy accepts any name.',
+		rejected: 'The server refused it. An access-controlled topic needs a token.',
+		unreachable: 'Could not reach that server.'
 	};
 
 	function minutesOf(key: (typeof LENGTHS)[number]['key']): number {
@@ -75,9 +97,48 @@
 			}
 		});
 
+	/** Adopts a server answer, including the fields the form does not hold. */
+	function adopt(next: Ntfy): void {
+		ntfy = next;
+		topic = next.topic ?? '';
+		server = next.server;
+		appUrl = next.appUrl ?? '';
+		tested = next.test;
+		// Never refilled from the server, which does not send it back. Clearing
+		// it keeps the box from looking like it holds the stored token.
+		token = '';
+	}
+
+	/**
+	 * Sends null rather than an empty string for a field left blank: the API
+	 * reads an absent key as "leave it alone", so `undefined` here would make
+	 * clearing a field a silent no-op.
+	 *
+	 * The token is sent only when something was typed. Retyping it is not a new
+	 * destination, and an empty box means "leave it", not "clear it" — there is
+	 * a separate way to turn the channel off.
+	 */
+	const saveNtfy = (): Promise<void> =>
+		run(async () => {
+			adopt(
+				await api.writeNtfy({
+					server: server.trim(),
+					topic: topic.trim() || null,
+					appUrl: appUrl.trim() || null,
+					...(token.trim() ? { token: token.trim() } : {})
+				})
+			);
+		});
+
+	const turnNtfyOff = (): Promise<void> =>
+		run(async () => {
+			adopt(await api.writeNtfy({ topic: null }));
+		});
+
 	$effect(() => {
 		void run(async () => {
 			settings = await api.readSettings();
+			adopt(await api.readNtfy());
 		});
 
 		isSubscribed()
@@ -150,6 +211,48 @@
 
 			{#if outcome}
 				<p class="meta" class:bad={outcome !== 'enabled'} role="status">{messages[outcome]}</p>
+			{/if}
+		</div>
+
+		<div class="field">
+			<span class="label">Notifications on a phone</span>
+			<p class="meta">
+				Install the ntfy app, subscribe to a topic, and put the same topic here. It works where a
+				browser will not wake a service worker. Anyone who knows the topic can read your
+				notifications, so pick a name nobody would guess.
+			</p>
+
+			<label class="entry">
+				<span>Topic</span>
+				<input bind:value={topic} disabled={busy} placeholder="timemd-a7f3c9e1" />
+			</label>
+			<label class="entry">
+				<span>Server</span>
+				<input bind:value={server} disabled={busy} placeholder="https://ntfy.sh" />
+			</label>
+			<label class="entry">
+				<span>Token</span>
+				<input
+					bind:value={token}
+					disabled={busy}
+					type="password"
+					placeholder={ntfy?.hasToken ? 'Set — type to replace' : 'Only for a private topic'}
+				/>
+			</label>
+			<label class="entry">
+				<span>App URL</span>
+				<input bind:value={appUrl} disabled={busy} placeholder="https://box.tailnet.ts.net" />
+			</label>
+
+			<button class="primary wide" onclick={saveNtfy} disabled={busy}>Save</button>
+
+			{#if ntfy?.topic}
+				<button class="wide" onclick={turnNtfyOff} disabled={busy}>Turn off ntfy</button>
+				<p class="meta">Subscribe in the app to <code>{ntfy.subscribeUrl}</code>.</p>
+			{/if}
+
+			{#if tested}
+				<p class="meta" class:bad={tested !== 'delivered'} role="status">{ntfyMessages[tested]}</p>
 			{/if}
 		</div>
 
@@ -295,6 +398,48 @@
 
 	.wide {
 		width: 100%;
+	}
+
+	/*
+	 * A row, not a stack: the label is short and the value is long, so side by
+	 * side keeps four of these from taking the whole screen. 44px comes from the
+	 * input itself rather than an overlay — the target *is* the box here, and
+	 * there is nothing beside it to reach over.
+	 */
+	.entry {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		border: var(--rule) solid var(--ink);
+	}
+
+	.entry > span {
+		flex: none;
+		width: 72px;
+		padding-left: 12px;
+		font-size: 0.65625rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--ink-60);
+	}
+
+	.entry input {
+		flex: 1;
+		min-width: 0;
+		min-height: 44px;
+		padding: 0 12px 0 0;
+		border: none;
+		border-radius: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		font-size: 0.875rem;
+	}
+
+	.entry input:focus {
+		outline: none;
+		background: var(--yellow);
+		color: var(--ink);
 	}
 
 	.bad {
