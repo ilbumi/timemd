@@ -6,8 +6,58 @@
 //! socket that answers a fixed status and hands back what it was sent is
 //! exactly enough.
 
+use std::sync::Arc;
+
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use p256::elliptic_curve::Generate;
+use timemd_core::{NtfyPatch, Store, Subscription};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task::JoinHandle;
+
+use crate::notify::Notification;
+use crate::state::{AppState, Clock};
+
+/// A server over an empty tree. The directory comes back because dropping it
+/// deletes the tree the state is still pointing at.
+pub fn state() -> (tempfile::TempDir, AppState) {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let store = Arc::new(Store::new(directory.path()));
+    (directory, AppState::new(store, Clock::System))
+}
+
+pub fn notification(title: &str) -> Notification {
+    Notification {
+        title: title.to_owned(),
+        body: "09:00".to_owned(),
+        url: "/today".to_owned(),
+    }
+}
+
+/// Points the ntfy channel at `server`, with a topic, so it is configured.
+pub fn ntfy_at(state: &AppState, server: &str) {
+    state
+        .store()
+        .try_update_ntfy(|config| {
+            config.apply(NtfyPatch {
+                server: Some(server.to_owned()),
+                topic: Some(Some("timemd-a7f3".to_owned())),
+                ..NtfyPatch::default()
+            })
+        })
+        .expect("the store call")
+        .expect("the patch is usable");
+}
+
+/// A fabricated but well-formed subscription: `p256dh` is an uncompressed point
+/// and `auth` is 16 bytes, which is what the payload encryption expects.
+pub fn subscription(endpoint: &str) -> Subscription {
+    Subscription {
+        endpoint: endpoint.to_owned(),
+        p256dh: URL_SAFE_NO_PAD.encode(p256::SecretKey::generate().public_key().to_sec1_bytes()),
+        auth: URL_SAFE_NO_PAD.encode([7_u8; 16]),
+    }
+}
 
 /// A stand-in HTTP service.
 ///

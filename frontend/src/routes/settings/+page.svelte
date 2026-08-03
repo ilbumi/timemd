@@ -137,8 +137,12 @@
 
 	$effect(() => {
 		void run(async () => {
-			settings = await api.readSettings();
-			adopt(await api.readNtfy());
+			// Two independent reads: sequential would make the screen wait out
+			// both round trips, which on a phone off the LAN is the difference
+			// a user actually feels.
+			const [durations, channel] = await Promise.all([api.readSettings(), api.readNtfy()]);
+			settings = durations;
+			adopt(channel);
 		});
 
 		isSubscribed()
@@ -402,9 +406,9 @@
 
 	/*
 	 * A row, not a stack: the label is short and the value is long, so side by
-	 * side keeps four of these from taking the whole screen. 44px comes from the
-	 * input itself rather than an overlay — the target *is* the box here, and
-	 * there is nothing beside it to reach over.
+	 * side keeps four of these from taking the whole screen. The 44px reach
+	 * comes from the base `input` rule — the target *is* the box here, so there
+	 * is no overlay to add and nothing beside it to reach over.
 	 */
 	.entry {
 		display: flex;
@@ -423,16 +427,13 @@
 		color: var(--ink-60);
 	}
 
+	/* The `.entry` draws the box, so the input inside it draws nothing. */
 	.entry input {
 		flex: 1;
 		min-width: 0;
-		min-height: 44px;
 		padding: 0 12px 0 0;
 		border: none;
-		border-radius: 0;
 		background: none;
-		color: inherit;
-		font: inherit;
 		font-size: 0.875rem;
 	}
 

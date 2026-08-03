@@ -243,15 +243,7 @@ async fn send_one(client: &reqwest::Client, message: WebPushMessage) -> Option<S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::Clock;
-    use std::sync::Arc;
-    use timemd_core::Store;
-
-    fn state() -> (tempfile::TempDir, AppState) {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let store = Arc::new(Store::new(directory.path()));
-        (directory, AppState::new(store, Clock::System))
-    }
+    use crate::testing::{notification, state, stub, subscription as well_formed};
 
     #[test]
     fn a_keypair_is_generated_once_and_then_reused() {
@@ -335,27 +327,11 @@ mod tests {
         assert!(build(&private, &subscription, b"{}").is_err());
     }
 
-    fn well_formed(endpoint: &str) -> Subscription {
-        Subscription {
-            endpoint: endpoint.to_owned(),
-            p256dh: URL_SAFE_NO_PAD.encode(SecretKey::generate().public_key().to_sec1_bytes()),
-            auth: URL_SAFE_NO_PAD.encode([7_u8; 16]),
-        }
-    }
-
-    fn notification() -> Notification {
-        Notification {
-            title: "Deep work".to_owned(),
-            body: "09:00".to_owned(),
-            url: "/today".to_owned(),
-        }
-    }
-
     #[tokio::test]
     async fn a_delivered_notification_is_encrypted_and_carries_its_headers() {
         let (_directory, state) = state();
         ensure_keypair(&state).expect("generates");
-        let (base, served) = crate::testing::stub(201, 1).await;
+        let (base, served) = stub(201, 1).await;
         let endpoint = format!("{base}/push");
 
         state
@@ -363,7 +339,7 @@ mod tests {
             .update_push(|push| push.subscribe(well_formed(&endpoint)))
             .expect("subscribes");
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
 
         let served = served.await.expect("the stub ran");
         let request = served.first().expect("a request arrived");
@@ -393,7 +369,7 @@ mod tests {
     async fn a_subscription_the_service_calls_gone_is_dropped() {
         let (_directory, state) = state();
         ensure_keypair(&state).expect("generates");
-        let (base, served) = crate::testing::stub(410, 1).await;
+        let (base, served) = stub(410, 1).await;
         let endpoint = format!("{base}/push");
 
         state
@@ -401,7 +377,7 @@ mod tests {
             .update_push(|push| push.subscribe(well_formed(&endpoint)))
             .expect("subscribes");
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
         served.await.expect("the stub ran");
 
         assert!(
@@ -426,7 +402,7 @@ mod tests {
             .update_push(|push| push.subscribe(well_formed("http://127.0.0.1:1/push")))
             .expect("subscribes");
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
 
         assert_eq!(
             state
@@ -444,7 +420,7 @@ mod tests {
     async fn a_malformed_subscription_does_not_stop_delivery() {
         let (_directory, state) = state();
         ensure_keypair(&state).expect("generates");
-        let (base, served) = crate::testing::stub(201, 1).await;
+        let (base, served) = stub(201, 1).await;
         let endpoint = format!("{base}/push");
 
         state
@@ -459,7 +435,7 @@ mod tests {
             })
             .expect("subscribes");
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
 
         // The good subscription was still served despite the bad one first.
         assert_eq!(served.await.expect("the stub ran").len(), 1);

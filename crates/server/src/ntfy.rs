@@ -94,10 +94,10 @@ async fn read(State(state): State<AppState>) -> ApiResult<Json<NtfyView>> {
 
 /// Writes the config, and proves it works when it can.
 ///
-/// The test send happens only when the write moved where notifications go: ntfy
-/// answers 200 for any topic name, so a typo is indistinguishable from success
-/// at the transport, and a save is the one moment somebody is looking at a
-/// screen. Retyping a token is not a new destination and does not fire one.
+/// The test send happens only when the write actually moved where notifications
+/// go: ntfy answers 200 for any topic name, so a typo is indistinguishable from
+/// success at the transport, and a save is the one moment somebody is looking at
+/// a screen. Retyping a token is not a new destination and does not fire one.
 ///
 /// The outcome is reported rather than enforced. A server that is down right
 /// now is a thing to tell the user about, not a reason to refuse to remember
@@ -112,11 +112,15 @@ async fn write(
         token: request.token,
         app_url: request.app_url,
     };
-    let moved = patch.server.is_some() || patch.topic.is_some() || patch.app_url.is_some();
 
-    let config = state.store().try_update_ntfy(|config| {
+    // Compared before and after rather than read off the request: the settings
+    // screen sends all three destination fields on every Save, so "did the
+    // request name one" is true every time and would buzz the user's phone for
+    // a Save that changed nothing.
+    let (config, moved) = state.store().try_update_ntfy(|config| {
+        let before = destination(config);
         config.apply(patch)?;
-        Ok::<_, timemd_core::Error>(config.clone())
+        Ok::<_, timemd_core::Error>((config.clone(), destination(config) != before))
     })??;
 
     let test = if moved && config.is_configured() {
@@ -126,6 +130,15 @@ async fn write(
     };
 
     Ok(Json(NtfyView::of(&config, test)))
+}
+
+/// Where notifications go: what they are published to, and what they link to.
+///
+/// Two configs that agree here deliver the same message to the same place, so a
+/// write that leaves this alone has nothing new to prove. The token is not part
+/// of it — it is a credential for a destination, not the destination.
+fn destination(config: &NtfyConfig) -> (Option<String>, Option<String>) {
+    (config.topic_url(), config.app_url.clone())
 }
 
 /// Publishes one notification whose only purpose is to prove the setup works.
@@ -238,16 +251,8 @@ async fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::Clock;
-    use crate::testing::stub;
-    use std::sync::Arc;
-    use timemd_core::{NtfyPatch, Store};
-
-    fn state() -> (tempfile::TempDir, AppState) {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let store = Arc::new(Store::new(directory.path()));
-        (directory, AppState::new(store, Clock::System))
-    }
+    use crate::testing::{notification, ntfy_at as pointing_at, state, stub};
+    use timemd_core::NtfyPatch;
 
     fn configure(state: &AppState, patch: NtfyPatch) {
         state
@@ -255,25 +260,6 @@ mod tests {
             .try_update_ntfy(|config| config.apply(patch))
             .expect("the store call")
             .expect("the patch is usable");
-    }
-
-    fn pointing_at(state: &AppState, server: &str) {
-        configure(
-            state,
-            NtfyPatch {
-                server: Some(server.to_owned()),
-                topic: Some(Some("timemd-a7f3".to_owned())),
-                ..NtfyPatch::default()
-            },
-        );
-    }
-
-    fn notification(title: &str) -> Notification {
-        Notification {
-            title: title.to_owned(),
-            body: "09:00".to_owned(),
-            url: "/today".to_owned(),
-        }
     }
 
     /// Both channels are enabled on their own; an unconfigured one must cost

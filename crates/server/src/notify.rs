@@ -46,53 +46,13 @@ pub async fn deliver(state: &AppState, notifications: &[Notification]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::Clock;
-    use base64::Engine;
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use p256::elliptic_curve::Generate;
-    use std::sync::Arc;
-    use timemd_core::{NtfyPatch, Store, Subscription};
-
-    fn state() -> (tempfile::TempDir, AppState) {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let store = Arc::new(Store::new(directory.path()));
-        (directory, AppState::new(store, Clock::System))
-    }
-
-    fn notification() -> Notification {
-        Notification {
-            title: "Deep work".to_owned(),
-            body: "09:00".to_owned(),
-            url: "/today".to_owned(),
-        }
-    }
-
-    fn ntfy_at(state: &AppState, server: &str) {
-        state
-            .store()
-            .try_update_ntfy(|config| {
-                config.apply(NtfyPatch {
-                    server: Some(server.to_owned()),
-                    topic: Some(Some("timemd-a7f3".to_owned())),
-                    ..NtfyPatch::default()
-                })
-            })
-            .expect("the store call")
-            .expect("the patch is usable");
-    }
+    use crate::testing::{notification, ntfy_at, state, stub, subscription};
 
     fn push_at(state: &AppState, endpoint: &str) {
         crate::push::ensure_keypair(state).expect("generates");
         state
             .store()
-            .update_push(|push| {
-                push.subscribe(Subscription {
-                    endpoint: endpoint.to_owned(),
-                    p256dh: URL_SAFE_NO_PAD
-                        .encode(p256::SecretKey::generate().public_key().to_sec1_bytes()),
-                    auth: URL_SAFE_NO_PAD.encode([7_u8; 16]),
-                })
-            })
+            .update_push(|push| push.subscribe(subscription(endpoint)))
             .expect("subscribes");
     }
 
@@ -117,11 +77,11 @@ mod tests {
     #[tokio::test]
     async fn a_dead_ntfy_server_does_not_stop_the_browsers() {
         let (_directory, state) = state();
-        let (base, served) = crate::testing::stub(201, 1).await;
+        let (base, served) = stub(201, 1).await;
         push_at(&state, &format!("{base}/push"));
         ntfy_at(&state, "http://127.0.0.1:1");
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
 
         assert_eq!(served.await.expect("the stub ran").len(), 1);
     }
@@ -129,11 +89,11 @@ mod tests {
     #[tokio::test]
     async fn a_dead_push_service_does_not_stop_ntfy() {
         let (_directory, state) = state();
-        let (base, served) = crate::testing::stub(200, 1).await;
+        let (base, served) = stub(200, 1).await;
         push_at(&state, "http://127.0.0.1:1/push");
         ntfy_at(&state, &base);
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
 
         let served = served.await.expect("the stub ran");
         assert_eq!(served.len(), 1);

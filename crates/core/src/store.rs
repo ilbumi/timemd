@@ -302,17 +302,11 @@ impl Store {
         }
     }
 
-    /// Applies an edit to the push state, then restricts the file to its owner.
-    ///
-    /// This is the one file in the tree holding a secret, so it does not inherit
-    /// the permissions everything else is happy with.
     pub fn update_push<T>(&self, edit: impl FnOnce(&mut PushState) -> T) -> Result<T> {
         self.transaction(|tx| {
             let mut state = tx.store.read_push()?;
             let outcome = edit(&mut state);
-            let path = tx.store.push_path();
-            write_atomic(&path, &state.render())?;
-            restrict_to_owner(&path)?;
+            write_secret(&tx.store.push_path(), &state.render())?;
             Ok(outcome)
         })
     }
@@ -332,28 +326,15 @@ impl Store {
     }
 
     pub fn update_ntfy<T>(&self, edit: impl FnOnce(&mut NtfyConfig) -> T) -> Result<T> {
-        settled(self.try_update_ntfy(|config| Ok(edit(config))))
+        self.transaction(|tx| tx.update_ntfy(edit))
     }
 
-    /// Applies an edit that may refuse, writing only if it did not, then
-    /// restricts the file to its owner.
-    ///
-    /// Like `push.md` this holds a credential, so it does not inherit the
-    /// permissions the rest of the tree is happy with.
+    /// Applies an edit that may refuse, writing only if it did not.
     pub fn try_update_ntfy<T, E>(
         &self,
         edit: impl FnOnce(&mut NtfyConfig) -> StdResult<T, E>,
     ) -> Result<StdResult<T, E>> {
-        self.transaction(|tx| {
-            let mut config = tx.store.read_ntfy()?;
-            let outcome = edit(&mut config);
-            if outcome.is_ok() {
-                let path = tx.store.ntfy_path();
-                write_atomic(&path, &config.render())?;
-                restrict_to_owner(&path)?;
-            }
-            Ok(outcome)
-        })
+        self.transaction(|tx| tx.try_update_ntfy(edit))
     }
 
     pub fn reminders_path(&self) -> PathBuf {
@@ -531,6 +512,24 @@ impl Tx<'_> {
         Ok(outcome)
     }
 
+    pub fn update_ntfy<T>(&self, edit: impl FnOnce(&mut NtfyConfig) -> T) -> Result<T> {
+        settled(self.try_update_ntfy(|config| Ok(edit(config))))
+    }
+
+    /// Applies an edit that may refuse, writing only if it did not. See
+    /// [`Tx::try_update_project`] for why this exists.
+    pub fn try_update_ntfy<T, E>(
+        &self,
+        edit: impl FnOnce(&mut NtfyConfig) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
+        let mut config = self.store.read_ntfy()?;
+        let outcome = edit(&mut config);
+        if outcome.is_ok() {
+            write_secret(&self.store.ntfy_path(), &config.render())?;
+        }
+        Ok(outcome)
+    }
+
     pub fn set_active(&self, session: Option<&ActiveSession>) -> Result<()> {
         let text = session.map_or_else(|| IDLE.to_owned(), ActiveSession::render);
         write_atomic(&self.store.active_path(), &text)
@@ -542,6 +541,17 @@ impl Tx<'_> {
         write_atomic(&self.store.recurring_path(), &recurring.render())?;
         Ok(outcome)
     }
+}
+
+/// Writes a file that only its owner may read.
+///
+/// `state/push.md` and `state/ntfy.md` both carry credentials, so neither
+/// inherits the permissions the rest of the tree is happy with. One helper
+/// rather than the pair written out per file: a write that forgot the second
+/// half would leave a secret world-readable and pass every other test.
+fn write_secret(path: &Path, contents: &str) -> Result<()> {
+    write_atomic(path, contents)?;
+    restrict_to_owner(path)
 }
 
 /// Restricts a file to owner read/write.

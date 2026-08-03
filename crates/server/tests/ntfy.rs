@@ -167,6 +167,24 @@ async fn moving_the_topic_reports_what_the_test_send_did() {
     );
 }
 
+/// The settings screen sends all three destination fields on every Save, so a
+/// guard that only asked "did the request name one" would buzz the user's phone
+/// every time they pressed it.
+#[tokio::test]
+async fn saving_the_same_destination_again_sends_no_test() {
+    let harness = Harness::new();
+    let destination =
+        json!({ "server": NOWHERE, "topic": "timemd-a7f3", "appUrl": "https://box.ts.net" });
+
+    let (_, first) = harness.put("/api/ntfy", destination.clone()).await;
+    assert_eq!(first["test"], "unreachable");
+
+    let (status, again) = harness.put("/api/ntfy", destination).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(again["test"], serde_json::Value::Null);
+}
+
 /// Turning the channel off has nowhere to send a test to.
 #[tokio::test]
 async fn clearing_the_topic_sends_no_test() {
