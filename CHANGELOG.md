@@ -2,6 +2,14 @@
 
 Written from the conventional commits in each release.
 
+## [0.2.0](https://github.com/ilbumi/timemd/compare/v0.1.0...v0.2.0) - 2026-08-03
+
+### Added
+
+- report what was planned beside what was tracked (#13) ([3aefb2d](https://github.com/ilbumi/timemd/commit/3aefb2d8a2e134a385b1b6b7924945d03b58fd60))
+- **breaking:** close the operation-parity gaps across all four surfaces (#14) ([bc0d691](https://github.com/ilbumi/timemd/commit/bc0d6911b94616898f21574f45de8aafc107d97b))
+- add ntfy as a second notification channel (#15) ([12acd47](https://github.com/ilbumi/timemd/commit/12acd470047adad051b649d779b4d076c452d4da))
+- **release:** publish a container image to ghcr.io (#16) ([636251c](https://github.com/ilbumi/timemd/commit/636251c3b8e659a28c4c4ce895686395ccbfb2d0))
 ## [0.1.0](https://github.com/ilbumi/timemd/releases/tag/v0.1.0) - 2026-08-02
 
 ### Added
