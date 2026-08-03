@@ -47,6 +47,7 @@ pub fn router(state: AppState) -> Router {
         .merge(report::routes())
         .merge(settings::routes())
         .merge(push::routes())
+        .merge(ntfy::routes())
         .fallback(unknown_endpoint);
 
     Router::new()

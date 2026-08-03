@@ -4,10 +4,19 @@
 //! iOS treats as optional. ntfy is a plain HTTP POST to a topic an app is
 //! subscribed to, so the phone's side of it is somebody else's problem.
 
-use timemd_core::NtfyConfig;
+use axum::extract::State;
+use axum::routing::get;
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+use timemd_core::{NtfyConfig, NtfyPatch};
 
+use crate::error::ApiResult;
 use crate::notify::Notification;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new().route("/ntfy", get(read).put(write))
+}
 
 /// The publish body.
 ///
@@ -16,7 +25,7 @@ use crate::state::AppState;
 /// alternative, `POST /{topic}` with an `X-Title` header, cannot carry a
 /// non-ASCII block title: `HeaderValue` rejects the bytes outright, so a block
 /// called "Café admin" would silently never arrive.
-#[derive(serde::Serialize)]
+#[derive(Serialize)]
 struct Publish<'a> {
     topic: &'a str,
     title: &'a str,
@@ -26,7 +35,7 @@ struct Publish<'a> {
 }
 
 /// What a publish did, as far as the caller can tell from one round trip.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TestOutcome {
     Delivered,
@@ -34,6 +43,106 @@ pub enum TestOutcome {
     Rejected,
     /// Nothing answered at all.
     Unreachable,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NtfyView {
+    server: String,
+    topic: Option<String>,
+    app_url: Option<String>,
+    /// Whether a token is set. Never the token: a value the API hands back is a
+    /// value that ends up in a browser's network log.
+    has_token: bool,
+    /// What a phone subscribes to, so nobody has to assemble it by hand.
+    subscribe_url: Option<String>,
+    /// What the test send did, and `None` when there was nothing to test.
+    test: Option<TestOutcome>,
+}
+
+impl NtfyView {
+    fn of(config: &NtfyConfig, test: Option<TestOutcome>) -> Self {
+        Self {
+            server: config.server.clone(),
+            topic: config.topic.clone(),
+            app_url: config.app_url.clone(),
+            has_token: config.token.is_some(),
+            subscribe_url: config.topic_url(),
+            test,
+        }
+    }
+}
+
+/// The wire body. Every field but `server` accepts an explicit `null` to clear
+/// it; an absent key leaves the value alone.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NtfyRequest {
+    server: Option<String>,
+    #[serde(default, deserialize_with = "crate::parse::nullable")]
+    topic: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::parse::nullable")]
+    token: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::parse::nullable")]
+    app_url: Option<Option<String>>,
+}
+
+async fn read(State(state): State<AppState>) -> ApiResult<Json<NtfyView>> {
+    let config = state.store().read_ntfy()?;
+    Ok(Json(NtfyView::of(&config, None)))
+}
+
+/// Writes the config, and proves it works when it can.
+///
+/// The test send happens only when the write moved where notifications go: ntfy
+/// answers 200 for any topic name, so a typo is indistinguishable from success
+/// at the transport, and a save is the one moment somebody is looking at a
+/// screen. Retyping a token is not a new destination and does not fire one.
+///
+/// The outcome is reported rather than enforced. A server that is down right
+/// now is a thing to tell the user about, not a reason to refuse to remember
+/// what they typed.
+async fn write(
+    State(state): State<AppState>,
+    Json(request): Json<NtfyRequest>,
+) -> ApiResult<Json<NtfyView>> {
+    let patch = NtfyPatch {
+        server: request.server,
+        topic: request.topic,
+        token: request.token,
+        app_url: request.app_url,
+    };
+    let moved = patch.server.is_some() || patch.topic.is_some() || patch.app_url.is_some();
+
+    let config = state.store().try_update_ntfy(|config| {
+        config.apply(patch)?;
+        Ok::<_, timemd_core::Error>(config.clone())
+    })??;
+
+    let test = if moved && config.is_configured() {
+        Some(send_test(&state, &config).await)
+    } else {
+        None
+    };
+
+    Ok(Json(NtfyView::of(&config, test)))
+}
+
+/// Publishes one notification whose only purpose is to prove the setup works.
+///
+/// This cannot catch a typo in the topic — ntfy accepts any name — only a wrong
+/// server or a wrong token. Whatever shows it to a user has to say so.
+async fn send_test(state: &AppState, config: &NtfyConfig) -> TestOutcome {
+    publish(
+        state,
+        config,
+        &Notification {
+            title: "timemd".to_owned(),
+            body: "Notifications are set up.".to_owned(),
+            url: "/".to_owned(),
+        },
+    )
+    .await
 }
 
 /// Publishes notifications to the configured topic.
