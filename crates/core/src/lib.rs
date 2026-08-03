@@ -32,13 +32,13 @@ pub use document::{Document, Section};
 pub use error::{Error, ParseError, ParseErrorKind, Result};
 pub use ids::{BlockId, ProjectSlug};
 pub use minutes::Minutes;
-pub use project::{Color, Mark, Milestone, Project, ProjectStatus};
+pub use project::{Color, Mark, Milestone, MilestoneEdit, Project, ProjectStatus};
 pub use push::{PushState, Subscription};
 pub use reminders::{Reminder, SentLog};
 pub use report::{Bucket, DateRange, GroupBy, Report};
 pub use schedule::{
     DayBlock, DaySet, Occurrence, Recurring, RecurringBlock, planned, planned_range,
 };
-pub use settings::Settings;
+pub use settings::{Settings, SettingsPatch};
 pub use store::{Store, Tx};
 pub use timer::{StartRequest, Stopped, Timer, TimerState};

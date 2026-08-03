@@ -7,7 +7,7 @@ use axum::{Json, Router};
 use chrono::{NaiveDate, NaiveTime};
 use serde::{Deserialize, Serialize};
 use timemd_core::day::Session;
-use timemd_core::schedule::planned;
+use timemd_core::schedule::{planned, planned_range};
 use timemd_core::{DateRange, DayBlock, Minutes, Occurrence, RecurringBlock};
 
 use crate::error::{ApiError, ApiResult};
@@ -30,7 +30,7 @@ pub fn routes() -> Router<AppState> {
         .route("/days/{date}/blocks", post(add_block))
         .route(
             "/days/{date}/blocks/{index}",
-            axum::routing::delete(remove_block),
+            axum::routing::patch(replace_block).delete(remove_block),
         )
         .route("/days/{date}/skips", post(add_skip))
         .route(
@@ -60,30 +60,19 @@ pub struct OccurrenceView {
     one_off_index: Option<usize>,
 }
 
-/// Numbers the one-offs in one day's merged list, leaving repeats at `None`.
 fn views_for(occurrences: Vec<Occurrence>) -> Vec<OccurrenceView> {
-    let mut one_offs = 0;
-
     occurrences
         .into_iter()
-        .map(|occurrence| {
-            let one_off_index = occurrence.block.is_none().then(|| {
-                let index = one_offs;
-                one_offs += 1;
-                index
-            });
-
-            OccurrenceView {
-                duration: occurrence.duration(),
-                date: occurrence.date,
-                start: occurrence.start,
-                end: occurrence.end,
-                project: occurrence.project.map(|slug| slug.to_string()),
-                title: occurrence.title,
-                remind_before: occurrence.remind_before,
-                block: occurrence.block.map(|id| id.to_string()),
-                one_off_index,
-            }
+        .map(|occurrence| OccurrenceView {
+            duration: occurrence.duration(),
+            date: occurrence.date,
+            start: occurrence.start,
+            end: occurrence.end,
+            project: occurrence.project.map(|slug| slug.to_string()),
+            title: occurrence.title,
+            remind_before: occurrence.remind_before,
+            block: occurrence.block.map(|id| id.to_string()),
+            one_off_index: occurrence.one_off_index,
         })
         .collect()
 }
@@ -164,16 +153,7 @@ async fn range(
     Query(query): Query<RangeQuery>,
 ) -> ApiResult<Json<Vec<OccurrenceView>>> {
     let range = DateRange::new(query.from, query.to)?;
-    let recurring = state.store().read_recurring()?;
-
-    // Numbered per day, because a day is the scope the delete endpoint addresses.
-    let mut views = Vec::new();
-    for date in range.dates() {
-        let day = state.store().read_day(date)?;
-        views.extend(views_for(planned(&day, &recurring)));
-    }
-
-    Ok(Json(views))
+    Ok(Json(views_for(planned_range(state.store(), range)?)))
 }
 
 async fn read_recurring(State(state): State<AppState>) -> ApiResult<Json<Vec<RecurringView>>> {
@@ -298,6 +278,35 @@ async fn add_block(
     Ok(StatusCode::CREATED)
 }
 
+/// Replaces a one-off block.
+///
+/// Like `replace_session`, this re-sorts the day, so the `oneOffIndex` the
+/// client used may afterwards name a different block. It answers 204 and the
+/// client re-reads — which the day screen's `mutate()` wrapper already does
+/// after every mutation.
+async fn replace_block(
+    State(state): State<AppState>,
+    Path((date, index)): Path<(NaiveDate, usize)>,
+    Json(body): Json<NewBlock>,
+) -> ApiResult<StatusCode> {
+    // Every conversion happens before the store is touched, so a rejected value
+    // cannot leave the file half-updated.
+    let block = DayBlock {
+        start: body.start,
+        end: body.end,
+        project: optional_slug(body.project)?,
+        title: body.title.trim().to_owned(),
+        remind_before: optional_minutes(body.remind_before)?,
+    };
+    let replaced = state
+        .store()
+        .update_day(date, |day| day.replace_block(index, block))?;
+
+    replaced
+        .map(|_| StatusCode::NO_CONTENT)
+        .ok_or_else(|| missing_block(date, index))
+}
+
 async fn remove_block(
     State(state): State<AppState>,
     Path((date, index)): Path<(NaiveDate, usize)>,
@@ -308,7 +317,7 @@ async fn remove_block(
 
     removed
         .map(|_| StatusCode::NO_CONTENT)
-        .ok_or_else(|| ApiError::not_found(format!("no block at index {index} on {date}")))
+        .ok_or_else(|| missing_block(date, index))
 }
 
 async fn add_skip(
@@ -377,4 +386,8 @@ fn block_from(view: &RecurringView) -> ApiResult<RecurringBlock> {
 
 fn missing_session(date: NaiveDate, index: usize) -> ApiError {
     ApiError::not_found(format!("no session at index {index} on {date}"))
+}
+
+fn missing_block(date: NaiveDate, index: usize) -> ApiError {
+    ApiError::not_found(format!("no block at index {index} on {date}"))
 }

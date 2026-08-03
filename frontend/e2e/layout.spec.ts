@@ -159,6 +159,47 @@ test.describe('adaptive behaviour', () => {
 	});
 });
 
+/**
+ * Controls that only exist once something has been clicked.
+ *
+ * `expectWellAligned` walks what is on screen, so an editor behind a button is
+ * invisible to every test above — which is exactly where a 22px arrow or a
+ * doubled rule would survive. Each of these opens the thing and re-probes at
+ * phone width, where the reach rule bites hardest.
+ */
+test.describe('controls behind a click', () => {
+	test('the milestone arrange mode', async ({ page }) => {
+		await open(page, '/projects/thesis', WIDTHS.phone);
+		await page.getByRole('button', { name: 'Arrange' }).click();
+		await expect(page.getByRole('button', { name: /^Move .* up$/ }).first()).toBeVisible();
+		await expectWellAligned(page, WIDTHS.phone);
+	});
+
+	test('the session editor on the log', async ({ page }) => {
+		await open(page, '/schedule/log', WIDTHS.phone);
+		await page
+			.getByRole('button', { name: /^Edit / })
+			.first()
+			.click();
+		await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
+		await expectWellAligned(page, WIDTHS.phone);
+	});
+
+	test('the add-time form on the log', async ({ page }) => {
+		await open(page, '/schedule/log', WIDTHS.phone);
+		await page.getByRole('button', { name: '+ Time by hand' }).click();
+		await expect(page.getByLabel('Date')).toBeVisible();
+		await expectWellAligned(page, WIDTHS.phone);
+	});
+
+	test('the block editor on the day', async ({ page }) => {
+		await open(page, '/schedule', WIDTHS.phone);
+		await page.getByRole('button', { name: 'Edit Standup', exact: true }).click();
+		await expect(page.getByRole('button', { name: 'Save block' })).toBeVisible();
+		await expectWellAligned(page, WIDTHS.phone);
+	});
+});
+
 /** The shelf wraps, so its width is counted from where the tiles actually sit. */
 async function tilesPerRow(page: Page): Promise<number> {
 	return page.evaluate(() => {

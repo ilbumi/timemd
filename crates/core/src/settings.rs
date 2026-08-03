@@ -83,6 +83,67 @@ impl Settings {
             self.short_break
         }
     }
+
+    /// Applies `patch`, leaving every field it does not name alone.
+    ///
+    /// The write-side half of the rule `parse` reads leniently: a zero-length
+    /// session would start and immediately retire itself, so `parse` falls back
+    /// when it finds one and this refuses to write one. Refusing rather than
+    /// silently defaulting is what tells the caller nothing happened.
+    ///
+    /// Here rather than at each surface because all three settable-length rules
+    /// are the same rule, and the two surfaces that wrote the loop out for
+    /// themselves both left the gate behind.
+    pub fn apply(&mut self, patch: SettingsPatch) -> crate::error::Result<()> {
+        for (length, name) in [
+            (patch.focus, "focus"),
+            (patch.short_break, "short_break"),
+            (patch.long_break, "long_break"),
+        ] {
+            if length.is_some_and(Minutes::is_zero) {
+                return Err(crate::error::Error::Invalid(format!(
+                    "{name} must be more than zero minutes"
+                )));
+            }
+        }
+
+        if let Some(focus) = patch.focus {
+            self.focus = focus;
+        }
+        if let Some(short_break) = patch.short_break {
+            self.short_break = short_break;
+        }
+        if let Some(long_break) = patch.long_break {
+            self.long_break = long_break;
+        }
+        // A zero lead is meaningful: remind me as it starts.
+        if let Some(remind_before) = patch.remind_before {
+            self.remind_before = remind_before;
+        }
+        Ok(())
+    }
+}
+
+/// What may be changed about the settings. Every field omitted leaves the
+/// setting exactly as it was.
+///
+/// `timezone` and `long_break_every` are absent deliberately: the timezone is
+/// what turns every bare wall-clock time in the tree into an instant, so it is
+/// read-only on every surface and changed by editing `settings.md`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SettingsPatch {
+    pub focus: Option<Minutes>,
+    pub short_break: Option<Minutes>,
+    pub long_break: Option<Minutes>,
+    pub remind_before: Option<Minutes>,
+}
+
+impl SettingsPatch {
+    /// True when there is nothing to write, so a caller can answer a pure read
+    /// without touching a git-tracked file.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 fn usable(length: &Minutes) -> bool {
@@ -205,5 +266,72 @@ mod tests {
             Settings::parse(&settings.render()).expect("parses"),
             settings
         );
+    }
+
+    /// The write-side half of the leniency `parse` shows a zero. Every surface
+    /// goes through here, so none of them can put a length in the file that the
+    /// next read would silently ignore.
+    #[test]
+    fn a_zero_session_length_is_refused_but_a_zero_lead_is_not() {
+        for patch in [
+            SettingsPatch {
+                focus: Some(Minutes::new(0)),
+                ..SettingsPatch::default()
+            },
+            SettingsPatch {
+                short_break: Some(Minutes::new(0)),
+                ..SettingsPatch::default()
+            },
+            SettingsPatch {
+                long_break: Some(Minutes::new(0)),
+                ..SettingsPatch::default()
+            },
+        ] {
+            let mut settings = Settings::default();
+            assert!(settings.apply(patch.clone()).is_err(), "{patch:?}");
+            assert_eq!(settings, Settings::default(), "a refusal changes nothing");
+        }
+
+        let mut settings = Settings::default();
+        settings
+            .apply(SettingsPatch {
+                // Zero is a meaningful lead: remind me as the block starts.
+                remind_before: Some(Minutes::new(0)),
+                ..SettingsPatch::default()
+            })
+            .expect("a zero lead is allowed");
+        assert_eq!(settings.remind_before, Minutes::new(0));
+    }
+
+    #[test]
+    fn an_empty_patch_is_empty_and_changes_nothing() {
+        let mut settings = Settings::default();
+        assert!(SettingsPatch::default().is_empty());
+        assert!(
+            !SettingsPatch {
+                focus: Some(Minutes::new(50)),
+                ..SettingsPatch::default()
+            }
+            .is_empty()
+        );
+
+        settings.apply(SettingsPatch::default()).expect("applies");
+        assert_eq!(settings, Settings::default());
+    }
+
+    #[test]
+    fn a_patch_only_touches_the_lengths_it_names() {
+        let mut settings = Settings::default();
+        settings
+            .apply(SettingsPatch {
+                focus: Some(Minutes::new(50)),
+                ..SettingsPatch::default()
+            })
+            .expect("applies");
+
+        assert_eq!(settings.focus, Minutes::new(50));
+        assert_eq!(settings.short_break, DEFAULT_SHORT_BREAK);
+        assert_eq!(settings.long_break, DEFAULT_LONG_BREAK);
+        assert_eq!(settings.remind_before, DEFAULT_REMIND_BEFORE);
     }
 }

@@ -32,7 +32,7 @@ impl From<&Milestone> for MilestoneView {
     fn from(milestone: &Milestone) -> Self {
         Self {
             done: milestone.done,
-            title: milestone.title.clone(),
+            title: milestone.title().to_owned(),
         }
     }
 }
@@ -62,7 +62,11 @@ impl From<&Project> for ProjectView {
             target: project.target.map(|target| target.to_string()),
             status: project.status,
             created: project.created,
-            milestones: project.milestones.iter().map(MilestoneView::from).collect(),
+            milestones: project
+                .milestones()
+                .iter()
+                .map(MilestoneView::from)
+                .collect(),
             problems: project.problems().iter().map(ToString::to_string).collect(),
         }
     }
@@ -137,7 +141,7 @@ async fn create(
     project.color = color;
     project.mark = mark.unwrap_or_default();
     project.target = target;
-    project.milestones = milestones.unwrap_or_default();
+    project.set_milestones(milestones.unwrap_or_default())?;
     state.store().create_project(&project)?;
 
     Ok((StatusCode::CREATED, Json(ProjectView::from(&project))))
@@ -175,7 +179,7 @@ async fn update(
     };
     let milestones = patch.milestones.map(milestones_from).transpose()?;
 
-    let view = state.store().update_project(&slug, |project| {
+    let view = state.store().try_update_project(&slug, |project| {
         if let Some(name) = patch.name {
             project.name = name;
         }
@@ -192,10 +196,10 @@ async fn update(
             project.status = status;
         }
         if let Some(milestones) = milestones {
-            project.milestones = milestones;
+            project.set_milestones(milestones)?;
         }
-        ProjectView::from(&*project)
-    })?;
+        Ok::<_, timemd_core::Error>(ProjectView::from(&*project))
+    })??;
 
     Ok(Json(view))
 }

@@ -19,6 +19,10 @@ that users and agents edit by hand.
   notify while the tab is suspended. Anything that depends on the client being
   awake is wrong.
 - **One binary.** `serve`, `mcp` and the shell commands all ship in `timemd`.
+- **Four surfaces, one domain.** An operation belongs on the API, in MCP, in the
+  CLI and in the UI unless there is a reason it does not.
+  [`docs/surfaces.md`](docs/surfaces.md) is the checklist — add a row when you
+  add an operation, and read the addressing rules there before taking an index.
 
 ## Layout
 

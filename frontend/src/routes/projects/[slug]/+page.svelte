@@ -36,6 +36,12 @@
 	let draftColor = $state(DEFAULT_COLOR);
 	let draftTarget = $state(0);
 	let newMilestone = $state('');
+	/**
+	 * Off by default, and a section-level mode rather than a third control on
+	 * each row: the whole row is already the tick target, deliberately, and at
+	 * 360px there is no room beside it.
+	 */
+	let arranging = $state(false);
 
 	let confirming = $state(false);
 	let typedName = $state('');
@@ -144,6 +150,45 @@
 			const current = project;
 			if (current === null) return;
 			const milestones = current.milestones.filter((_, index) => index !== position);
+			project = await api.updateProject(slug, { milestones });
+		});
+
+	/**
+	 * Commits a retitle, on blur or Enter rather than per keystroke.
+	 *
+	 * Nothing is sent when the title has not changed, so tabbing through the
+	 * list does not write the file once per row.
+	 */
+	const renameMilestone = (position: number, title: string): Promise<void> =>
+		run(async () => {
+			const current = project;
+			const trimmed = title.trim();
+			if (current === null || trimmed === '') return;
+			if (trimmed === current.milestones[position]?.title) return;
+
+			const milestones = current.milestones.map((milestone, index) =>
+				index === position ? { ...milestone, title: trimmed } : milestone
+			);
+			project = await api.updateProject(slug, { milestones });
+		});
+
+	/**
+	 * Moves a milestone one place up or down.
+	 *
+	 * Arrows rather than drag: a drag handle is a sub-44px grip, and the layout
+	 * gate exempts only shapes whose size carries meaning. One press is one
+	 * whole-list PATCH, which is exactly what that endpoint is good at.
+	 */
+	const moveMilestone = (position: number, by: -1 | 1): Promise<void> =>
+		run(async () => {
+			const current = project;
+			const target = position + by;
+			if (current === null || target < 0 || target >= current.milestones.length) return;
+
+			const milestones = [...current.milestones];
+			const [moved] = milestones.splice(position, 1);
+			if (moved === undefined) return;
+			milestones.splice(target, 0, moved);
 			project = await api.updateProject(slug, { milestones });
 		});
 
@@ -301,6 +346,15 @@
 								: ''}</span
 						>
 						<span class="meta">{doneCount} / {current.milestones.length}</span>
+						{#if !archived && current.milestones.length > 0}
+							<button
+								class="quiet"
+								aria-pressed={arranging}
+								onclick={() => (arranging = !arranging)}
+							>
+								{arranging ? 'Done' : 'Arrange'}
+							</button>
+						{/if}
 					</div>
 
 					<ul class="milestones" class:readonly={archived}>
@@ -309,6 +363,32 @@
 								{#if archived}
 									<Mark mark="triangle" color="var(--ink)" size={18} outline={!milestone.done} />
 									<span class:done={milestone.done}>{milestone.title}</span>
+								{:else if arranging}
+									<button
+										class="quiet move"
+										aria-label="Move {milestone.title} up"
+										onclick={() => moveMilestone(position, -1)}
+										disabled={busy || position === 0}>▲</button
+									>
+									<button
+										class="quiet move"
+										aria-label="Move {milestone.title} down"
+										onclick={() => moveMilestone(position, 1)}
+										disabled={busy || position === current.milestones.length - 1}>▼</button
+									>
+									<input
+										type="text"
+										class="retitle"
+										aria-label="Title of {milestone.title}"
+										value={milestone.title}
+										onblur={(event) => void renameMilestone(position, event.currentTarget.value)}
+										onkeydown={(event) => {
+											if (event.key === 'Enter') {
+												event.preventDefault();
+												event.currentTarget.blur();
+											}
+										}}
+									/>
 								{:else}
 									<button
 										class="tick"
@@ -324,6 +404,10 @@
 										/>
 										<span class:done={milestone.done}>{milestone.title}</span>
 									</button>
+								{/if}
+								<!-- The row ends the same way whether it is being arranged or
+								     ticked, so the button that ends it is written once. -->
+								{#if !archived}
 									<button
 										class="quiet"
 										aria-label="Remove {milestone.title}"
@@ -681,6 +765,31 @@
 	.adder input {
 		flex: 1;
 		min-height: 40px;
+		padding: 0;
+		border: none;
+		background: none;
+		font-size: 0.875rem;
+	}
+
+	/*
+	 * Side by side at a full 44px each, not stacked: stacked they would be
+	 * ~22px and would need the reach-overlay trick, and the layout gate is
+	 * measuring a thumb, not a cursor.
+	 *
+	 * The row already draws a border-bottom and nothing here adds a top one —
+	 * two rules meeting is what the gate flags.
+	 */
+	.move {
+		flex: none;
+		width: 44px;
+		min-height: 44px;
+		font-size: 0.75rem;
+	}
+
+	.retitle {
+		flex: 1;
+		min-width: 0;
+		min-height: 44px;
 		padding: 0;
 		border: none;
 		background: none;

@@ -20,14 +20,31 @@
 
 	let error = $state<string | null>(null);
 	let loading = $state(true);
-	let adding = $state(false);
+	/**
+	 * The open form: adding at the foot, or amending one session inline. One
+	 * value rather than an `adding` flag beside an `editing` target, because
+	 * only one is ever open and nothing had to keep the pair consistent.
+	 */
+	let editor = $state<{ mode: 'add' } | { mode: 'amend'; date: string; index: number } | null>(
+		null
+	);
 
-	let start = $state('09:00');
-	let end = $state('10:00');
-	let project = $state('');
-	let note = $state('');
+	/** What the form opens with when it is adding rather than amending. */
+	const NEW_SESSION: Record<'start' | 'end' | 'project' | 'note', string> = {
+		start: '09:00',
+		end: '10:00',
+		project: '',
+		note: ''
+	};
+
+	let start = $state(NEW_SESSION.start);
+	let end = $state(NEW_SESSION.end);
+	let project = $state(NEW_SESSION.project);
+	let note = $state(NEW_SESSION.note);
+	let date = $state(today());
 
 	const monday = $derived(startOfWeek(anchor));
+	const week = $derived(weekDates(monday));
 
 	/** The week's days, newest first, with the empty ones dropped. */
 	const bands: Band[] = $derived(
@@ -62,36 +79,99 @@
 	 */
 	async function load(): Promise<void> {
 		error = await attempt(async () => {
-			days = await Promise.all(weekDates(monday).map((date) => api.readDay(date)));
+			days = await Promise.all(week.map((each) => api.readDay(each)));
 		});
 		loading = false;
 	}
 
+	/**
+	 * Runs an edit and re-reads the week.
+	 *
+	 * The re-read is in the wrapper rather than at each call site so a new
+	 * mutation cannot forget it — and it is what covers the trap here: a day
+	 * re-sorts around a changed start time, so an index held across a write may
+	 * afterwards name a different session.
+	 */
 	async function run(work: () => Promise<void>): Promise<void> {
-		error = await attempt(work);
+		error = await attempt(async () => {
+			await work();
+			await load();
+		});
+	}
+
+	/**
+	 * Puts the four shared fields back.
+	 *
+	 * `date` is deliberately not among them: it belongs to the add form alone —
+	 * the amend form keeps its target on `editor` — and `openAdder` sets it
+	 * against the week on screen for the reason recorded there.
+	 */
+	function resetDraft(): void {
+		start = NEW_SESSION.start;
+		end = NEW_SESSION.end;
+		project = NEW_SESSION.project;
+		note = NEW_SESSION.note;
+	}
+
+	/** The four fields both forms carry, in the shape the API takes. */
+	const draft = () => ({
+		start: `${start}:00`,
+		end: `${end}:00`,
+		project: project || null,
+		note: note.trim()
+	});
+
+	/**
+	 * Opens the form against the week on screen.
+	 *
+	 * Today when the shown week contains it, and its Monday otherwise: the
+	 * header browses back through past weeks, and logging into one of them used
+	 * to be impossible from here even though the endpoint is date-addressed.
+	 */
+	function openAdder(): void {
+		date = week.includes(today()) ? today() : monday;
+		resetDraft();
+		editor = { mode: 'add' };
 	}
 
 	const addSession = (event: SubmitEvent): Promise<void> => {
 		event.preventDefault();
 		return run(async () => {
-			await api.addSession(today(), {
-				start: `${start}:00`,
-				end: `${end}:00`,
-				project: project || null,
-				note: note.trim()
-			});
-			note = '';
-			adding = false;
-			anchor = today();
-			await load();
+			await api.addSession(date, draft());
+			resetDraft();
+			editor = null;
 		});
 	};
 
 	const removeSession = (date: string, index: number): Promise<void> =>
-		run(async () => {
-			await api.deleteSession(date, index);
-			await load();
+		run(() => api.deleteSession(date, index));
+
+	/**
+	 * Opens the editor on one session, pre-filled.
+	 *
+	 * Tapping the entry rather than a second trailing button: the row already
+	 * ends in one, and two adjacent 44px reach-overlays pass the layout gate —
+	 * it probes vertically — while still failing a thumb.
+	 */
+	function openEditor(date: string, session: LoggedSession): void {
+		editor = { mode: 'amend', date, index: session.index };
+		start = session.start.slice(0, 5);
+		end = session.end.slice(0, 5);
+		project = session.project ?? '';
+		note = session.note;
+	}
+
+	const saveSession = (event: SubmitEvent): Promise<void> => {
+		event.preventDefault();
+		const target = editor;
+		if (target?.mode !== 'amend') return Promise.resolve();
+
+		return run(async () => {
+			await api.updateSession(target.date, target.index, draft());
+			resetDraft();
+			editor = null;
 		});
+	};
 
 	$effect(() => {
 		void monday;
@@ -136,41 +216,51 @@
 					{@const look = lookOf(looks, session.project)}
 					<li>
 						<Mark mark={look.mark} color={look.color} size={14} />
-						<div class="entry">
-							<div class="line">
+						<button
+							class="entry"
+							aria-label="Edit {look.name} at {clockTime(session.start)}"
+							onclick={() => openEditor(band.date, session)}
+						>
+							<span class="line">
 								<span class="who">{look.name}</span>
 								<span class="numeric when">
 									{clockTime(session.start)} · {session.duration}
 								</span>
-							</div>
-							<p class="note" class:none={session.note === ''}>{session.note || 'No note'}</p>
-						</div>
+							</span>
+							<span class="note" class:none={session.note === ''}>{session.note || 'No note'}</span>
+						</button>
 						<button
 							class="quiet danger"
 							aria-label="Delete session"
 							onclick={() => removeSession(band.date, session.index)}>×</button
 						>
 					</li>
+
+					{#if editor?.mode === 'amend' && editor.date === band.date && editor.index === session.index}
+						<form onsubmit={saveSession}>
+							{@render fields()}
+							<div class="actions">
+								<button type="button" onclick={() => (editor = null)}>Cancel</button>
+								<button class="primary" type="submit">Save</button>
+							</div>
+						</form>
+					{/if}
 				{/each}
 			</ul>
 		{/each}
 
-		{#if adding}
+		{#if editor?.mode === 'add'}
 			<form onsubmit={addSession}>
-				<p class="meta">Logged against today.</p>
-				<div class="row">
-					<input type="time" aria-label="Start" bind:value={start} />
-					<input type="time" aria-label="End" bind:value={end} />
-				</div>
-				<select aria-label="Project" bind:value={project}>
-					<option value="">No project</option>
-					{#each projects as candidate (candidate.slug)}
-						<option value={candidate.slug}>{candidate.name}</option>
-					{/each}
-				</select>
-				<input type="text" placeholder="Note" aria-label="Note" bind:value={note} />
+				<input
+					type="date"
+					aria-label="Date"
+					min={week[0]}
+					max={week[week.length - 1]}
+					bind:value={date}
+				/>
+				{@render fields()}
 				<div class="actions">
-					<button type="button" onclick={() => (adding = false)}>Cancel</button>
+					<button type="button" onclick={() => (editor = null)}>Cancel</button>
 					<button class="primary" type="submit">Log it</button>
 				</div>
 			</form>
@@ -179,10 +269,28 @@
 
 	<div class="foot">
 		<div class="actions">
-			<button onclick={() => (adding = !adding)}>+ Time by hand</button>
+			<button onclick={() => (editor?.mode === 'add' ? (editor = null) : openAdder())}>
+				+ Time by hand
+			</button>
 		</div>
 	</div>
 </section>
+
+<!-- What a session is, in both the form that creates one and the form that
+     amends one. Rendered twice so the two cannot drift apart. -->
+{#snippet fields()}
+	<div class="row">
+		<input type="time" aria-label="Start" bind:value={start} />
+		<input type="time" aria-label="End" bind:value={end} />
+	</div>
+	<select aria-label="Project" bind:value={project}>
+		<option value="">No project</option>
+		{#each projects as candidate (candidate.slug)}
+			<option value={candidate.slug}>{candidate.name}</option>
+		{/each}
+	</select>
+	<input type="text" placeholder="Note" aria-label="Note" bind:value={note} />
+{/snippet}
 
 <style>
 	.body {
@@ -222,9 +330,22 @@
 		margin-top: 3px;
 	}
 
+	/*
+	 * A button, so the whole entry opens the editor — but Chrome centres a
+	 * button's contents, so it is a left-aligned flex column like the day
+	 * screen's block text.
+	 */
 	.entry {
 		flex: 1;
 		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		padding: 0;
+		border: none;
+		background: none;
+		font: inherit;
+		color: inherit;
+		text-align: left;
 	}
 
 	.line {
@@ -264,10 +385,6 @@
 		flex-direction: column;
 		gap: 8px;
 		padding: var(--gap) var(--pad) 0;
-	}
-
-	form p {
-		margin: 0;
 	}
 
 	.row {

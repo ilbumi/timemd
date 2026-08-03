@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import Mark from '$lib/Mark.svelte';
 	import PeriodHeader from '$lib/PeriodHeader.svelte';
 	import { api, type DayView, type Occurrence, type Project } from '$lib/api';
@@ -18,19 +19,41 @@
 	/** How often the now-bar moves. A minute is as fine as it needs to be. */
 	const NOW_MS = 60_000;
 
-	let date = $state(today());
+	/**
+	 * Read from the URL once, so the week view can link to a day.
+	 *
+	 * Only the initial value: the day arrows below move it without pushing
+	 * history, which is the behaviour that was already here.
+	 */
+	let date = $state(page.url.searchParams.get('date') ?? today());
 	let day = $state<DayView | null>(null);
 	let allProjects = $state<Project[]>([]);
 	let looks = $state<Record<string, Look>>({});
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 	let nowMinutes = $state(minutesNow());
-	let adding = $state(false);
+	/**
+	 * The open block form: `{ index: null }` while creating, `{ index }` while
+	 * amending that one-off. Closed when null.
+	 *
+	 * One value rather than an `adding` flag beside an `editing` target, because
+	 * the target only ever meant anything while the flag was set and nothing
+	 * enforced that.
+	 */
+	let form = $state<{ index: number | null } | null>(null);
 
-	let blockStart = $state('09:00');
-	let blockEnd = $state('10:00');
-	let blockProject = $state('');
-	let blockTitle = $state('');
+	/** What the form opens with when it is creating rather than amending. */
+	const NEW_BLOCK: Record<'start' | 'end' | 'project' | 'title', string> = {
+		start: '09:00',
+		end: '10:00',
+		project: '',
+		title: ''
+	};
+
+	let blockStart = $state(NEW_BLOCK.start);
+	let blockEnd = $state(NEW_BLOCK.end);
+	let blockProject = $state(NEW_BLOCK.project);
+	let blockTitle = $state(NEW_BLOCK.title);
 
 	const planned = $derived(day?.planned ?? []);
 	const isToday = $derived(date === today());
@@ -89,19 +112,59 @@
 		});
 	}
 
-	const addBlock = (event: SubmitEvent): Promise<void> => {
+	/**
+	 * Submits the block form, creating or amending depending on how it opened.
+	 *
+	 * The re-read in `mutate` covers the trap here: changing a start time
+	 * re-sorts the day, so the `oneOffIndex` just used may name another block.
+	 */
+	const saveBlock = (event: SubmitEvent): Promise<void> => {
 		event.preventDefault();
+		const target = form?.index ?? null;
 		return mutate(async () => {
-			await api.addBlock(date, {
+			const block = {
 				start: `${blockStart}:00`,
 				end: `${blockEnd}:00`,
 				project: blockProject || null,
 				title: blockTitle.trim()
-			});
-			blockTitle = '';
-			adding = false;
+			};
+			if (target === null) {
+				await api.addBlock(date, block);
+			} else {
+				await api.updateBlock(date, target, block);
+			}
+			resetBlock();
+			form = null;
 		});
 	};
+
+	/**
+	 * Puts all four fields back.
+	 *
+	 * All four, not the title alone: one set of state serves the create form and
+	 * the amend form both, so whatever an edit left behind was what the next
+	 * "+ Block" opened with — the other block's times and project.
+	 */
+	function resetBlock(): void {
+		blockStart = NEW_BLOCK.start;
+		blockEnd = NEW_BLOCK.end;
+		blockProject = NEW_BLOCK.project;
+		blockTitle = NEW_BLOCK.title;
+	}
+
+	/** Opens the form on an existing one-off, pre-filled. */
+	function openEditor(block: Occurrence, index: number): void {
+		blockStart = block.start.slice(0, 5);
+		blockEnd = block.end.slice(0, 5);
+		blockProject = block.project ?? '';
+		blockTitle = block.title;
+		form = { index };
+	}
+
+	function openAdder(): void {
+		resetBlock();
+		form = { index: null };
+	}
 
 	const skip = (id: string): Promise<void> => mutate(() => api.skipBlock(date, id));
 
@@ -216,14 +279,27 @@
 					{@const look = lookOf(looks, block.project)}
 					<li>
 						<Mark mark={look.mark} color={look.color} size={13} />
-						<span class="numeric when">{clockTime(block.start)}</span>
-						<span class="what">{block.title || look.name}</span>
-						{#if block.block}
-							{@const id = block.block}
-							<button class="quiet" onclick={() => skip(id)}>Skip</button>
-						{:else if block.oneOffIndex !== null}
+						{#if block.oneOffIndex !== null}
 							{@const index = block.oneOffIndex}
+							<!-- The row opens the editor, so the one trailing button stays
+							     the one destructive action. A second button beside it would
+							     put two 44px reach-overlays side by side. -->
+							<button
+								class="what edit"
+								aria-label="Edit {block.title || look.name}"
+								onclick={() => openEditor(block, index)}
+							>
+								<span class="numeric when">{clockTime(block.start)}</span>
+								<span class="title">{block.title || look.name}</span>
+							</button>
 							<button class="quiet danger" onclick={() => removeBlock(index)}>Remove</button>
+						{:else}
+							<span class="numeric when">{clockTime(block.start)}</span>
+							<span class="what">{block.title || look.name}</span>
+							{#if block.block}
+								{@const id = block.block}
+								<button class="quiet" onclick={() => skip(id)}>Skip</button>
+							{/if}
 						{/if}
 					</li>
 				{/each}
@@ -237,8 +313,8 @@
 			</p>
 		{/each}
 
-		{#if adding}
-			<form class="add" onsubmit={addBlock}>
+		{#if form}
+			<form class="add" onsubmit={saveBlock}>
 				<div class="row">
 					<input type="time" aria-label="Start" bind:value={blockStart} />
 					<input type="time" aria-label="End" bind:value={blockEnd} />
@@ -251,8 +327,13 @@
 				</select>
 				<input type="text" placeholder="Title" aria-label="Title" bind:value={blockTitle} />
 				<div class="actions">
-					<button type="button" onclick={() => (adding = false)}>Cancel</button>
-					<button class="primary" type="submit">Add block</button>
+					<button type="button" onclick={() => (form = null)}>Cancel</button>
+					<button class="primary" type="submit">
+						<!-- `==` on purpose, and the only loose comparison here:
+						     `form` may be null (closed) and `index` may be null
+						     (creating), and both have to read as "not amending". -->
+						{form?.index == null ? 'Add block' : 'Save block'}
+					</button>
 				</div>
 			</form>
 		{/if}
@@ -260,7 +341,7 @@
 
 	<div class="foot">
 		<div class="actions">
-			<button onclick={() => (adding = !adding)}>+ Block</button>
+			<button onclick={() => (form ? (form = null) : openAdder())}> + Block </button>
 			{#if upcoming}
 				{@const block = upcoming}
 				{@const look = lookOf(looks, block.project)}
@@ -429,6 +510,30 @@
 		flex: 1;
 		min-width: 0;
 		font-size: 0.84375rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/*
+	 * The row opens the editor. Left-aligned for the same reason `.block-text`
+	 * is a column: Chrome centres a button's contents itself.
+	 */
+	.edit {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 44px;
+		padding: 0;
+		border: none;
+		background: none;
+		font: inherit;
+		color: inherit;
+		text-align: left;
+	}
+
+	.edit .title {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;

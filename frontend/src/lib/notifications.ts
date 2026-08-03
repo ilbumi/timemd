@@ -7,7 +7,7 @@
  * gets its own outcome rather than being reported as success.
  */
 
-import { api } from './api';
+import { ApiError, api } from './api';
 
 export type PushOutcome =
 	| 'enabled'
@@ -90,6 +90,35 @@ export async function enablePush(): Promise<PushOutcome> {
 	} catch {
 		return 'failed';
 	}
+}
+
+/**
+ * Drops this device's subscription, here and on the server.
+ *
+ * Both halves, because either one alone leaves a wrong state: dropping it
+ * locally would leave the server pushing into a dead endpoint, and dropping it
+ * only on the server would leave the browser thinking it is still subscribed.
+ *
+ * Returns whether there was one to drop.
+ */
+export async function disablePush(): Promise<boolean> {
+	if (!isSupported()) return false;
+
+	const registration = await navigator.serviceWorker.getRegistration('/');
+	const subscription = await registration?.pushManager.getSubscription();
+	if (!subscription) return false;
+
+	try {
+		await api.unsubscribePush(subscription.endpoint);
+	} catch (failure) {
+		// A 404 is the goal state, not a failure: the server has no record of
+		// this endpoint, which is exactly what it was being asked to reach. A
+		// device whose subscription the server has forgotten could otherwise
+		// never turn notifications off again.
+		if (!(failure instanceof ApiError) || failure.status !== 404) throw failure;
+	}
+	await subscription.unsubscribe();
+	return true;
 }
 
 /** Whether this device already has a subscription registered. */

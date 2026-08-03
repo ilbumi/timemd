@@ -3,6 +3,7 @@
 	import { attempt } from '$lib/attempt';
 	import { parseMinutes } from '$lib/countdown';
 	import {
+		disablePush,
 		enablePush,
 		isIos,
 		isStandalone,
@@ -53,12 +54,26 @@
 		busy = false;
 	}
 
-	async function turnOn(): Promise<void> {
-		busy = true;
-		outcome = await enablePush();
-		subscribed = outcome === 'enabled';
-		busy = false;
-	}
+	/**
+	 * One button, both ways. The wrapper existed and had no caller: turning
+	 * notifications on was permanent from here, short of clearing site data.
+	 *
+	 * Through `run` like every other call on this screen. Turning them off
+	 * reaches the API, and the API throws on any non-2xx; a throw that skipped
+	 * `busy = false` left the button disabled for good with nothing on screen
+	 * to say why, which is the one state a user cannot retry out of.
+	 */
+	const togglePush = (): Promise<void> =>
+		run(async () => {
+			if (subscribed) {
+				await disablePush();
+				subscribed = false;
+				outcome = null;
+			} else {
+				outcome = await enablePush();
+				subscribed = outcome === 'enabled';
+			}
+		});
 
 	$effect(() => {
 		void run(async () => {
@@ -129,12 +144,8 @@
 				<p class="meta">This browser cannot do push notifications.</p>
 			{/if}
 
-			<button
-				class="primary wide"
-				onclick={turnOn}
-				disabled={busy || subscribed || mustInstallFirst}
-			>
-				{subscribed ? 'Notifications are on' : 'Turn on notifications'}
+			<button class="primary wide" onclick={togglePush} disabled={busy || mustInstallFirst}>
+				{subscribed ? 'Turn off notifications' : 'Turn on notifications'}
 			</button>
 
 			{#if outcome}

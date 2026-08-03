@@ -202,6 +202,11 @@ Nothing running.
 	for (const [offset, lines] of Object.entries(SESSIONS)) {
 		const date = daysAgo(Number(offset));
 		const day = isoDay(date);
+		// Today gets a one-off block. Without one the day screen never renders
+		// its edit or remove affordance, so the probes below would measure a
+		// screen the user does not have.
+		const schedule =
+			Number(offset) === 0 ? '\n## Schedule\n\n- 12:00-12:45 [[atlas]] Standup !5m\n' : '';
 		write(
 			root,
 			`days/${date.getFullYear()}/${day}.md`,
@@ -211,7 +216,7 @@ date: ${day}
 ---
 
 # ${day}
-
+${schedule}
 ## Sessions
 
 ${lines.join('\n')}

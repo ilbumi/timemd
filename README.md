@@ -19,6 +19,9 @@ data/days/2026/2026-08-01.md
 [`docs/format.md`](docs/format.md) is the specification. It is worth reading
 before pointing an agent at the tree.
 
+[`docs/surfaces.md`](docs/surfaces.md) says which operations the API, the MCP
+tools, the command and the web app each offer, and how each thing is addressed.
+
 ## What it does
 
 - **Projects** — each with a shape, a colour, a weekly hour target and a
@@ -131,8 +134,20 @@ Point an agent at the MCP server:
 }
 ```
 
-Tools: `start_session`, `stop_session`, `current_session`, `log_time`, `day`,
-`schedule`, `report`, `list_projects`, `upsert_project`.
+Tools, by what they touch:
+
+| | |
+|---|---|
+| Timer | `start_session`, `stop_session`, `cancel_session`, `current_session` |
+| Logged time | `log_time`, `edit_session`, `delete_session`, `day` |
+| Projects | `list_projects`, `project`, `upsert_project`, `delete_project` |
+| Milestones | `add_milestone`, `update_milestone`, `remove_milestone` |
+| Schedule | `schedule`, `recurring`, `set_recurring_block`, `remove_recurring_block`, `add_block`, `edit_block`, `remove_block`, `skip_block`, `unskip_block` |
+| Everything else | `report`, `settings` |
+
+Sessions and one-off blocks are addressed by index, milestones by title, and
+repeating blocks by id. Every tool that writes a session or a block answers with
+the whole day, renumbered, because both lists re-sort on write.
 
 Agents can equally just edit the files. Anything the app does not understand —
 your own `##` sections, prose, extra frontmatter keys — survives untouched, and a

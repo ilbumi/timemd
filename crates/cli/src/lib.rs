@@ -6,18 +6,26 @@
 //!
 //! Operations return the text to print rather than printing it, so they stay
 //! testable without capturing stdout.
+//!
+//! This file owns the command model and the dispatch; the operations behind
+//! each group live beside it, one module per thing being operated on.
+
+pub mod project;
+pub mod schedule;
+pub mod session;
+pub mod settings;
+pub mod timer;
+
+#[cfg(test)]
+pub(crate) mod testing;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use clap::{Parser, Subcommand};
-use timemd_core::active::SessionKind;
-use timemd_core::day::Session;
 use timemd_core::report::{self, GroupBy};
-use timemd_core::{
-    DateRange, Minutes, Project, ProjectSlug, Result, StartRequest, Stopped, Store, Timer,
-};
+use timemd_core::{DateRange, Error, Project, ProjectSlug, Result, Store};
 
 #[derive(Parser, Debug)]
 #[command(name = "timemd", version, about, long_about = None)]
@@ -99,6 +107,59 @@ pub enum Command {
         #[arg(long, default_value = "project")]
         group_by: String,
     },
+
+    // The verbs above are one word because they are typed constantly. The
+    // groups below are nouns operated on rarely, and flattening them would put
+    // seventeen more entries in one `--help` list.
+    /// Read, create, change and delete projects.
+    Project {
+        #[command(subcommand)]
+        operation: project::ProjectCommand,
+    },
+
+    /// Add, tick, retitle, reorder and delete a project's milestones.
+    Milestone {
+        #[command(subcommand)]
+        operation: project::MilestoneCommand,
+    },
+
+    /// Amend or remove time already logged.
+    Session {
+        #[command(subcommand)]
+        operation: session::SessionCommand,
+    },
+
+    /// Plan, amend and remove one-off blocks on a day.
+    Block {
+        #[command(subcommand)]
+        operation: schedule::BlockCommand,
+    },
+
+    /// The weekly repeating schedule, and skipping it for a day.
+    Repeat {
+        #[command(subcommand)]
+        operation: schedule::RepeatCommand,
+    },
+
+    /// What is planned over a range. Defaults to today.
+    Schedule {
+        #[arg(long)]
+        from: Option<NaiveDate>,
+        #[arg(long)]
+        to: Option<NaiveDate>,
+    },
+
+    /// Pomodoro lengths and the reminder default. With no flags, prints them.
+    Settings {
+        #[arg(long)]
+        focus: Option<String>,
+        #[arg(long)]
+        short_break: Option<String>,
+        #[arg(long)]
+        long_break: Option<String>,
+        #[arg(long)]
+        remind_before: Option<String>,
+    },
 }
 
 /// Runs everything except `serve`, which needs the async runtime the binary owns.
@@ -112,75 +173,15 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
             project,
             note,
             duration,
-        } => {
-            let request = StartRequest {
-                kind: SessionKind::Focus,
-                duration: duration.map(|raw| raw.parse::<Minutes>()).transpose()?,
-                project: project.map(ProjectSlug::new).transpose()?,
-                note,
-            };
-            let active = Timer::new(store).start(now, request)?;
-            Ok(format!(
-                "started {} → {}{}",
-                active.started.format("%H:%M"),
-                name_or_dash(active.project.as_ref()),
-                suffix(&active.note),
-            ))
-        }
+        } => timer::start(store, project, note, duration, now),
 
-        Command::Stop => Ok(match Timer::new(store).stop(now)? {
-            Stopped::Logged(session) => format!(
-                "logged {} to {}",
-                session.duration(),
-                name_or_dash(session.project.as_ref()),
-            ),
-            Stopped::TooShort => "stopped — under a minute, so nothing was logged".to_owned(),
-            Stopped::Idle => "nothing was running".to_owned(),
-        }),
+        Command::Stop => timer::stop(store, now),
 
-        Command::Cancel => Ok(if Timer::new(store).cancel()? {
-            "discarded".to_owned()
-        } else {
-            "nothing was running".to_owned()
-        }),
+        Command::Cancel => timer::cancel(store),
 
-        Command::Status => {
-            let state = Timer::new(store).state(now)?;
-            Ok(match state.active {
-                Some(active) => format!(
-                    "{} on {} — {} left{}",
-                    active.kind,
-                    name_or_dash(active.project.as_ref()),
-                    active.remaining(now),
-                    suffix(&active.note),
-                ),
-                None => format!(
-                    "idle — {} tracked today across {} session(s)",
-                    state.tracked_today, state.completed_today
-                ),
-            })
-        }
+        Command::Status => timer::status(store, now),
 
-        Command::Today { date } => {
-            let date = date.unwrap_or_else(|| now.date());
-            let day = store.read_day(date)?;
-
-            let mut lines = vec![format!("{date} — {} tracked", day.total())];
-            for session in day.sessions() {
-                lines.push(format!(
-                    "  {}-{} {:>7}  {}{}",
-                    session.start.format("%H:%M"),
-                    session.end.format("%H:%M"),
-                    session.duration().to_string(),
-                    name_or_dash(session.project.as_ref()),
-                    suffix(&session.note),
-                ));
-            }
-            for problem in day.problems() {
-                lines.push(format!("  ! {problem}"));
-            }
-            Ok(lines.join("\n"))
-        }
+        Command::Today { date } => session::today(store, date, now),
 
         Command::Log {
             project,
@@ -188,47 +189,28 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
             to,
             note,
             date,
-        } => {
-            let date = date.unwrap_or_else(|| now.date());
-            let session = Session::new(from, to, project.map(ProjectSlug::new).transpose()?, note);
-            let logged = session.duration();
-            store.update_day(date, |day| day.add_session(session))?;
-            Ok(format!("logged {logged} on {date}"))
-        }
+        } => session::log(store, project, from, to, note, date, now),
 
-        Command::Projects => {
-            let projects = store.list_projects()?;
-            if projects.is_empty() {
-                return Ok("no projects yet".to_owned());
-            }
-            Ok(projects
-                .iter()
-                .map(|project| {
-                    let target = project
-                        .target
-                        .map_or_else(String::new, |target| format!("  {target}/wk"));
-                    let milestones = if project.milestones.is_empty() {
-                        String::new()
-                    } else {
-                        let done = project
-                            .milestones
-                            .iter()
-                            .filter(|milestone| milestone.done)
-                            .count();
-                        format!("  {done}/{} done", project.milestones.len())
-                    };
-                    let slug = project.slug().as_str();
-                    let name = &project.name;
-                    let archived = if project.status.is_archived() {
-                        "  (archived)"
-                    } else {
-                        ""
-                    };
-                    format!("{slug:<24} {name}{target}{milestones}{archived}")
-                })
-                .collect::<Vec<_>>()
-                .join("\n"))
-        }
+        Command::Projects => project::list(store),
+
+        Command::Project { operation } => project::run(store, operation, now.date()),
+
+        Command::Milestone { operation } => project::milestone(store, operation),
+
+        Command::Session { operation } => session::run(store, operation, now),
+
+        Command::Block { operation } => schedule::block(store, operation, now),
+
+        Command::Repeat { operation } => schedule::repeat(store, operation, now),
+
+        Command::Schedule { from, to } => schedule::range(store, from, to, now),
+
+        Command::Settings {
+            focus,
+            short_break,
+            long_break,
+            remind_before,
+        } => settings::run(store, focus, short_break, long_break, remind_before),
 
         Command::Report { from, to, group_by } => {
             let to = to.unwrap_or_else(|| now.date());
@@ -274,11 +256,38 @@ pub fn create_project(store: &Store, slug: &str, name: &str, today: NaiveDate) -
     store.create_project(&Project::new(ProjectSlug::new(slug)?, name, today))
 }
 
-fn name_or_dash(project: Option<&ProjectSlug>) -> String {
+/// Reads a flag that may also be given empty to mean "clear it".
+///
+/// The outer `Option` is "was the flag passed", the inner one is the value, so
+/// leaving a tag alone and removing it stay distinguishable — the same
+/// distinction the HTTP API draws with a doubly-optional field.
+///
+/// One helper rather than one per flag because that distinction is the whole
+/// rule, and `crates/server/src/parse.rs` records what happened last time it
+/// was written out per caller: the copies had already disagreed about whether
+/// an empty string means "absent" or "clear".
+pub(crate) fn clearable<T, E: Into<Error>>(
+    raw: Option<String>,
+    parse: impl FnOnce(String) -> std::result::Result<T, E>,
+) -> Result<Option<Option<T>>> {
+    match raw {
+        None => Ok(None),
+        Some(value) if value.is_empty() => Ok(Some(None)),
+        Some(value) => parse(value)
+            .map(|parsed| Some(Some(parsed)))
+            .map_err(Into::into),
+    }
+}
+
+pub(crate) fn optional_slug(raw: Option<String>) -> Result<Option<Option<ProjectSlug>>> {
+    clearable(raw, ProjectSlug::new)
+}
+
+pub(crate) fn name_or_dash(project: Option<&ProjectSlug>) -> String {
     project.map_or_else(|| "-".to_owned(), ToString::to_string)
 }
 
-fn suffix(note: &str) -> String {
+pub(crate) fn suffix(note: &str) -> String {
     if note.is_empty() {
         String::new()
     } else {
@@ -289,47 +298,8 @@ fn suffix(note: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{at, log, moment, store};
     use clap::CommandFactory;
-
-    fn store() -> (tempfile::TempDir, Store) {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let store = Store::new(directory.path());
-        (directory, store)
-    }
-
-    fn moment(hour: u32, minute: u32) -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(2026, 8, 1)
-            .expect("valid date")
-            .and_hms_opt(hour, minute, 0)
-            .expect("valid time")
-    }
-
-    fn at(hour: u32, minute: u32) -> NaiveTime {
-        NaiveTime::from_hms_opt(hour, minute, 0).expect("valid time")
-    }
-
-    fn start(project: Option<&str>, duration: Option<&str>) -> Command {
-        Command::Start {
-            project: project.map(ToOwned::to_owned),
-            note: String::new(),
-            duration: duration.map(ToOwned::to_owned),
-        }
-    }
-
-    fn log(
-        project: Option<&str>,
-        from: NaiveTime,
-        to: NaiveTime,
-        date: Option<NaiveDate>,
-    ) -> Command {
-        Command::Log {
-            project: project.map(ToOwned::to_owned),
-            from,
-            to,
-            note: String::new(),
-            date,
-        }
-    }
 
     #[test]
     fn the_command_model_is_well_formed() {
@@ -377,211 +347,6 @@ mod tests {
         assert_eq!(project.as_deref(), Some("timemd"));
         assert_eq!(note, "work");
         assert_eq!(duration.as_deref(), Some("50m"));
-    }
-
-    #[test]
-    fn start_then_stop_logs_the_time_worked() {
-        let (_directory, store) = store();
-
-        let started = run(
-            &store,
-            Command::Start {
-                project: Some("timemd".to_owned()),
-                note: "file store".to_owned(),
-                duration: None,
-            },
-            moment(9, 0),
-        )
-        .expect("starts");
-        assert!(started.contains("timemd"), "{started}");
-        assert!(started.contains("file store"), "{started}");
-
-        let stopped = run(&store, Command::Stop, moment(9, 10)).expect("stops");
-        assert!(stopped.contains("10m"), "{stopped}");
-        assert_eq!(
-            store.read_day(moment(9, 0).date()).expect("reads").total(),
-            Minutes::new(10)
-        );
-    }
-
-    #[test]
-    fn stopping_immediately_says_it_was_too_short_rather_than_idle() {
-        let (_directory, store) = store();
-        run(&store, start(Some("timemd"), None), moment(9, 0)).expect("starts");
-
-        let stopped = run(&store, Command::Stop, moment(9, 0)).expect("stops");
-        assert!(stopped.contains("under a minute"), "{stopped}");
-        assert!(!stopped.contains("nothing was running"), "{stopped}");
-    }
-
-    #[test]
-    fn stopping_or_cancelling_nothing_says_so() {
-        let (_directory, store) = store();
-        assert_eq!(
-            run(&store, Command::Stop, moment(9, 0)).expect("stops"),
-            "nothing was running"
-        );
-        assert_eq!(
-            run(&store, Command::Cancel, moment(9, 0)).expect("cancels"),
-            "nothing was running"
-        );
-    }
-
-    #[test]
-    fn cancel_discards_without_logging() {
-        let (_directory, store) = store();
-        run(&store, start(None, None), moment(9, 0)).expect("starts");
-
-        assert_eq!(
-            run(&store, Command::Cancel, moment(9, 10)).expect("cancels"),
-            "discarded"
-        );
-        assert!(
-            store
-                .read_day(moment(9, 0).date())
-                .expect("reads")
-                .sessions()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn status_reports_running_and_idle() {
-        let (_directory, store) = store();
-
-        let idle = run(&store, Command::Status, moment(9, 0)).expect("reads");
-        assert!(idle.starts_with("idle"), "{idle}");
-
-        run(&store, start(Some("timemd"), Some("50m")), moment(9, 0)).expect("starts");
-
-        let running = run(&store, Command::Status, moment(9, 20)).expect("reads");
-        assert!(running.contains("focus on timemd"), "{running}");
-        assert!(running.contains("30m left"), "{running}");
-    }
-
-    #[test]
-    fn log_writes_a_session_without_the_timer() {
-        let (_directory, store) = store();
-
-        let logged = run(
-            &store,
-            Command::Log {
-                project: Some("timemd".to_owned()),
-                from: at(14, 0),
-                to: at(15, 30),
-                note: "meeting".to_owned(),
-                date: None,
-            },
-            moment(16, 0),
-        )
-        .expect("logs");
-
-        assert!(logged.contains("1h30m"), "{logged}");
-        assert_eq!(
-            store.read_day(moment(9, 0).date()).expect("reads").total(),
-            Minutes::new(90)
-        );
-    }
-
-    #[test]
-    fn log_accepts_an_explicit_date() {
-        let (_directory, store) = store();
-        let earlier = NaiveDate::from_ymd_opt(2026, 7, 20).expect("valid date");
-
-        run(
-            &store,
-            log(None, at(9, 0), at(10, 0), Some(earlier)),
-            moment(16, 0),
-        )
-        .expect("logs");
-
-        assert_eq!(
-            store.read_day(earlier).expect("reads").total(),
-            Minutes::new(60)
-        );
-    }
-
-    #[test]
-    fn today_lists_sessions_and_the_total() {
-        let (_directory, store) = store();
-        run(
-            &store,
-            Command::Log {
-                project: Some("timemd".to_owned()),
-                from: at(9, 0),
-                to: at(9, 25),
-                note: "work".to_owned(),
-                date: None,
-            },
-            moment(10, 0),
-        )
-        .expect("logs");
-
-        let output = run(&store, Command::Today { date: None }, moment(10, 0)).expect("reads");
-        assert!(output.contains("25m tracked"), "{output}");
-        assert!(output.contains("09:00-09:25"), "{output}");
-        assert!(output.contains("timemd"), "{output}");
-    }
-
-    #[test]
-    fn today_surfaces_lines_it_could_not_read() {
-        let (_directory, store) = store();
-        let path = store.day_path(moment(9, 0).date());
-        std::fs::create_dir_all(path.parent().expect("has a parent")).expect("creates dir");
-        std::fs::write(
-            &path,
-            "---\ndate: 2026-08-01\n---\n\n## Sessions\n\n- nonsense\n",
-        )
-        .expect("writes");
-
-        let output = run(&store, Command::Today { date: None }, moment(10, 0)).expect("reads");
-        assert!(output.contains("  ! "), "{output}");
-    }
-
-    #[test]
-    fn projects_lists_names_and_archived_state() {
-        let (_directory, store) = store();
-        let today = moment(9, 0).date();
-        create_project(&store, "timemd", "timemd", today).expect("creates");
-        create_project(&store, "admin", "Admin", today).expect("creates");
-        store
-            .update_project(&ProjectSlug::new("admin").expect("valid"), |project| {
-                project.status = timemd_core::ProjectStatus::Archived;
-            })
-            .expect("updates");
-
-        let output = run(&store, Command::Projects, moment(9, 0)).expect("reads");
-        assert!(output.contains("timemd"), "{output}");
-        assert!(output.contains("(archived)"), "{output}");
-    }
-
-    #[test]
-    fn projects_shows_the_weekly_target_and_milestone_progress() {
-        let (_directory, store) = store();
-        let today = moment(9, 0).date();
-        create_project(&store, "thesis", "Thesis", today).expect("creates");
-        store
-            .update_project(&ProjectSlug::new("thesis").expect("valid"), |project| {
-                project.target = Some(Minutes::new(600));
-                project.milestones = vec![
-                    timemd_core::Milestone::new(true, "Ch. 1").expect("valid"),
-                    timemd_core::Milestone::new(false, "Ch. 2").expect("valid"),
-                ];
-            })
-            .expect("updates");
-
-        let output = run(&store, Command::Projects, moment(9, 0)).expect("reads");
-        assert!(output.contains("10h/wk"), "{output}");
-        assert!(output.contains("1/2 done"), "{output}");
-    }
-
-    #[test]
-    fn projects_says_so_when_there_are_none() {
-        let (_directory, store) = store();
-        assert_eq!(
-            run(&store, Command::Projects, moment(9, 0)).expect("reads"),
-            "no projects yet"
-        );
     }
 
     #[test]
@@ -688,22 +453,6 @@ mod tests {
                     group_by: "colour".to_owned(),
                 },
                 moment(12, 0),
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn an_invalid_slug_or_duration_is_rejected() {
-        let (_directory, store) = store();
-
-        assert!(run(&store, start(Some("Not A Slug"), None), moment(9, 0)).is_err());
-        assert!(run(&store, start(None, Some("ages")), moment(9, 0)).is_err());
-        assert!(
-            run(
-                &store,
-                log(Some("Nope!"), at(9, 0), at(10, 0), None),
-                moment(9, 0)
             )
             .is_err()
         );

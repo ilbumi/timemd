@@ -225,6 +225,18 @@ impl Day {
         self.schedule.insert(position, block);
     }
 
+    /// Replaces the one-off block at `index`, keeping the list ordered by start.
+    ///
+    /// Mirrors [`Day::replace_session`], including its consequence: the list is
+    /// re-sorted, so an index held across the call may afterwards name a
+    /// different block. Callers re-read rather than reusing it.
+    pub fn replace_block(&mut self, index: usize, block: DayBlock) -> Option<DayBlock> {
+        let previous = self.schedule.get(index)?.clone();
+        self.schedule[index] = block;
+        self.schedule.sort_by_key(|block| block.start);
+        Some(previous)
+    }
+
     pub fn remove_block(&mut self, index: usize) -> Option<DayBlock> {
         (index < self.schedule.len()).then(|| self.schedule.remove(index))
     }
@@ -480,6 +492,30 @@ mod tests {
             Some("Earlier".to_owned())
         );
         assert!(day.remove_block(5).is_none());
+    }
+
+    /// The mirror of `removes_and_replaces_by_index`, for the other owned list.
+    #[test]
+    fn replaces_a_block_by_index_and_re_sorts() {
+        let mut day = Day::new(date());
+        day.add_block(DayBlock::parse("09:00-10:00 Earlier").expect("parses"));
+        day.add_block(DayBlock::parse("16:00-17:00 Later").expect("parses"));
+
+        let replaced = day.replace_block(0, DayBlock::parse("18:00-19:00 Moved").expect("parses"));
+        assert_eq!(
+            replaced.map(|block| block.title),
+            Some("Earlier".to_owned())
+        );
+
+        // Moving it past the other one re-sorts the day, so the index the
+        // caller just used now names a different block.
+        assert_eq!(day.schedule()[0].title, "Later");
+        assert_eq!(day.schedule()[1].title, "Moved");
+
+        assert!(
+            day.replace_block(9, DayBlock::parse("08:00-09:00 Nowhere").expect("parses"))
+                .is_none()
+        );
     }
 
     #[test]

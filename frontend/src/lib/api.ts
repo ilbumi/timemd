@@ -284,6 +284,9 @@ export const api = {
 	addBlock: (date: string, block: BlockEdit): Promise<void> =>
 		request('POST', `/api/days/${date}/blocks`, { ...block }),
 
+	updateBlock: (date: string, index: number, block: BlockEdit): Promise<void> =>
+		request('PATCH', `/api/days/${date}/blocks/${index}`, { ...block }),
+
 	deleteBlock: (date: string, index: number): Promise<void> =>
 		request('DELETE', `/api/days/${date}/blocks/${index}`),
 

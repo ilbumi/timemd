@@ -4,12 +4,17 @@
 //! guarantees worth pinning are structural rather than example-shaped: whatever
 //! goes in comes back out, and a second write changes nothing.
 
+use std::collections::HashSet;
+use std::ops::Range;
+
 use chrono::{NaiveDate, NaiveTime};
 use proptest::prelude::*;
 use timemd_core::day::{Day, Session};
 use timemd_core::document::Document;
 use timemd_core::ids::ProjectSlug;
+use timemd_core::minutes::Minutes;
 use timemd_core::project::{Milestone, Project};
+use timemd_core::schedule::DayBlock;
 
 fn date() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 8, 1).expect("valid date")
@@ -59,6 +64,34 @@ fn session() -> impl Strategy<Value = Session> {
         )
 }
 
+/// A block's title sits where a session's note does, so it carries the same
+/// rule: grammar characters are fine inside it, but opening with one makes it
+/// indistinguishable from a project link.
+fn day_block() -> impl Strategy<Value = DayBlock> {
+    (
+        0_u32..24,
+        0_u32..60,
+        0_u32..24,
+        0_u32..60,
+        project(),
+        r"[a-zA-Z0-9 ,.:;'?-]{1,40}"
+            .prop_filter("a block needs a title", |title| !title.trim().is_empty()),
+        prop::option::of((1_u32..120).prop_map(Minutes::new)),
+    )
+        .prop_map(
+            |(start_hour, start_minute, end_hour, end_minute, project, title, remind_before)| {
+                DayBlock {
+                    start: NaiveTime::from_hms_opt(start_hour, start_minute, 0)
+                        .expect("valid time"),
+                    end: NaiveTime::from_hms_opt(end_hour, end_minute, 0).expect("valid time"),
+                    project,
+                    title: title.trim().to_owned(),
+                    remind_before,
+                }
+            },
+        )
+}
+
 fn milestone() -> impl Strategy<Value = Milestone> {
     (
         any::<bool>(),
@@ -67,6 +100,29 @@ fn milestone() -> impl Strategy<Value = Milestone> {
         }),
     )
         .prop_map(|(done, title)| Milestone::new(done, title).expect("valid milestone"))
+}
+
+/// Milestone lists a writer could actually produce: no title carried twice.
+///
+/// De-duplicated rather than filtered. Proptest shrinks towards short titles
+/// from a small alphabet, so a filter over the whole vector would reject most
+/// draws exactly when the list gets long — quietly stopping the coverage of the
+/// long lists these properties were written for.
+///
+/// It is also the more faithful shape. `Project::set_milestones` refuses a
+/// repeated title, so a list carrying one is not something any surface can
+/// write; it is a file somebody hand-edited. That case is a *read* guarantee and
+/// has its own tests — `refuses_a_title_two_milestones_share` in core, and
+/// `a_hand_written_duplicate_title_lists_but_is_not_addressable` in MCP. What
+/// this file pins is that whatever the writer accepts comes back out.
+fn milestones(count: Range<usize>) -> impl Strategy<Value = Vec<Milestone>> {
+    prop::collection::vec(milestone(), count).prop_map(|drawn| {
+        let mut seen = HashSet::new();
+        drawn
+            .into_iter()
+            .filter(|milestone| seen.insert(milestone.title().to_owned()))
+            .collect()
+    })
 }
 
 /// Lines a hand-edited file might realistically contain, valid or not.
@@ -111,6 +167,49 @@ proptest! {
         prop_assert_eq!(once, twice);
     }
 
+    /// The same guarantee as sessions, for the day's other owned list. `##
+    /// Schedule` had no property test at all, which is why editing a one-off
+    /// block was the operation missing from every surface at once.
+    #[test]
+    fn blocks_survive_a_write_and_a_read(blocks in prop::collection::vec(day_block(), 0..8)) {
+        let mut day = Day::new(date());
+        for block in &blocks {
+            day.add_block(block.clone());
+        }
+
+        let reparsed = Day::parse(date(), &day.render()).expect("parses");
+
+        let mut expected = blocks;
+        expected.sort_by_key(|block| block.start);
+        prop_assert_eq!(reparsed.schedule(), expected.as_slice());
+        prop_assert!(reparsed.problems().is_empty());
+    }
+
+    /// Replacing a block must leave the day readable and correctly ordered,
+    /// whatever the new start time does to the list.
+    #[test]
+    fn replacing_a_block_keeps_the_day_ordered(
+        blocks in prop::collection::vec(day_block(), 1..6),
+        index in 0_usize..6,
+        replacement in day_block(),
+    ) {
+        let mut day = Day::new(date());
+        for block in &blocks {
+            day.add_block(block.clone());
+        }
+
+        let replaced = day.replace_block(index, replacement.clone());
+        prop_assert_eq!(replaced.is_some(), index < blocks.len());
+
+        let reparsed = Day::parse(date(), &day.render()).expect("parses");
+        prop_assert!(reparsed.problems().is_empty());
+        prop_assert!(reparsed.schedule().is_sorted_by_key(|block| block.start));
+        prop_assert_eq!(reparsed.schedule().len(), blocks.len());
+        if replaced.is_some() {
+            prop_assert!(reparsed.schedule().contains(&replacement));
+        }
+    }
+
     /// Content the app does not understand comes back byte-for-byte.
     #[test]
     fn unknown_sections_survive_a_write(
@@ -138,16 +237,61 @@ proptest! {
 
     /// The same guarantee as sessions, for the other owned body list.
     #[test]
-    fn milestones_survive_a_write_and_a_read(
-        milestones in prop::collection::vec(milestone(), 0..8),
-    ) {
+    fn milestones_survive_a_write_and_a_read(milestones in milestones(0..8)) {
         let mut project = Project::new(slug(), "Thesis", date());
-        project.milestones = milestones.clone();
+        project.set_milestones(milestones.clone()).expect("distinct titles");
 
         let reparsed = Project::parse(slug(), &project.render()).expect("parses");
 
         prop_assert!(reparsed.problems().is_empty());
-        prop_assert_eq!(reparsed.milestones, milestones);
+        prop_assert_eq!(reparsed.milestones(), milestones.as_slice());
+    }
+
+    /// Reordering may only permute. A move that dropped, duplicated or mangled
+    /// a milestone would be invisible in the returned index and obvious only in
+    /// the file, so the property is checked against a re-read.
+    #[test]
+    fn moving_a_milestone_is_a_permutation(
+        milestones in milestones(1..8),
+        from in 0_usize..8,
+        to in 0_usize..8,
+    ) {
+        let mut project = Project::new(slug(), "Thesis", date());
+        project.set_milestones(milestones.clone()).expect("distinct titles");
+
+        let moved = project.move_milestone(from, to);
+        prop_assert_eq!(moved.is_some(), from < milestones.len());
+
+        let reparsed = Project::parse(slug(), &project.render()).expect("parses");
+        prop_assert!(reparsed.problems().is_empty());
+
+        let mut before = milestones;
+        let mut after = reparsed.milestones().to_vec();
+        before.sort_by(|a, b| (a.done, a.title()).cmp(&(b.done, b.title())));
+        after.sort_by(|a, b| (a.done, a.title()).cmp(&(b.done, b.title())));
+        prop_assert_eq!(after, before);
+    }
+
+    /// The write-side gate, as a property: any title `rename_milestone` accepts
+    /// must come back byte for byte. A rename that wrote a line the reader could
+    /// not read would silently demote a milestone to a preserved-verbatim
+    /// problem line.
+    #[test]
+    fn renaming_never_writes_a_line_the_reader_cannot_read(
+        milestones in milestones(1..6),
+        title in r"[a-zA-Z0-9 .,'—\[\]()-]{0,40}",
+    ) {
+        let mut project = Project::new(slug(), "Thesis", date());
+        project.set_milestones(milestones).expect("distinct titles");
+
+        let Ok(()) = project.rename_milestone(0, &title) else {
+            // Refused, so nothing was written and there is nothing to check.
+            return Ok(());
+        };
+
+        let reparsed = Project::parse(slug(), &project.render()).expect("parses");
+        prop_assert!(reparsed.problems().is_empty());
+        prop_assert_eq!(reparsed.milestones()[0].title(), title.trim());
     }
 
     /// A project file the app rewrites must reach a fixed point too, with the
