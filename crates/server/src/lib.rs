@@ -19,6 +19,8 @@ mod report;
 mod schedule;
 mod settings;
 pub mod state;
+#[cfg(test)]
+pub(crate) mod testing;
 mod ticker;
 mod timer;
 

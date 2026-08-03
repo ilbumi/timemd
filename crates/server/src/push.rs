@@ -335,37 +335,6 @@ mod tests {
         assert!(build(&private, &subscription, b"{}").is_err());
     }
 
-    /// A stand-in push service: answers one request with `status`, then reports
-    /// what it was sent. Enough to exercise delivery without the network.
-    async fn stub_service(status: u16) -> (String, tokio::task::JoinHandle<Option<String>>) {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("binds");
-        let endpoint = format!(
-            "http://{}/push",
-            listener.local_addr().expect("has an address")
-        );
-
-        let served = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.ok()?;
-            let mut buffer = vec![0_u8; 4096];
-            let read = stream.read(&mut buffer).await.ok()?;
-            let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
-
-            let reason = if status == 201 { "Created" } else { "Gone" };
-            let response = format!(
-                "HTTP/1.1 {status} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            );
-            stream.write_all(response.as_bytes()).await.ok()?;
-            stream.shutdown().await.ok()?;
-            Some(request)
-        });
-
-        (endpoint, served)
-    }
-
     fn well_formed(endpoint: &str) -> Subscription {
         Subscription {
             endpoint: endpoint.to_owned(),
@@ -386,7 +355,8 @@ mod tests {
     async fn a_delivered_notification_is_encrypted_and_carries_its_headers() {
         let (_directory, state) = state();
         ensure_keypair(&state).expect("generates");
-        let (endpoint, served) = stub_service(201).await;
+        let (base, served) = crate::testing::stub(201, 1).await;
+        let endpoint = format!("{base}/push");
 
         state
             .store()
@@ -395,10 +365,8 @@ mod tests {
 
         deliver(&state, &[notification()]).await;
 
-        let request = served
-            .await
-            .expect("the stub ran")
-            .expect("a request arrived");
+        let served = served.await.expect("the stub ran");
+        let request = served.first().expect("a request arrived");
         assert!(request.starts_with("POST /push"), "{request}");
         assert!(request.contains("content-encoding: aes128gcm"), "{request}");
         assert!(
@@ -425,7 +393,8 @@ mod tests {
     async fn a_subscription_the_service_calls_gone_is_dropped() {
         let (_directory, state) = state();
         ensure_keypair(&state).expect("generates");
-        let (endpoint, served) = stub_service(410).await;
+        let (base, served) = crate::testing::stub(410, 1).await;
+        let endpoint = format!("{base}/push");
 
         state
             .store()
@@ -475,7 +444,8 @@ mod tests {
     async fn a_malformed_subscription_does_not_stop_delivery() {
         let (_directory, state) = state();
         ensure_keypair(&state).expect("generates");
-        let (endpoint, served) = stub_service(201).await;
+        let (base, served) = crate::testing::stub(201, 1).await;
+        let endpoint = format!("{base}/push");
 
         state
             .store()
@@ -492,7 +462,7 @@ mod tests {
         deliver(&state, &[notification()]).await;
 
         // The good subscription was still served despite the bad one first.
-        assert!(served.await.expect("the stub ran").is_some());
+        assert_eq!(served.await.expect("the stub ran").len(), 1);
     }
 
     #[tokio::test]
