@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::NaiveDate;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use timemd_core::{Mark, Milestone, Project, ProjectSlug, ProjectStatus};
 
 use crate::parse::{optional_color, optional_mark, optional_minutes};
@@ -88,10 +88,10 @@ pub struct ProjectPatch {
     name: Option<String>,
     /// Doubly optional so an absent key ("leave it") is distinguishable from an
     /// explicit `null` ("clear it").
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "crate::parse::nullable")]
     color: Option<Option<String>>,
     mark: Option<String>,
-    #[serde(default, deserialize_with = "present")]
+    #[serde(default, deserialize_with = "crate::parse::nullable")]
     target: Option<Option<String>>,
     status: Option<ProjectStatus>,
     /// Replaces the whole list, like the recurring schedule does: it is short,
@@ -107,14 +107,6 @@ fn milestones_from(views: Vec<MilestoneView>) -> ApiResult<Vec<Milestone>> {
                 .map_err(|error| ApiError::bad_request(error.to_string()))
         })
         .collect()
-}
-
-fn present<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    T: Deserialize<'de>,
-    D: Deserializer<'de>,
-{
-    T::deserialize(deserializer).map(Some)
 }
 
 async fn list(State(state): State<AppState>) -> ApiResult<Json<Vec<ProjectView>>> {
