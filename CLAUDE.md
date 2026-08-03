@@ -71,3 +71,9 @@ make serve             # build the UI and run locally
 - Release tarballs are named for the target only, with no version, so
   `releases/latest/download/…` always resolves and the README never has to name
   one. If you put the version back in the filename, that link breaks.
+- The container image is not a second build: `make image TAG=v0.1.0` wraps the
+  binaries already attached to that release. It compiles nothing, so it needs no
+  Rust or Node and runs the same on a laptop as on the runner — `build-image.yml`
+  only adds the registry login and the multi-platform push. Test it with
+  `make image` locally, or `gh workflow run build-image.yml -f tag=… -f
+  push=false`; never with a release.

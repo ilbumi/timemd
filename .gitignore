@@ -1,5 +1,7 @@
 /target
 /data
+# release tarballs and the binaries staged into the container image
+/dist
 node_modules/
 .DS_Store
 

@@ -73,8 +73,28 @@ tar xzf "timemd-$TARGET.tar.gz"
 ```
 
 The Linux builds need glibc 2.39 or newer — Ubuntu 24.04, Debian 13, Fedora 40.
-On anything older, build from source. There is deliberately no Docker image and
-nothing on crates.io: this is one binary and a directory of markdown.
+On anything older, build from source. There is deliberately nothing on
+crates.io: this is one binary and a directory of markdown.
+
+That same binary is also published as a container image, for `linux/amd64` and
+`linux/arm64`, tagged with the release version and with `latest`:
+
+```sh
+mkdir -p data
+
+docker run -d --name timemd \
+  -p 127.0.0.1:8080:8080 \
+  -v "$PWD/data:/data" \
+  ghcr.io/ilbumi/timemd:latest
+```
+
+It runs as uid 65532 and never as root. On a Linux host that means the mounted
+directory has to be writable by it — `sudo chown 65532:65532 data` once, before
+the first run. Docker Desktop maps ownership for you and needs no such thing.
+
+The image holds the binary and nothing else — no shell, no package manager — so
+it is the file-copy deploy in a different wrapper, not a different program. Every
+subcommand works: `docker run --rm -v "$PWD/data:/data" ghcr.io/ilbumi/timemd today`.
 
 ## Running it
 
@@ -111,6 +131,10 @@ tailscale serve --bg 8080     # https://<machine>.<tailnet>.ts.net
 
 Tailscale terminates TLS, which push notifications need anyway — browsers refuse
 to register a service worker over plain HTTP on anything but `localhost`.
+
+The container inherits the rule, which is why the `docker run` above publishes to
+`127.0.0.1` — a bare `-p 8080:8080` reaches past the host firewall on most Docker
+installs.
 
 ### Notifications on iOS
 

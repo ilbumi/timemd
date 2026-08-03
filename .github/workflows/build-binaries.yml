@@ -46,6 +46,10 @@ jobs:
           # Native runners throughout: no cross-compilation, no emulation. The
           # labels are pinned rather than `-latest` because a silent bump would
           # change the glibc floor of a published artifact.
+          #
+          # The Linux entries are named a second time by the `image` target in
+          # the Makefile, which wraps them. Adding one here without adding it
+          # there leaves it out of the container image, and nothing will say so.
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
           - target: aarch64-unknown-linux-gnu
