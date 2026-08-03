@@ -23,6 +23,7 @@ use web_push::{
 };
 
 use crate::error::{ApiError, ApiResult};
+use crate::notify::Notification;
 use crate::state::AppState;
 
 /// How long a push service should hold a notification for a phone that is
@@ -34,15 +35,6 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/push/key", get(public_key))
         .route("/push/subscribe", post(subscribe).delete(unsubscribe))
-}
-
-/// What a notification says.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Notification {
-    pub title: String,
-    pub body: String,
-    /// Where tapping it should land.
-    pub url: String,
 }
 
 #[derive(Serialize)]
