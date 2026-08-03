@@ -29,7 +29,7 @@ that users and agents edit by hand.
 | Path | What |
 |---|---|
 | `crates/core` | Domain types, the file grammar, the store, timer, reports |
-| `crates/server` | HTTP API, reminder ticker, push, embedded UI |
+| `crates/server` | HTTP API, reminder ticker, push and ntfy, embedded UI |
 | `crates/mcp` | MCP tools for agents |
 | `crates/cli` | The `timemd` binary; `main.rs` is a shim, logic is in `lib.rs` |
 | `frontend/` | SvelteKit, built into `crates/server/assets` |

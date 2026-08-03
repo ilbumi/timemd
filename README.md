@@ -29,11 +29,12 @@ tools, the command and the web app each offer, and how each thing is addressed.
 - **Pomodoro timer** — server-authoritative, so a session completes, gets logged
   and notifies even while your phone is asleep. Assign a project and a note.
 - **Schedule** — weekly-repeating blocks plus one-offs, with per-day skips.
-- **Reminders** — web push before a block starts, and when a session completes.
+- **Reminders** — before a block starts, and when a session completes, over web
+  push or ntfy.
 - **Log** — every session with its note, banded by day, with the week's tracked
   total read against what the schedule set aside for it.
 - **CLI** — `timemd start`, `stop`, `today`, `log`, `report` for shell use.
-- **MCP server** — nine tools so Claude and other agents get first-class tooling.
+- **MCP server** — 27 tools so Claude and other agents get first-class tooling.
 
 ### The app is three screens
 
@@ -119,6 +120,29 @@ Share → **Add to Home Screen**, open it from there, then turn notifications on
 Settings. Skipping the install step leaves notifications silently doing nothing;
 the Settings screen detects this and says so rather than pretending to work.
 
+### Notifications over ntfy
+
+Web push on a phone depends on the browser being willing to wake a service
+worker, which iOS treats as optional. [ntfy](https://ntfy.sh) does not: it is a
+push app with a topic you subscribe to. Both channels run independently, so you
+can use either or both.
+
+Install the ntfy app, then pick a topic nobody would guess and tell timemd about
+it:
+
+```sh
+timemd ntfy --topic "timemd-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)"
+# prints the URL to subscribe to in the app
+```
+
+Or type it into Settings, which sends a test notification when you save.
+
+**A topic on the public server is a bearer capability** — anyone who knows the
+name can read your notifications. Pick an unguessable one, or run your own ntfy
+with access control and set `--token`. Add `--app-url https://<your-host>` to
+make a notification tappable; the server cannot work out its own external
+address, so without it there is nothing to open.
+
 ## Using it with agents
 
 Point an agent at the MCP server:
@@ -143,7 +167,7 @@ Tools, by what they touch:
 | Projects | `list_projects`, `project`, `upsert_project`, `delete_project` |
 | Milestones | `add_milestone`, `update_milestone`, `remove_milestone` |
 | Schedule | `schedule`, `recurring`, `set_recurring_block`, `remove_recurring_block`, `add_block`, `edit_block`, `remove_block`, `skip_block`, `unskip_block` |
-| Everything else | `report`, `settings` |
+| Everything else | `report`, `settings`, `ntfy` |
 
 Sessions and one-off blocks are addressed by index, milestones by title, and
 repeating blocks by id. Every tool that writes a session or a block answers with

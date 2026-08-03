@@ -72,6 +72,8 @@ just cannot be addressed until one of them is renamed.
 | Read settings | `GET /api/settings` | `settings` | `settings` | ✓ |
 | Write settings | `PUT /api/settings` | `settings` | `settings --focus …` | partial ² |
 | Push subscription | `/api/push/*` | — ³ | — ³ | ✓ |
+| Read ntfy config | `GET /api/ntfy` ⁵ | `ntfy` ⁵ | `ntfy` ⁵ | ✓ ⁵ |
+| Write ntfy config | `PUT /api/ntfy` ⁴ | `ntfy` | `ntfy --topic …` | ✓ |
 
 ¹ The web app spends reports on the weekly target bars; there is no report screen,
 so `groupBy=day` has no caller there.
@@ -82,7 +84,19 @@ the timezone is what turns every bare wall-clock time in the tree into an instan
 Both are changed by editing `settings.md`.
 
 ³ Push belongs to a browser that has a service worker. An agent and a shell have
-nothing to subscribe.
+nothing to subscribe. ntfy is the opposite case: a topic is a value anyone can
+type, so it is on all four. Where the file sits and which surfaces write it are
+different questions — everything goes through `Store`.
+
+⁴ Writing over HTTP also sends one test notification, and only when the write
+moved where notifications go. ntfy answers 200 for any topic name, so a typo is
+indistinguishable from success at the transport, and the write is the one moment
+somebody is looking at a screen and can be told. It catches a wrong server or a
+wrong token, never a wrong topic — the message says so. The CLI and MCP write
+without one: both are synchronous by design and hold no HTTP client.
+
+⁵ The token is never read back. Every surface answers with whether one is set,
+not with what it is; the file at mode 0600 is the only copy.
 
 ## Two deliberate asymmetries
 
