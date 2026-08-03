@@ -123,6 +123,36 @@ describe('settings', () => {
 	});
 });
 
+describe('ntfy', () => {
+	it('reads and writes the config', async () => {
+		const calls = mockFetch(200, {
+			server: 'https://ntfy.sh',
+			topic: 'timemd-a7f3',
+			appUrl: null,
+			hasToken: false,
+			subscribeUrl: 'https://ntfy.sh/timemd-a7f3',
+			test: 'delivered'
+		});
+
+		const config = await api.readNtfy();
+		expect(config.subscribeUrl).toBe('https://ntfy.sh/timemd-a7f3');
+		expect(calls[0]?.url).toBe('/api/ntfy');
+
+		await api.writeNtfy({ topic: 'timemd-a7f3' });
+		expect(calls[1]?.init.method).toBe('PUT');
+		expect(calls[1]?.init.body).toBe('{"topic":"timemd-a7f3"}');
+	});
+
+	/// A `?? undefined` slip here would make "turn it off" a silent no-op: the
+	/// API reads an absent key as "leave it alone".
+	it('sends null to clear the topic', async () => {
+		const calls = mockFetch(200, { server: 'https://ntfy.sh', topic: null });
+		await api.writeNtfy({ topic: null });
+
+		expect(calls[0]?.init.body).toBe('{"topic":null}');
+	});
+});
+
 describe('timer', () => {
 	const idle = {
 		active: null,

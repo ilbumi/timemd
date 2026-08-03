@@ -44,18 +44,26 @@ impl Clock {
 pub struct AppState {
     store: Arc<Store>,
     clock: Clock,
-    /// Shared so push delivery reuses TLS connections instead of paying a fresh
-    /// handshake per notification. Cloning is cheap — the client is internally
-    /// reference-counted.
+    /// Shared so notification delivery reuses TLS connections instead of paying
+    /// a fresh handshake per message. Cloning is cheap — the client is
+    /// internally reference-counted.
     http: reqwest::Client,
 }
+
+/// Comfortably inside the ticker's interval, so a host that accepts a
+/// connection and then says nothing costs one tick's latency rather than
+/// stalling the loop for however long the OS is prepared to wait.
+const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl AppState {
     pub fn new(store: Arc<Store>, clock: Clock) -> Self {
         Self {
             store,
             clock,
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .timeout(HTTP_TIMEOUT)
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 

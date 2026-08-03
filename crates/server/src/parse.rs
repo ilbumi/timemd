@@ -3,9 +3,24 @@
 //! Shared because the same four conversions were being written out per handler,
 //! and had already diverged over whether an empty string means "absent".
 
+use serde::{Deserialize, Deserializer};
 use timemd_core::{BlockId, Color, Mark, Minutes, ProjectSlug};
 
 use crate::error::{ApiError, ApiResult};
+
+/// Reads a field that may be absent or explicitly `null` into `Option<Option<T>>`.
+///
+/// Paired with `#[serde(default)]` on a doubly-optional field: an absent key
+/// arrives as `None` ("leave it"), an explicit `null` as `Some(None)` ("clear
+/// it"). Without it the two collapse, and a request meaning "turn this off"
+/// becomes a silent no-op.
+pub fn nullable<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
 
 /// An empty string means "not given" — an HTML `<select>` with no choice made
 /// submits `""`, and that is not a validation failure.

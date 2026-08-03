@@ -19,9 +19,9 @@ use timemd_core::day::Session;
 use timemd_core::report::{self, GroupBy};
 use timemd_core::schedule::{planned, planned_range};
 use timemd_core::{
-    BlockId, Color, DateRange, DayBlock, Mark, Milestone, MilestoneEdit, Minutes, Project,
-    ProjectSlug, ProjectStatus, Recurring, RecurringBlock, Settings, SettingsPatch, StartRequest,
-    Stopped, Store, Timer,
+    BlockId, Color, DateRange, DayBlock, Mark, Milestone, MilestoneEdit, Minutes, NtfyConfig,
+    NtfyPatch, Project, ProjectSlug, ProjectStatus, Recurring, RecurringBlock, Settings,
+    SettingsPatch, StartRequest, Stopped, Store, Timer,
 };
 
 /// The MCP server. One store, no other state.
@@ -174,6 +174,23 @@ pub struct SettingsParams {
     /// Default reminder lead for blocks that do not set their own. Omit to
     /// leave it alone.
     pub remind_before: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct NtfyParams {
+    /// Base URL of the ntfy server. Empty resets it to `https://ntfy.sh`; omit
+    /// to leave it alone.
+    pub server: Option<String>,
+    /// Topic to publish to. Anyone who knows it can read the notifications, so
+    /// pick one nobody would guess. Empty turns the channel off; omit to leave
+    /// it alone.
+    pub topic: Option<String>,
+    /// Bearer token, for an access-controlled topic. Empty clears it; omit to
+    /// leave it alone. Never read back.
+    pub token: Option<String>,
+    /// Where the app answers from outside, so a notification is tappable. Empty
+    /// clears it; omit to leave it alone.
+    pub app_url: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -330,6 +347,18 @@ pub struct SettingsSummary {
     /// Focus sessions between long breaks. Read-only here.
     pub long_break_every: u32,
     pub remind_before: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct NtfySummary {
+    pub server: String,
+    /// Absent means the channel is off.
+    pub topic: Option<String>,
+    pub app_url: Option<String>,
+    /// Whether a token is set. Never the token itself.
+    pub has_token: bool,
+    /// What a phone subscribes to, or absent while the channel is off.
+    pub subscribe_url: Option<String>,
 }
 
 /// A recurring block in both directions, like `MilestoneIo`.
@@ -886,6 +915,40 @@ impl TimeMd {
     }
 
     #[tool(
+        name = "ntfy",
+        description = "Read where notifications are published on a phone. Give a field to change it; give none to just read. An empty topic turns the channel off."
+    )]
+    fn ntfy(
+        &self,
+        Parameters(params): Parameters<NtfyParams>,
+    ) -> Result<Json<NtfySummary>, ErrorData> {
+        let patch = NtfyPatch {
+            server: params.server,
+            topic: params.topic.map(Some),
+            token: params.token.map(Some),
+            app_url: params.app_url.map(Some),
+        };
+
+        // A pure read must not write: asking where notifications go should not
+        // create a credential file in a tree that had none.
+        if patch.is_empty() {
+            let config = self.store.read_ntfy().map_err(failed)?;
+            return Ok(Json(summarise_ntfy(&config)));
+        }
+
+        let summary = self
+            .store
+            .try_update_ntfy(|config| {
+                config.apply(patch)?;
+                Ok(summarise_ntfy(config))
+            })
+            .map_err(failed)?
+            .map_err(|error: timemd_core::Error| invalid(error.to_string()))?;
+
+        Ok(Json(summary))
+    }
+
+    #[tool(
         name = "recurring",
         description = "The weekly repeating schedule, as stored."
     )]
@@ -1170,6 +1233,18 @@ fn summarise_settings(settings: &Settings) -> SettingsSummary {
     }
 }
 
+fn summarise_ntfy(config: &NtfyConfig) -> NtfySummary {
+    NtfySummary {
+        server: config.server.clone(),
+        topic: config.topic.clone(),
+        app_url: config.app_url.clone(),
+        // Whether, never what: a token an agent can read is a token in a
+        // transcript.
+        has_token: config.token.is_some(),
+        subscribe_url: config.topic_url(),
+    }
+}
+
 fn summarise_recurring(recurring: &Recurring) -> RecurringList {
     RecurringList {
         blocks: recurring
@@ -1369,6 +1444,7 @@ mod tests {
             "skip_block",
             "unskip_block",
             "settings",
+            "ntfy",
             "report",
             "list_projects",
             "project",
@@ -1453,6 +1529,88 @@ mod tests {
         assert!(error.message.contains("focus"), "{}", error.message);
 
         assert_eq!(std::fs::read(&path).expect("settings exist"), before);
+    }
+
+    /// Asking where notifications go must not create a credential file in a
+    /// tree that had none.
+    #[test]
+    fn reading_the_ntfy_config_does_not_write_the_file() {
+        let (_directory, server) = server();
+
+        let summary = server
+            .ntfy(Parameters(NtfyParams::default()))
+            .expect("reads")
+            .0;
+
+        assert_eq!(summary.server, "https://ntfy.sh");
+        assert_eq!(summary.topic, None);
+        assert_eq!(summary.subscribe_url, None);
+        assert!(!server.store.ntfy_path().exists());
+    }
+
+    /// An agent reads its own transcript. A token it can read is a token that
+    /// travels wherever the transcript does.
+    #[test]
+    fn the_token_is_never_summarised() {
+        let (_directory, server) = server();
+
+        let summary = server
+            .ntfy(Parameters(NtfyParams {
+                topic: Some("timemd-a7f3".to_owned()),
+                token: Some("tk_secret".to_owned()),
+                ..NtfyParams::default()
+            }))
+            .expect("writes")
+            .0;
+
+        assert!(summary.has_token);
+        assert!(
+            !serde_json::to_string(&summary)
+                .expect("serialises")
+                .contains("tk_secret")
+        );
+        assert_eq!(
+            summary.subscribe_url.as_deref(),
+            Some("https://ntfy.sh/timemd-a7f3")
+        );
+    }
+
+    #[test]
+    fn an_empty_topic_turns_the_channel_off() {
+        let (_directory, server) = server();
+        server
+            .ntfy(Parameters(NtfyParams {
+                topic: Some("timemd-a7f3".to_owned()),
+                ..NtfyParams::default()
+            }))
+            .expect("writes");
+
+        let summary = server
+            .ntfy(Parameters(NtfyParams {
+                topic: Some(String::new()),
+                ..NtfyParams::default()
+            }))
+            .expect("clears")
+            .0;
+
+        assert_eq!(summary.topic, None);
+        assert_eq!(summary.subscribe_url, None);
+    }
+
+    #[test]
+    fn a_topic_that_could_not_be_published_to_is_rejected() {
+        let (_directory, server) = server();
+
+        let error = server
+            .ntfy(Parameters(NtfyParams {
+                topic: Some("alpha/beta".to_owned()),
+                ..NtfyParams::default()
+            }))
+            .err()
+            .expect("a topic with a slash is refused");
+
+        assert!(error.message.contains("path segment"), "{}", error.message);
+        assert!(!server.store.ntfy_path().exists());
     }
 
     /// Keyed on the id, not on position: an agent that had to read-modify-write

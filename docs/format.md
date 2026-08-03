@@ -36,10 +36,11 @@ data/
   state/active.md                 the running timer
   state/reminders.md              reminders already sent
   state/push.md                   VAPID key and subscriptions — mode 0600, secret
+  state/ntfy.md                   ntfy server, topic and token — mode 0600, secret
 ```
 
-`state/` holds machine state and one private key. Gitignore it. Everything else
-is meant to be read, diffed and committed.
+`state/` holds machine state and the files that carry credentials. Gitignore it.
+Everything else is meant to be read, diffed and committed.
 
 ## Shared conventions
 
@@ -195,6 +196,33 @@ note: file store layer
 Deliberately readable: "what is the user working on right now" is answerable by
 reading one small file, with no server running. A file without a `started` key
 means idle.
+
+## ntfy — `state/ntfy.md`
+
+```markdown
+---
+server: https://ntfy.sh
+topic: timemd-a7f3c9e1
+token: tk_…
+app_url: https://box.tailnet.ts.net
+---
+```
+
+The second notification channel, for a phone that a browser will not wake.
+`topic` is the only key that has to be there: without one the channel is off.
+`server` defaults to `https://ntfy.sh`, and `token` and `app_url` are both
+optional — the first for an access-controlled topic, the second to make a
+notification tappable, since the server cannot work out its own external
+address.
+
+**A topic on a public server is a bearer capability.** Anyone who knows the name
+can subscribe and read every notification it carries. Pick one nobody would
+guess, or run a server with access control and set `token`. This is why the file
+is written mode 0600 and why `state/` is gitignored.
+
+`server` and `topic` are apart rather than one URL because ntfy accepts a JSON
+body only at the server root; publishing to `/{topic}` would put the title in a
+header, which cannot carry a block called `Café admin`.
 
 ## Durations across a clock change
 

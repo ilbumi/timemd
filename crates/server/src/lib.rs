@@ -11,6 +11,8 @@
 mod assets;
 mod error;
 mod health;
+mod notify;
+mod ntfy;
 mod parse;
 mod projects;
 pub mod push;
@@ -18,6 +20,8 @@ mod report;
 mod schedule;
 mod settings;
 pub mod state;
+#[cfg(test)]
+pub(crate) mod testing;
 mod ticker;
 mod timer;
 
@@ -43,6 +47,7 @@ pub fn router(state: AppState) -> Router {
         .merge(report::routes())
         .merge(settings::routes())
         .merge(push::routes())
+        .merge(ntfy::routes())
         .fallback(unknown_endpoint);
 
     Router::new()

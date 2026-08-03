@@ -33,20 +33,31 @@ vi.mock('$lib/notifications', () => ({
 	disablePush: () => disablePush()
 }));
 
-function stubApi(): void {
-	vi.stubGlobal('fetch', () =>
+const NTFY = {
+	server: 'https://ntfy.sh',
+	topic: null,
+	appUrl: null,
+	hasToken: false,
+	subscribeUrl: null,
+	test: null
+};
+
+const SETTINGS = {
+	timezone: 'UTC',
+	focus: '25m',
+	shortBreak: '5m',
+	longBreak: '15m',
+	longBreakEvery: 4,
+	remindBefore: '5m'
+};
+
+/** Routed by path: the screen makes two reads, and they want different shapes. */
+function stubApi(ntfy: unknown = NTFY): void {
+	vi.stubGlobal('fetch', (url: string) =>
 		Promise.resolve(
-			new Response(
-				JSON.stringify({
-					timezone: 'UTC',
-					focus: '25m',
-					shortBreak: '5m',
-					longBreak: '15m',
-					longBreakEvery: 4,
-					remindBefore: '5m'
-				}),
-				{ headers: { 'content-type': 'application/json' } }
-			)
+			new Response(JSON.stringify(url.startsWith('/api/ntfy') ? ntfy : SETTINGS), {
+				headers: { 'content-type': 'application/json' }
+			})
 		)
 	);
 }
@@ -74,5 +85,44 @@ describe('the notifications toggle', () => {
 		});
 		expect(button).not.toBeDisabled();
 		expect(disablePush).toHaveBeenCalledOnce();
+	});
+});
+
+describe('the ntfy panel', () => {
+	/**
+	 * "Delivered" on its own reads as a guarantee the test send cannot make:
+	 * ntfy answers 200 for any topic name, so a typo looks exactly like success.
+	 */
+	it('says a delivered test still does not prove the topic', async () => {
+		stubApi({
+			...NTFY,
+			topic: 'timemd-a7f3',
+			subscribeUrl: 'https://ntfy.sh/timemd-a7f3',
+			test: 'delivered'
+		});
+		render(Settings);
+
+		await vi.waitFor(() => {
+			expect(screen.getByRole('status')).toHaveTextContent(/ntfy accepts any name/i);
+		});
+	});
+
+	it('offers the subscribe URL once a topic is set', async () => {
+		stubApi({ ...NTFY, topic: 'timemd-a7f3', subscribeUrl: 'https://ntfy.sh/timemd-a7f3' });
+		render(Settings);
+
+		await vi.waitFor(() => {
+			expect(screen.getByText('https://ntfy.sh/timemd-a7f3')).toBeInTheDocument();
+		});
+		expect(screen.getByRole('button', { name: /turn off ntfy/i })).toBeInTheDocument();
+	});
+
+	/** The token has no server value to hold, so the box must not look like it has one. */
+	it('never prefills the token box', async () => {
+		stubApi({ ...NTFY, topic: 'timemd-a7f3', hasToken: true });
+		render(Settings);
+
+		const token = await vi.waitFor(() => screen.getByPlaceholderText(/type to replace/i));
+		expect(token).toHaveValue('');
 	});
 });

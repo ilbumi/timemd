@@ -23,6 +23,7 @@ use web_push::{
 };
 
 use crate::error::{ApiError, ApiResult};
+use crate::notify::Notification;
 use crate::state::AppState;
 
 /// How long a push service should hold a notification for a phone that is
@@ -34,15 +35,6 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/push/key", get(public_key))
         .route("/push/subscribe", post(subscribe).delete(unsubscribe))
-}
-
-/// What a notification says.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Notification {
-    pub title: String,
-    pub body: String,
-    /// Where tapping it should land.
-    pub url: String,
 }
 
 #[derive(Serialize)]
@@ -251,15 +243,7 @@ async fn send_one(client: &reqwest::Client, message: WebPushMessage) -> Option<S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::Clock;
-    use std::sync::Arc;
-    use timemd_core::Store;
-
-    fn state() -> (tempfile::TempDir, AppState) {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let store = Arc::new(Store::new(directory.path()));
-        (directory, AppState::new(store, Clock::System))
-    }
+    use crate::testing::{notification, state, stub, subscription as well_formed};
 
     #[test]
     fn a_keypair_is_generated_once_and_then_reused() {
@@ -343,70 +327,22 @@ mod tests {
         assert!(build(&private, &subscription, b"{}").is_err());
     }
 
-    /// A stand-in push service: answers one request with `status`, then reports
-    /// what it was sent. Enough to exercise delivery without the network.
-    async fn stub_service(status: u16) -> (String, tokio::task::JoinHandle<Option<String>>) {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("binds");
-        let endpoint = format!(
-            "http://{}/push",
-            listener.local_addr().expect("has an address")
-        );
-
-        let served = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.ok()?;
-            let mut buffer = vec![0_u8; 4096];
-            let read = stream.read(&mut buffer).await.ok()?;
-            let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
-
-            let reason = if status == 201 { "Created" } else { "Gone" };
-            let response = format!(
-                "HTTP/1.1 {status} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            );
-            stream.write_all(response.as_bytes()).await.ok()?;
-            stream.shutdown().await.ok()?;
-            Some(request)
-        });
-
-        (endpoint, served)
-    }
-
-    fn well_formed(endpoint: &str) -> Subscription {
-        Subscription {
-            endpoint: endpoint.to_owned(),
-            p256dh: URL_SAFE_NO_PAD.encode(SecretKey::generate().public_key().to_sec1_bytes()),
-            auth: URL_SAFE_NO_PAD.encode([7_u8; 16]),
-        }
-    }
-
-    fn notification() -> Notification {
-        Notification {
-            title: "Deep work".to_owned(),
-            body: "09:00".to_owned(),
-            url: "/today".to_owned(),
-        }
-    }
-
     #[tokio::test]
     async fn a_delivered_notification_is_encrypted_and_carries_its_headers() {
         let (_directory, state) = state();
         ensure_keypair(&state).expect("generates");
-        let (endpoint, served) = stub_service(201).await;
+        let (base, served) = stub(201, 1).await;
+        let endpoint = format!("{base}/push");
 
         state
             .store()
             .update_push(|push| push.subscribe(well_formed(&endpoint)))
             .expect("subscribes");
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
 
-        let request = served
-            .await
-            .expect("the stub ran")
-            .expect("a request arrived");
+        let served = served.await.expect("the stub ran");
+        let request = served.first().expect("a request arrived");
         assert!(request.starts_with("POST /push"), "{request}");
         assert!(request.contains("content-encoding: aes128gcm"), "{request}");
         assert!(
@@ -433,14 +369,15 @@ mod tests {
     async fn a_subscription_the_service_calls_gone_is_dropped() {
         let (_directory, state) = state();
         ensure_keypair(&state).expect("generates");
-        let (endpoint, served) = stub_service(410).await;
+        let (base, served) = stub(410, 1).await;
+        let endpoint = format!("{base}/push");
 
         state
             .store()
             .update_push(|push| push.subscribe(well_formed(&endpoint)))
             .expect("subscribes");
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
         served.await.expect("the stub ran");
 
         assert!(
@@ -465,7 +402,7 @@ mod tests {
             .update_push(|push| push.subscribe(well_formed("http://127.0.0.1:1/push")))
             .expect("subscribes");
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
 
         assert_eq!(
             state
@@ -483,7 +420,8 @@ mod tests {
     async fn a_malformed_subscription_does_not_stop_delivery() {
         let (_directory, state) = state();
         ensure_keypair(&state).expect("generates");
-        let (endpoint, served) = stub_service(201).await;
+        let (base, served) = stub(201, 1).await;
+        let endpoint = format!("{base}/push");
 
         state
             .store()
@@ -497,10 +435,10 @@ mod tests {
             })
             .expect("subscribes");
 
-        deliver(&state, &[notification()]).await;
+        deliver(&state, &[notification("Deep work")]).await;
 
         // The good subscription was still served despite the bad one first.
-        assert!(served.await.expect("the stub ran").is_some());
+        assert_eq!(served.await.expect("the stub ran").len(), 1);
     }
 
     #[tokio::test]

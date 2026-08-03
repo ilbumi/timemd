@@ -176,6 +176,34 @@ export interface SettingsPatch {
 	remindBefore?: string;
 }
 
+/** What a test send did, and why the setup might not be working. */
+export type NtfyTest = 'delivered' | 'rejected' | 'unreachable';
+
+export interface Ntfy {
+	server: string;
+	/** Null means the channel is off. */
+	topic: string | null;
+	appUrl: string | null;
+	/** Whether a token is set. The value itself never leaves the server. */
+	hasToken: boolean;
+	/** What a phone subscribes to, or null while the channel is off. */
+	subscribeUrl: string | null;
+	/** Non-null only on a write that moved where notifications go. */
+	test: NtfyTest | null;
+}
+
+/**
+ * Every field is optional and every one but `server` accepts an explicit null
+ * to clear it — sending `undefined` would leave the value alone instead, which
+ * is how "turn it off" becomes a silent no-op.
+ */
+export interface NtfyPatch {
+	server?: string;
+	topic?: string | null;
+	token?: string | null;
+	appUrl?: string | null;
+}
+
 export interface PushKey {
 	publicKey: string;
 }
@@ -311,6 +339,10 @@ export const api = {
 
 	writeSettings: (patch: SettingsPatch): Promise<Settings> =>
 		request('PUT', '/api/settings', { ...patch }),
+
+	readNtfy: (): Promise<Ntfy> => request('GET', '/api/ntfy'),
+
+	writeNtfy: (patch: NtfyPatch): Promise<Ntfy> => request('PUT', '/api/ntfy', { ...patch }),
 
 	pushKey: (): Promise<PushKey> => request('GET', '/api/push/key'),
 

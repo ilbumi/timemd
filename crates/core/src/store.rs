@@ -21,6 +21,7 @@ use crate::active::{ActiveSession, IDLE};
 use crate::day::Day;
 use crate::error::{Error, Result};
 use crate::ids::ProjectSlug;
+use crate::ntfy::NtfyConfig;
 use crate::project::Project;
 use crate::push::PushState;
 use crate::reminders::SentLog;
@@ -51,6 +52,7 @@ const SETTINGS_FILE: &str = "settings.md";
 const ACTIVE_FILE: &str = "active.md";
 const REMINDERS_FILE: &str = "reminders.md";
 const PUSH_FILE: &str = "push.md";
+const NTFY_FILE: &str = "ntfy.md";
 
 /// Reads and writes the markdown tree rooted at `root`.
 #[derive(Debug)]
@@ -300,19 +302,39 @@ impl Store {
         }
     }
 
-    /// Applies an edit to the push state, then restricts the file to its owner.
-    ///
-    /// This is the one file in the tree holding a secret, so it does not inherit
-    /// the permissions everything else is happy with.
     pub fn update_push<T>(&self, edit: impl FnOnce(&mut PushState) -> T) -> Result<T> {
         self.transaction(|tx| {
             let mut state = tx.store.read_push()?;
             let outcome = edit(&mut state);
-            let path = tx.store.push_path();
-            write_atomic(&path, &state.render())?;
-            restrict_to_owner(&path)?;
+            write_secret(&tx.store.push_path(), &state.render())?;
             Ok(outcome)
         })
+    }
+
+    pub fn ntfy_path(&self) -> PathBuf {
+        self.root.join(STATE_DIR).join(NTFY_FILE)
+    }
+
+    pub fn read_ntfy(&self) -> Result<NtfyConfig> {
+        let path = self.ntfy_path();
+        match read_to_string(&path)? {
+            Some(text) => {
+                NtfyConfig::parse(&text).map_err(|source| Error::Frontmatter { path, source })
+            }
+            None => Ok(NtfyConfig::default()),
+        }
+    }
+
+    pub fn update_ntfy<T>(&self, edit: impl FnOnce(&mut NtfyConfig) -> T) -> Result<T> {
+        self.transaction(|tx| tx.update_ntfy(edit))
+    }
+
+    /// Applies an edit that may refuse, writing only if it did not.
+    pub fn try_update_ntfy<T, E>(
+        &self,
+        edit: impl FnOnce(&mut NtfyConfig) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
+        self.transaction(|tx| tx.try_update_ntfy(edit))
     }
 
     pub fn reminders_path(&self) -> PathBuf {
@@ -490,6 +512,24 @@ impl Tx<'_> {
         Ok(outcome)
     }
 
+    pub fn update_ntfy<T>(&self, edit: impl FnOnce(&mut NtfyConfig) -> T) -> Result<T> {
+        settled(self.try_update_ntfy(|config| Ok(edit(config))))
+    }
+
+    /// Applies an edit that may refuse, writing only if it did not. See
+    /// [`Tx::try_update_project`] for why this exists.
+    pub fn try_update_ntfy<T, E>(
+        &self,
+        edit: impl FnOnce(&mut NtfyConfig) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
+        let mut config = self.store.read_ntfy()?;
+        let outcome = edit(&mut config);
+        if outcome.is_ok() {
+            write_secret(&self.store.ntfy_path(), &config.render())?;
+        }
+        Ok(outcome)
+    }
+
     pub fn set_active(&self, session: Option<&ActiveSession>) -> Result<()> {
         let text = session.map_or_else(|| IDLE.to_owned(), ActiveSession::render);
         write_atomic(&self.store.active_path(), &text)
@@ -501,6 +541,17 @@ impl Tx<'_> {
         write_atomic(&self.store.recurring_path(), &recurring.render())?;
         Ok(outcome)
     }
+}
+
+/// Writes a file that only its owner may read.
+///
+/// `state/push.md` and `state/ntfy.md` both carry credentials, so neither
+/// inherits the permissions the rest of the tree is happy with. One helper
+/// rather than the pair written out per file: a write that forgot the second
+/// half would leave a secret world-readable and pass every other test.
+fn write_secret(path: &Path, contents: &str) -> Result<()> {
+    write_atomic(path, contents)?;
+    restrict_to_owner(path)
 }
 
 /// Restricts a file to owner read/write.
@@ -1037,6 +1088,44 @@ mod tests {
             store.read_settings().expect("reads").focus,
             Settings::default().focus
         );
+    }
+
+    /// The whole reason the ntfy config lives under `state/` rather than in
+    /// `settings.md`: a topic is a bearer capability and a token is a secret.
+    #[test]
+    fn the_ntfy_file_is_readable_only_by_its_owner() {
+        let (_directory, store) = store();
+        store
+            .update_ntfy(|config| config.token = Some("tk_secret".to_owned()))
+            .expect("writes");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(store.ntfy_path())
+                .expect("the file exists")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600, "ntfy.md holds a credential");
+        }
+    }
+
+    /// A refused edit must not leave a half-written credential file behind in a
+    /// tree that had none.
+    #[test]
+    fn a_refused_ntfy_edit_writes_nothing() {
+        let (_directory, store) = store();
+
+        let refused: std::result::Result<(), Error> = store
+            .try_update_ntfy(|config| {
+                config.topic = Some("alpha".to_owned());
+                Err(Error::Invalid("the edit refused".to_owned()))
+            })
+            .expect("the store call");
+
+        assert!(refused.is_err());
+        assert!(!store.ntfy_path().exists());
+        assert!(!store.read_ntfy().expect("reads").is_configured());
     }
 
     fn walk(root: &Path) -> Vec<PathBuf> {

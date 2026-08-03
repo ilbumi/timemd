@@ -114,6 +114,16 @@ function stubApi(): void {
 					remindBefore: '5m'
 				};
 			}
+			if (url.startsWith('/api/ntfy')) {
+				return {
+					server: 'https://ntfy.sh',
+					topic: null,
+					appUrl: null,
+					hasToken: false,
+					subscribeUrl: null,
+					test: null
+				};
+			}
 			if (url.startsWith('/api/timer')) {
 				return {
 					active: null,

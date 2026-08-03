@@ -10,6 +10,7 @@
 //! This file owns the command model and the dispatch; the operations behind
 //! each group live beside it, one module per thing being operated on.
 
+pub mod ntfy;
 pub mod project;
 pub mod schedule;
 pub mod session;
@@ -160,6 +161,25 @@ pub enum Command {
         #[arg(long)]
         remind_before: Option<String>,
     },
+
+    /// Where notifications go on a phone. With no flags, prints the config.
+    ///
+    /// A flag given empty clears it: `--topic ''` turns the channel off.
+    Ntfy {
+        /// Base URL of the ntfy server. Defaults to https://ntfy.sh.
+        #[arg(long)]
+        server: Option<String>,
+        /// Topic to publish to. Anyone who knows it can read your
+        /// notifications, so pick one nobody would guess.
+        #[arg(long)]
+        topic: Option<String>,
+        /// Bearer token, for a topic that is access-controlled.
+        #[arg(long)]
+        token: Option<String>,
+        /// Where this app answers from outside, so a notification is tappable.
+        #[arg(long)]
+        app_url: Option<String>,
+    },
 }
 
 /// Runs everything except `serve`, which needs the async runtime the binary owns.
@@ -211,6 +231,13 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
             long_break,
             remind_before,
         } => settings::run(store, focus, short_break, long_break, remind_before),
+
+        Command::Ntfy {
+            server,
+            topic,
+            token,
+            app_url,
+        } => ntfy::run(store, server, topic, token, app_url),
 
         Command::Report { from, to, group_by } => {
             let to = to.unwrap_or_else(|| now.date());

@@ -11,7 +11,7 @@ use std::time::Duration;
 use chrono::NaiveDateTime;
 use timemd_core::{Reminder, Timer, reminders};
 
-use crate::push::{self, Notification};
+use crate::notify::{self, Notification};
 use crate::state::AppState;
 
 /// Fine enough that a completed pomodoro is logged within half a minute, coarse
@@ -35,7 +35,7 @@ pub async fn run(state: AppState) {
 
         let mut notifications: Vec<Notification> = settle_once(&state, now).into_iter().collect();
         notifications.extend(reminders_due(&state, now));
-        push::deliver(&state, &notifications).await;
+        notify::deliver(&state, &notifications).await;
     }
 }
 
