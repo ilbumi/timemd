@@ -12,6 +12,7 @@ mod assets;
 mod error;
 mod health;
 mod notify;
+mod ntfy;
 mod parse;
 mod projects;
 pub mod push;
