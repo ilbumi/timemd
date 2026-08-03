@@ -153,7 +153,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ steps.version.outputs.tag }}
-        # Draft until the binaries are attached, so nobody downloads an empty release.
+        # Draft until the binaries are attached and the image is pushed, so
+        # nobody downloads an empty release or pulls a tag that does not exist.
         run: gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --draft
 
   binaries:
@@ -166,9 +167,21 @@ jobs:
       tag: ${{ needs.tag.outputs.tag }}
       upload: true
 
+  # Reads the tarballs back off the draft release, so it has to follow `binaries`.
+  image:
+    needs: [tag, binaries]
+    if: ${{ !inputs.dry_run }}
+    uses: ./.github/workflows/build-image.yml
+    permissions:
+      contents: write # the release it reads the tarballs from is still a draft
+      packages: write
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+      push: true
+
   publish:
     name: publish the release
-    needs: [tag, binaries]
+    needs: [tag, binaries, image]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

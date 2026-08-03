@@ -16,7 +16,10 @@ COVERAGE_EXCLUDE ?= crates/cli/src/main\.rs
 # with only the toolchain each needs, without restating the flags that *are* the
 # gate. The halves carry no `##`, so `help` still shows the same list it did.
 .PHONY: help deps test test-rust test-web lint lint-rust lint-web fmt \
-        cov cov-rust cov-web e2e frontend serve dev clean
+        cov cov-rust cov-web e2e image frontend serve dev clean
+
+# Tag whose released binaries `image` wraps, and what to call the result.
+IMAGE ?= timemd:$(TAG)
 
 help: ## Show available targets
 	@grep -hE '^[a-z][a-z-]*:.*?## ' $(MAKEFILE_LIST) \
@@ -78,6 +81,41 @@ e2e: frontend ## Check alignment and adaptive layout in a real browser
 	cd frontend && $(PNPM) exec playwright install --with-deps chromium
 	$(CARGO) build --bin timemd
 	cd frontend && $(PNPM) run e2e
+
+# The image is never a second compile: it wraps binaries a release already
+# published, so this needs neither Rust nor Node and does the same thing on a Mac
+# as on the runner — which is why it belongs here and not only in the workflow.
+# The two Linux targets are the Linux half of `build-binaries.yml`'s matrix; add
+# one there and it has to be added here too, or it silently misses the image.
+#
+# `install -D` is GNU-only, so the recipe sticks to `mkdir -p`.
+#
+# What the smoke test asserts, in order: the binary answers at all; the server
+# comes up; `/` is not a 404, which is what a binary built without `make frontend`
+# serves — an exit code rather than a message to keep in sync; and, with nothing
+# mounted, that uid 65532 can write /data as the image ships it, the failure mode
+# a `RUN mkdir` would have introduced.
+image: ## Build the container image from a released tag and prove it runs (TAG=v0.1.0)
+	@test -n "$(TAG)" || { echo "TAG is required, e.g. make image TAG=v0.1.0"; exit 1; }
+	rm -rf dist/image
+	set -eu; \
+	stage() { \
+	  gh release download "$(TAG)" --pattern "timemd-$$1.tar.gz" --dir dist --clobber; \
+	  tar -xzf "dist/timemd-$$1.tar.gz" -C dist; \
+	  mkdir -p "dist/image/$$2"; \
+	  install -m755 "dist/timemd-$$1/timemd" "dist/image/$$2/timemd"; \
+	}; \
+	stage x86_64-unknown-linux-gnu  amd64; \
+	stage aarch64-unknown-linux-gnu arm64
+	docker buildx build --load -f Dockerfile -t $(IMAGE) dist/image
+	docker run --rm $(IMAGE) --version
+	-docker rm -f timemd-smoke >/dev/null 2>&1
+	docker run -d --name timemd-smoke -p 127.0.0.1:18080:8080 $(IMAGE)
+	curl --retry 15 --retry-delay 1 --retry-all-errors --retry-connrefused -fsS \
+		http://127.0.0.1:18080/api/health
+	curl -fsS -o /dev/null http://127.0.0.1:18080/
+	docker exec timemd-smoke /usr/local/bin/timemd start smoke
+	docker rm -f timemd-smoke
 
 frontend: deps ## Build the web UI into the server crate for embedding
 	cd frontend && $(PNPM) run build
