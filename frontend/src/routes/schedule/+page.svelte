@@ -257,11 +257,9 @@
 							style:--text={done ? 'var(--ink)' : contrastInk(look.color)}
 							onclick={() => startBlock(block)}
 						>
-							<span class="block-text">
-								<span class="block-title">{block.title || look.name}</span>
-								<span class="block-when">
-									{clockTime(block.start)}–{clockTime(block.end)}{done ? ' · done' : ''}
-								</span>
+							<span class="block-title">{block.title || look.name}</span>
+							<span class="block-when">
+								{clockTime(block.start)}–{clockTime(block.end)}{done ? ' · done' : ''}
 							</span>
 						</button>
 					{/each}
@@ -401,8 +399,29 @@
 		position: absolute;
 		left: calc(-1 * var(--rule));
 		right: 0;
-		display: block;
-		min-height: 0;
+		/*
+		 * The button *is* the column. Chrome centres a button's contents itself,
+		 * and centred contents that do not fit lose half at each end — which is
+		 * how a block ended up showing the bottom two thirds of its title and
+		 * nothing else (#17). An author `display: flex` replaces that centring
+		 * outright, so whatever cannot fit is now lost from the bottom, where the
+		 * time is, rather than from the title.
+		 */
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		/*
+		 * A block's height is its duration, and a quarter of an hour is a few
+		 * pixels — so the duration alone cannot be trusted to leave room for a
+		 * word. This is the floor: one 15.5px line of `.block-title` between its
+		 * 5px of padding and its two rules, the lower rung of the same ladder as
+		 * the 44px below. Both are literals measured against rendered type by
+		 * `croppedText`, which is what keeps them honest when the type changes.
+		 *
+		 * The cost is that two short blocks back to back overlap by the few pixels
+		 * the first one borrowed. A block that says nothing is worse.
+		 */
+		min-height: 30px;
 		/* So a block too short for two lines can drop the second one. */
 		container-type: size;
 		padding: 5px 11px;
@@ -424,17 +443,6 @@
 		text-align: left;
 		text-transform: none;
 		letter-spacing: 0;
-	}
-
-	/*
-	 * The text is its own column rather than the button being one: Chrome centres
-	 * a button's contents itself, so a block shorter than two lines clipped the
-	 * title and kept the time — the wrong way round.
-	 */
-	.block-text {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
 	}
 
 	/* Two lines need about 44px. Below that the time goes and the title stays,
@@ -516,8 +524,8 @@
 	}
 
 	/*
-	 * The row opens the editor. Left-aligned for the same reason `.block-text`
-	 * is a column: Chrome centres a button's contents itself.
+	 * The row opens the editor. Left-aligned for the same reason `.block` is a
+	 * column: Chrome centres a button's contents itself.
 	 */
 	.edit {
 		display: flex;

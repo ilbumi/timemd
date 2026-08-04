@@ -202,11 +202,16 @@ Nothing running.
 	for (const [offset, lines] of Object.entries(SESSIONS)) {
 		const date = daysAgo(Number(offset));
 		const day = isoDay(date);
-		// Today gets a one-off block. Without one the day screen never renders
-		// its edit or remove affordance, so the probes below would measure a
-		// screen the user does not have.
+		// Today gets two one-off blocks. Without any, the day screen never renders
+		// its edit or remove affordance, so the probes would measure a screen the
+		// user does not have. The quarter-hour one is the shortest block the
+		// timeline can be asked to draw, which is where a title stopped fitting
+		// the box its duration gave it (#17), and it starts before the default
+		// window, so `spanOf` has something to stretch for.
 		const schedule =
-			Number(offset) === 0 ? '\n## Schedule\n\n- 12:00-12:45 [[atlas]] Standup !5m\n' : '';
+			Number(offset) === 0
+				? '\n## Schedule\n\n- 07:45-08:00 [[notes]] Walk (pad)\n- 12:00-12:45 [[atlas]] Standup !5m\n'
+				: '';
 		write(
 			root,
 			`days/${date.getFullYear()}/${day}.md`,
