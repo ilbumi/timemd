@@ -2,6 +2,11 @@
 
 Written from the conventional commits in each release.
 
+## [0.2.1](https://github.com/ilbumi/timemd/compare/v0.2.0...v0.2.1) - 2026-08-04
+
+### Fixed
+
+- **schedule:** stop the day timeline cropping short block titles (#19) ([17b205a](https://github.com/ilbumi/timemd/commit/17b205a37fa9ddf5c2138d2e00bcc369566e4974))
 ## [0.2.0](https://github.com/ilbumi/timemd/compare/v0.1.0...v0.2.0) - 2026-08-03
 
 ### Added
