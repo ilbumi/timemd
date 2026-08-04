@@ -111,6 +111,10 @@ pub fn format_wikilink(project: Option<&ProjectSlug>) -> String {
     project.map_or_else(String::new, |slug| format!("[[{slug}]] "))
 }
 
+pub fn format_reminder(lead: Option<Minutes>) -> String {
+    lead.map_or_else(String::new, |lead| format!(" !{lead}"))
+}
+
 /// Consumes a trailing `!5m` reminder lead time.
 pub fn reminder_suffix(text: &str) -> (Option<Minutes>, &str) {
     let trimmed = text.trim_end();
@@ -247,6 +251,12 @@ mod tests {
         let (id, rest) = take_backtick_id("`deep-work` mon-fri 09:00-11:00").expect("parses");
         assert_eq!(id.to_string(), "deep-work");
         assert_eq!(rest, "mon-fri 09:00-11:00");
+    }
+
+    #[test]
+    fn writes_a_reminder_lead_only_when_there_is_one() {
+        assert_eq!(format_reminder(Some(Minutes::new(5))), " !5m");
+        assert_eq!(format_reminder(None), "");
     }
 
     #[test]

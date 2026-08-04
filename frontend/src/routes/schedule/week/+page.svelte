@@ -4,9 +4,10 @@
 	import { api, type Occurrence } from '$lib/api';
 	import { attempt } from '$lib/attempt';
 	import { formatHours } from '$lib/countdown';
-	import { isoWeek, minutesOfDay, shiftDays, startOfWeek, today, weekDates } from '$lib/dates';
+	import { isoWeek, shiftDays, startOfWeek, today, weekDates } from '$lib/dates';
 	import { lookOf, readLooks, type Look } from '$lib/look';
 	import { hourMarks, minutesNow, offsetIn, placeIn, spanOf } from '$lib/timeline';
+	import { plannedMinutes } from '$lib/totals';
 
 	const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 	const DEFAULT_FROM = 8 * 60;
@@ -29,12 +30,7 @@
 	const monday = $derived(startOfWeek(anchor));
 	const dates = $derived(weekDates(monday));
 
-	const totalMinutes = $derived(
-		occurrences.reduce(
-			(total, block) => total + (minutesOfDay(block.end) - minutesOfDay(block.start)),
-			0
-		)
-	);
+	const totalMinutes = $derived(plannedMinutes(occurrences));
 
 	/** Every project that actually appears this week, for the legend. */
 	const legend = $derived.by(() => {

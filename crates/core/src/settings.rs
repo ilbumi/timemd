@@ -3,8 +3,10 @@
 //! The timezone lives here and nowhere else. Files store bare wall-clock times,
 //! so this single value is what turns them into instants.
 
+use chrono::{DateTime, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 
+use crate::active::SessionKind;
 use crate::document::Document;
 use crate::minutes::Minutes;
 
@@ -74,14 +76,35 @@ impl Settings {
         document.render()
     }
 
-    /// Length of the break that follows the `completed`-th focus session of the
-    /// day, counting from one.
-    pub fn break_after(&self, completed: u32) -> Minutes {
+    /// Which break follows the `completed`-th focus session of the day, counting
+    /// from one.
+    ///
+    /// Returns the kind rather than the length: two lengths that happen to be
+    /// equal — which `short_break: 5m` and `long_break: 5m` legally are — must
+    /// not make the app call a short break a long one.
+    pub fn break_after(&self, completed: u32) -> SessionKind {
         if completed > 0 && completed % self.long_break_every == 0 {
-            self.long_break
+            SessionKind::LongBreak
         } else {
-            self.short_break
+            SessionKind::ShortBreak
         }
+    }
+
+    /// How long a block of this kind runs by default.
+    pub fn length_of(&self, kind: SessionKind) -> Minutes {
+        match kind {
+            SessionKind::Focus => self.focus,
+            SessionKind::ShortBreak => self.short_break,
+            SessionKind::LongBreak => self.long_break,
+        }
+    }
+
+    /// An instant as wall-clock time here.
+    ///
+    /// The timezone lives on the settings, so the conversion does too — a caller
+    /// holding settings already can convert without reading the file again.
+    pub fn wall_clock(&self, instant: DateTime<Utc>) -> NaiveDateTime {
+        instant.with_timezone(&self.timezone).naive_local()
     }
 
     /// Applies `patch`, leaving every field it does not name alone.
@@ -229,7 +252,7 @@ mod tests {
     fn rejects_a_zero_long_break_interval_that_would_divide_by_zero() {
         let settings = Settings::parse("---\nlong_break_every: 0\n---\n").expect("parses");
         assert_eq!(settings.long_break_every, DEFAULT_LONG_BREAK_EVERY);
-        assert_eq!(settings.break_after(4), DEFAULT_LONG_BREAK);
+        assert_eq!(settings.break_after(4), SessionKind::LongBreak);
     }
 
     #[test]
@@ -252,11 +275,19 @@ mod tests {
             long_break_every: 4,
             ..Settings::default()
         };
-        assert_eq!(settings.break_after(1), DEFAULT_SHORT_BREAK);
-        assert_eq!(settings.break_after(3), DEFAULT_SHORT_BREAK);
-        assert_eq!(settings.break_after(4), DEFAULT_LONG_BREAK);
-        assert_eq!(settings.break_after(8), DEFAULT_LONG_BREAK);
-        assert_eq!(settings.break_after(0), DEFAULT_SHORT_BREAK);
+        assert_eq!(settings.break_after(1), SessionKind::ShortBreak);
+        assert_eq!(settings.break_after(3), SessionKind::ShortBreak);
+        assert_eq!(settings.break_after(4), SessionKind::LongBreak);
+        assert_eq!(settings.break_after(8), SessionKind::LongBreak);
+        assert_eq!(settings.break_after(0), SessionKind::ShortBreak);
+
+        // Equal lengths must not blur the two kinds together.
+        let same = Settings {
+            short_break: DEFAULT_LONG_BREAK,
+            ..Settings::default()
+        };
+        assert_eq!(same.length_of(same.break_after(1)), DEFAULT_LONG_BREAK);
+        assert_eq!(same.break_after(1), SessionKind::ShortBreak);
     }
 
     #[test]

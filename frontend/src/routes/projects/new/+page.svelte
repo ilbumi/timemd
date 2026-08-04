@@ -6,11 +6,7 @@
 	import { describe } from '$lib/attempt';
 	import { formatHours } from '$lib/countdown';
 	import { DEFAULT_COLOR } from '$lib/palette';
-
-	/** The stepper's bounds, in minutes. A week has 168 hours; anything near it
-	    is a typo. Half-hour steps so `1h30m` is expressible. */
-	const MAX_TARGET = 60 * 60;
-	const TARGET_STEP = 30;
+	import { MAX_TARGET, TARGET_STEP } from '$lib/totals';
 
 	let name = $state('');
 	let mark = $state<MarkShape>('square');

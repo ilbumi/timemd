@@ -20,6 +20,7 @@ use crate::day::Session;
 use crate::error::{Error, Result};
 use crate::ids::ProjectSlug;
 use crate::minutes::Minutes;
+use crate::settings::Settings;
 use crate::store::{Store, Tx};
 
 /// What to start. Absent values fall back to the stored settings.
@@ -85,15 +86,8 @@ impl<'store> Timer<'store> {
     /// something is actually due. Both the background tick and every read of the
     /// timer go through it, so the API stays correct even if the tick is late.
     pub fn settle(&self, now: NaiveDateTime) -> Result<Option<Session>> {
-        self.store.transaction(|tx| {
-            let Some(active) = tx.read_active()? else {
-                return Ok(None);
-            };
-            if !active.is_due(now) {
-                return Ok(None);
-            }
-            retire(tx, &active, active.ends_at())
-        })
+        self.store
+            .transaction(|tx| settle_within(tx, now).map(Settled::logged))
     }
 
     /// Starts a block, first settling or stopping whatever was running.
@@ -102,11 +96,9 @@ impl<'store> Timer<'store> {
             stop_within(tx, now)?;
 
             let settings = tx.read_settings()?;
-            let duration = request.duration.unwrap_or(match request.kind {
-                SessionKind::Focus => settings.focus,
-                SessionKind::ShortBreak => settings.short_break,
-                SessionKind::LongBreak => settings.long_break,
-            });
+            let duration = request
+                .duration
+                .unwrap_or_else(|| settings.length_of(request.kind));
 
             // A zero-length block can never log anything, so refusing it here —
             // rather than in one front door — keeps the CLI and MCP honest too.
@@ -142,29 +134,83 @@ impl<'store> Timer<'store> {
     /// The current state, settling first so a due block is never reported as
     /// still running.
     pub fn state(&self, now: NaiveDateTime) -> Result<TimerState> {
-        self.settle(now)?;
+        self.state_with(now, &self.store.read_settings()?)
+    }
+
+    /// The state, for a caller that has already read the settings.
+    ///
+    /// Every front door needs the timezone to work out `now` before it can ask
+    /// this question, so it always has the settings in hand — taking them back
+    /// means `settings.md` is parsed once per request rather than once for the
+    /// clock and again for the break lengths.
+    pub fn state_with(&self, now: NaiveDateTime, settings: &Settings) -> Result<TimerState> {
+        // Settling already had to read `active.md` to decide; taking what it saw
+        // keeps the hottest read path — a tab polls this every twenty seconds —
+        // to one read of it rather than two.
+        let active = self
+            .store
+            .transaction(|tx| settle_within(tx, now).map(Settled::still_running))?;
 
         let day = self.store.read_day(now.date())?;
-        let settings = self.store.read_settings()?;
         let completed_today = u32::try_from(day.sessions().len()).unwrap_or(u32::MAX);
 
         // The break that follows the session just finished — or, if none has
         // finished yet, the one that would follow the first.
-        let next_break = settings.break_after(completed_today.max(1));
-        let next_break_kind = if next_break == settings.long_break {
-            SessionKind::LongBreak
-        } else {
-            SessionKind::ShortBreak
-        };
+        let next_break_kind = settings.break_after(completed_today.max(1));
+        let next_break = settings.length_of(next_break_kind);
 
         Ok(TimerState {
-            active: self.store.read_active()?,
+            active,
             completed_today,
             tracked_today: day.total(),
             next_break,
             next_break_kind,
         })
     }
+}
+
+/// What one read of `active.md` found, so a caller needs only the one read.
+///
+/// An enum rather than a pair of `Option`s for the same reason `Stopped` is one:
+/// the three outcomes are exclusive, and a struct would leave a fourth
+/// combination expressible and a reader wondering what it meant.
+enum Settled {
+    /// Nothing was running.
+    Idle,
+    /// Still running, and not yet due.
+    Running(ActiveSession),
+    /// Its time was up, so it was logged and cleared. `None` when it was too
+    /// short to be worth a line, or was a break rather than a focus block.
+    Retired(Option<Session>),
+}
+
+impl Settled {
+    /// What is running now that settling has had its say.
+    fn still_running(self) -> Option<ActiveSession> {
+        match self {
+            Self::Running(active) => Some(active),
+            Self::Idle | Self::Retired(_) => None,
+        }
+    }
+
+    /// What settling wrote to the day file, if anything.
+    fn logged(self) -> Option<Session> {
+        match self {
+            Self::Retired(session) => session,
+            Self::Idle | Self::Running(_) => None,
+        }
+    }
+}
+
+/// Logs the running block if its time is up, and clears it.
+fn settle_within(tx: &Tx<'_>, now: NaiveDateTime) -> Result<Settled> {
+    let Some(active) = tx.read_active()? else {
+        return Ok(Settled::Idle);
+    };
+    if !active.is_due(now) {
+        return Ok(Settled::Running(active));
+    }
+    Ok(Settled::Retired(retire(tx, &active, active.ends_at())?))
 }
 
 /// Ends the running block at `now`, or at its planned end if that has passed.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Report } from './api';
-import { readTotals, totalsFor, totalsFrom } from './totals';
+import type { Occurrence, Report } from './api';
+import { doneCount, plannedMinutes, readTotals, totalsFor, totalsFrom } from './totals';
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -75,5 +75,32 @@ describe('readTotals', () => {
 	it('resolves to nothing when the request fails', async () => {
 		vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
 		expect(await readTotals('2026-07-27', '2026-08-02')).toEqual({});
+	});
+});
+
+describe('plannedMinutes', () => {
+	/** The server's own duration, so a block crossing midnight still counts. */
+	it('sums the durations the server sent', () => {
+		const blocks = [
+			{ duration: '1h30m' },
+			{ duration: '25m' },
+			{ duration: '30m' }
+		] as Occurrence[];
+
+		expect(plannedMinutes(blocks)).toBe(145);
+		expect(plannedMinutes([])).toBe(0);
+	});
+});
+
+describe('doneCount', () => {
+	it('counts only the ticked milestones', () => {
+		const milestones = [
+			{ title: 'grammar', done: true },
+			{ title: 'store', done: false },
+			{ title: 'timer', done: true }
+		];
+
+		expect(doneCount(milestones)).toBe(2);
+		expect(doneCount([])).toBe(0);
 	});
 });

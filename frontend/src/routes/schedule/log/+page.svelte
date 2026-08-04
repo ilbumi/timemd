@@ -4,8 +4,17 @@
 	import { api, type DayView, type LoggedSession, type Project } from '$lib/api';
 	import { attempt } from '$lib/attempt';
 	import { formatHours, parseMinutes } from '$lib/countdown';
-	import { clockTime, dayLabel, shiftDays, startOfWeek, today, weekDates } from '$lib/dates';
+	import {
+		clockTime,
+		dayLabel,
+		shiftDays,
+		startOfWeek,
+		today,
+		weekDates,
+		withSeconds
+	} from '$lib/dates';
 	import { lookOf, readLooks, type Look } from '$lib/look';
+	import { plannedMinutes } from '$lib/totals';
 
 	interface Band {
 		date: string;
@@ -63,14 +72,9 @@
 	/**
 	 * Off `days` rather than `bands`, which drops the empty ones: a day can be
 	 * planned and have nothing tracked, and losing its plan would understate the
-	 * week. The server's `duration` is used rather than end-minus-start because
-	 * it is the one that survives a block crossing midnight.
+	 * week.
 	 */
-	const plannedMinutes = $derived(
-		days
-			.flatMap((day) => day.planned)
-			.reduce((total, block) => total + parseMinutes(block.duration), 0)
-	);
+	const plannedTotal = $derived(plannedMinutes(days.flatMap((day) => day.planned)));
 
 	/**
 	 * Seven reads rather than one endpoint because notes live in the day files and
@@ -115,8 +119,8 @@
 
 	/** The four fields both forms carry, in the shape the API takes. */
 	const draft = () => ({
-		start: `${start}:00`,
-		end: `${end}:00`,
+		start: withSeconds(start),
+		end: withSeconds(end),
 		project: project || null,
 		note: note.trim()
 	});
@@ -189,7 +193,7 @@
 <section class="screen">
 	<PeriodHeader
 		unit="week"
-		total="{formatHours(totalMinutes)} / {formatHours(plannedMinutes)} · {sessionCount} sessions"
+		total="{formatHours(totalMinutes)} / {formatHours(plannedTotal)} · {sessionCount} sessions"
 		onPrevious={() => (anchor = shiftDays(anchor, -7))}
 		onNext={() => (anchor = shiftDays(anchor, 7))}
 	>

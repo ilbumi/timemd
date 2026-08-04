@@ -9,17 +9,15 @@
 	import { clockTime, dayLabel, today, weekDates } from '$lib/dates';
 	import { DEFAULT_COLOR, contrastInk, paletteColor } from '$lib/palette';
 	import {
+		MAX_TARGET,
+		TARGET_STEP,
+		doneCount,
 		readLifetimeTotals,
 		targetFill,
 		targetMinutes,
 		totalsFor,
 		type Totals
 	} from '$lib/totals';
-
-	/** The stepper's step, in minutes. Half-hours, so a `1h30m` target written by
-	    hand survives an edit instead of being rounded to the nearest hour. */
-	const TARGET_STEP = 30;
-	const MAX_TARGET = 60 * 60;
 
 	const slug = $derived(page.params.slug ?? '');
 
@@ -68,7 +66,7 @@
 	const logged = $derived(totalsFor(lifetime, slug));
 	const target = $derived(project === null ? 0 : targetMinutes(project));
 	const fill = $derived(targetFill(tracked.tracked, target));
-	const doneCount = $derived(project?.milestones.filter((milestone) => milestone.done).length ?? 0);
+	const done = $derived(doneCount(project?.milestones ?? []));
 	const canDelete = $derived(
 		typedName.trim().toLowerCase() === (project?.name ?? '').trim().toLowerCase()
 	);
@@ -304,7 +302,7 @@
 							</div>
 							<div><strong class="numeric">{logged.sessions}</strong><span>Sessions</span></div>
 							<div>
-								<strong class="numeric">{doneCount}/{current.milestones.length}</strong>
+								<strong class="numeric">{done}/{current.milestones.length}</strong>
 								<span>Milestones</span>
 							</div>
 						</div>
@@ -340,12 +338,12 @@
 					<div class="section-head">
 						<span class="label"
 							>Milestones{archived &&
-							doneCount === current.milestones.length &&
+							done === current.milestones.length &&
 							current.milestones.length > 0
 								? ' — all done'
 								: ''}</span
 						>
-						<span class="meta">{doneCount} / {current.milestones.length}</span>
+						<span class="meta">{done} / {current.milestones.length}</span>
 						{#if !archived && current.milestones.length > 0}
 							<button
 								class="quiet"

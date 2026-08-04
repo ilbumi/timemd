@@ -5,6 +5,7 @@
 	import { formatHours } from '$lib/countdown';
 	import { contrastInk, paletteColor } from '$lib/palette';
 	import {
+		doneCount,
 		readLifetimeTotals,
 		readWeekTotals,
 		targetFill,
@@ -28,8 +29,7 @@
 	    rows — which are collapsed until asked for — actually show it. */
 	function subtitle(project: Project): string {
 		if (project.milestones.length === 0) return 'no milestones yet';
-		const done = project.milestones.filter((milestone) => milestone.done).length;
-		return `${done} of ${project.milestones.length} milestones`;
+		return `${doneCount(project.milestones)} of ${project.milestones.length} milestones`;
 	}
 
 	async function load(): Promise<void> {

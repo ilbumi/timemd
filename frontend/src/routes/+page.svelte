@@ -55,7 +55,7 @@
 	const nextMilestone = $derived.by(() => {
 		const list = finishedProject?.milestones ?? [];
 		const index = list.findIndex((milestone) => !milestone.done);
-		const milestone = list[index ?? -1];
+		const milestone = list[index];
 		return milestone === undefined ? null : { index, milestone };
 	});
 

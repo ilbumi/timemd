@@ -16,12 +16,9 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-/** Local calendar date as `YYYY-MM-DD`; `toISOString` would shift the day. */
-function isoDay(date: Date): string {
-	const month = String(date.getMonth() + 1).padStart(2, '0');
-	const day = String(date.getDate()).padStart(2, '0');
-	return `${date.getFullYear()}-${month}-${day}`;
-}
+// The app's own helper, so the fixture's idea of "today" cannot drift from the
+// one the screens under test use.
+import { isoDate as isoDay } from '../src/lib/dates';
 
 function daysAgo(count: number): Date {
 	const date = new Date();

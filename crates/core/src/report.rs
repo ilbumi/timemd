@@ -137,15 +137,17 @@ pub fn build(store: &Store, range: DateRange, group_by: GroupBy) -> Result<Repor
 
     for date in range.dates() {
         let day = store.read_day(date)?;
-        // Sessions and blocks name their project the same way, so they share one
-        // key space — including the `None` bucket for time against no project.
-        let key_for = |project: Option<&ProjectSlug>| match group_by {
-            GroupBy::Project => project.map(ProjectSlug::to_string),
+        // Rendered once per date rather than once per row that lands in it: a
+        // year-long report walks thousands of rows and only 366 dates.
+        let day_key = match group_by {
+            GroupBy::Project => None,
             GroupBy::Day => Some(date.to_string()),
         };
+        let day_key = day_key.as_deref();
 
         for session in day.sessions() {
-            let bucket = bucket_for(&mut buckets, key_for(session.project.as_ref()));
+            let key = key_of(group_by, day_key, session.project.as_ref());
+            let bucket = bucket_for(&mut buckets, key);
             bucket.tracked = bucket.tracked + session.duration();
             bucket.sessions += 1;
             total = total + session.duration();
@@ -153,7 +155,8 @@ pub fn build(store: &Store, range: DateRange, group_by: GroupBy) -> Result<Repor
 
         // The same `Day`, already in hand — see the module doc.
         for occurrence in schedule::planned(&day, &recurring) {
-            let bucket = bucket_for(&mut buckets, key_for(occurrence.project.as_ref()));
+            let key = key_of(group_by, day_key, occurrence.project.as_ref());
+            let bucket = bucket_for(&mut buckets, key);
             bucket.planned = bucket.planned + occurrence.duration();
             planned = planned + occurrence.duration();
         }
@@ -184,20 +187,46 @@ pub fn build(store: &Store, range: DateRange, group_by: GroupBy) -> Result<Repor
     })
 }
 
+/// Which bucket a row belongs to.
+///
+/// Sessions and blocks name their project the same way, so they share one key
+/// space — including the `None` bucket for time against no project.
+fn key_of<'row>(
+    group_by: GroupBy,
+    day_key: Option<&'row str>,
+    project: Option<&'row ProjectSlug>,
+) -> Option<&'row str> {
+    match group_by {
+        GroupBy::Project => project.map(ProjectSlug::as_str),
+        GroupBy::Day => day_key,
+    }
+}
+
 /// The bucket for `key`, created empty if this is the first thing to land in it.
-fn bucket_for(buckets: &mut Vec<Bucket>, key: Option<String>) -> &mut Bucket {
+///
+/// Takes a borrowed key and owns it only when a bucket is actually created, so
+/// the common case — a row joining a bucket that exists — allocates nothing.
+fn bucket_for<'buckets>(
+    buckets: &'buckets mut Vec<Bucket>,
+    key: Option<&str>,
+) -> &'buckets mut Bucket {
     // Grouping by day appends in date order, so the live bucket is almost always
     // the last one; checking it first keeps a year-long report linear. The search
     // below is what makes it correct — this only makes it fast.
-    let found = if buckets.last().is_some_and(|bucket| bucket.key == key) {
+    let found = if buckets
+        .last()
+        .is_some_and(|bucket| bucket.key.as_deref() == key)
+    {
         Some(buckets.len() - 1)
     } else {
-        buckets.iter().position(|bucket| bucket.key == key)
+        buckets
+            .iter()
+            .position(|bucket| bucket.key.as_deref() == key)
     };
 
     let index = found.unwrap_or_else(|| {
         buckets.push(Bucket {
-            key,
+            key: key.map(str::to_owned),
             tracked: Minutes::default(),
             planned: Minutes::default(),
             sessions: 0,

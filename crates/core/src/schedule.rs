@@ -39,10 +39,6 @@ impl DaySet {
         self.0 & (1 << day.num_days_from_monday()) != 0
     }
 
-    pub fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-
     /// The selected days as their canonical names, Monday first.
     ///
     /// The spelling is part of the file grammar, so it belongs here rather than
@@ -178,10 +174,8 @@ impl RecurringBlock {
             grammar::format_time(self.end),
             grammar::format_wikilink(self.project.as_ref()),
             self.title,
-            self.remind_before
-                .map_or_else(String::new, |lead| format!(" !{lead}")),
+            grammar::format_reminder(self.remind_before),
         )
-        .replace("  ", " ")
         .trim_end()
         .to_owned()
     }
@@ -219,8 +213,7 @@ impl DayBlock {
             grammar::format_time(self.end),
             grammar::format_wikilink(self.project.as_ref()),
             self.title,
-            self.remind_before
-                .map_or_else(String::new, |lead| format!(" !{lead}")),
+            grammar::format_reminder(self.remind_before),
         )
         .trim_end()
         .to_owned()

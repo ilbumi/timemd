@@ -82,10 +82,19 @@ impl AppState {
     /// Now, as wall-clock time in the configured timezone.
     ///
     /// Files carry no offsets, so this conversion is the single point where an
-    /// instant becomes the local time the grammar stores.
+    /// instant becomes the local time the grammar stores — and it lives on the
+    /// store, so the server reaches it the same way the CLI and MCP do.
     pub fn local_now(&self) -> Result<NaiveDateTime> {
-        let timezone = self.store.read_settings()?.timezone;
-        Ok(self.clock.now_utc().with_timezone(&timezone).naive_local())
+        self.store.wall_clock(self.clock.now_utc())
+    }
+
+    /// The same conversion, for a caller holding the settings already.
+    ///
+    /// The ticker and the timer handlers both need another field of the same
+    /// file, so they read it once and come here rather than paying for a second
+    /// parse — without inventing a second spelling of what "now" means.
+    pub fn local_now_with(&self, settings: &timemd_core::Settings) -> NaiveDateTime {
+        settings.wall_clock(self.clock.now_utc())
     }
 
     pub fn today(&self) -> Result<NaiveDate> {

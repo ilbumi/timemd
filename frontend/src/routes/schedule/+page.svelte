@@ -6,10 +6,19 @@
 	import { api, type DayView, type Occurrence, type Project } from '$lib/api';
 	import { attempt, describe } from '$lib/attempt';
 	import { formatHours } from '$lib/countdown';
-	import { clockTime, minutesOfDay, monthDay, shiftDays, today, weekdayName } from '$lib/dates';
+	import {
+		clockTime,
+		minutesOfDay,
+		monthDay,
+		shiftDays,
+		today,
+		weekdayName,
+		withSeconds
+	} from '$lib/dates';
 	import { contrastInk } from '$lib/palette';
 	import { lookOf, readLooks, type Look } from '$lib/look';
 	import { hourMarks, minutesNow, offsetIn, placeIn, spanOf } from '$lib/timeline';
+	import { plannedMinutes } from '$lib/totals';
 
 	/** The hours the timeline always shows, widened to fit anything outside them. */
 	const DEFAULT_FROM = 8 * 60;
@@ -27,7 +36,8 @@
 	 */
 	let date = $state(page.url.searchParams.get('date') ?? today());
 	let day = $state<DayView | null>(null);
-	let allProjects = $state<Project[]>([]);
+	// `readLooks().active` has already filtered these to the active projects.
+	let projects = $state<Project[]>([]);
 	let looks = $state<Record<string, Look>>({});
 	let error = $state<string | null>(null);
 	let loading = $state(true);
@@ -57,14 +67,7 @@
 
 	const planned = $derived(day?.planned ?? []);
 	const isToday = $derived(date === today());
-	const projects = $derived(allProjects.filter((project) => project.status === 'active'));
-
-	const plannedMinutes = $derived(
-		planned.reduce(
-			(total, block) => total + (minutesOfDay(block.end) - minutesOfDay(block.start)),
-			0
-		)
-	);
+	const plannedTotal = $derived(plannedMinutes(planned));
 
 	const span = $derived(
 		// Stretched past the planned hours on today, so the now-bar does not
@@ -123,8 +126,8 @@
 		const target = form?.index ?? null;
 		return mutate(async () => {
 			const block = {
-				start: `${blockStart}:00`,
-				end: `${blockEnd}:00`,
+				start: withSeconds(blockStart),
+				end: withSeconds(blockEnd),
 				project: blockProject || null,
 				title: blockTitle.trim()
 			};
@@ -190,7 +193,7 @@
 	$effect(() => {
 		void readLooks().then((loaded) => {
 			looks = loaded.looks;
-			allProjects = loaded.active;
+			projects = loaded.active;
 		});
 
 		const tick = setInterval(() => {
@@ -203,7 +206,7 @@
 <section class="screen">
 	<PeriodHeader
 		unit="day"
-		total="{formatHours(plannedMinutes)} planned"
+		total="{formatHours(plannedTotal)} planned"
 		onPrevious={() => (date = shiftDays(date, -1))}
 		onNext={() => (date = shiftDays(date, 1))}
 	>

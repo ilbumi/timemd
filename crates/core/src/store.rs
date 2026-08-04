@@ -80,9 +80,7 @@ impl Store {
     /// CLI and the MCP server all go through here rather than each reading the
     /// timezone themselves.
     pub fn wall_clock(&self, instant: DateTime<Utc>) -> Result<NaiveDateTime> {
-        Ok(instant
-            .with_timezone(&self.read_settings()?.timezone)
-            .naive_local())
+        Ok(self.read_settings()?.wall_clock(instant))
     }
 
     // ---- projects ----------------------------------------------------------
@@ -211,14 +209,6 @@ impl Store {
         edit: impl FnOnce(&mut Day) -> StdResult<T, E>,
     ) -> Result<StdResult<T, E>> {
         self.transaction(|tx| tx.try_update_day(date, edit))
-    }
-
-    /// Days in `from..=to` that have a file, oldest first.
-    pub fn recorded_days(&self, from: NaiveDate, to: NaiveDate) -> Vec<NaiveDate> {
-        from.iter_days()
-            .take_while(|date| *date <= to)
-            .filter(|date| self.day_path(*date).exists())
-            .collect()
     }
 
     // ---- schedule ----------------------------------------------------------
@@ -815,28 +805,6 @@ mod tests {
             })
             .expect("updates");
         assert_eq!(total, Minutes::new(25));
-    }
-
-    #[test]
-    fn lists_only_days_that_have_files() {
-        let (_directory, store) = store();
-        let later = NaiveDate::from_ymd_opt(2026, 8, 5).expect("valid date");
-        for target in [date(), later] {
-            store
-                .update_day(target, |day| {
-                    day.add_session(Session::new(at(9, 0), at(9, 25), None, "work"));
-                })
-                .expect("updates");
-        }
-
-        let recorded =
-            store.recorded_days(date(), NaiveDate::from_ymd_opt(2026, 8, 31).expect("valid"));
-        assert_eq!(recorded, vec![date(), later]);
-        assert!(
-            store
-                .recorded_days(date(), date().pred_opt().expect("valid"))
-                .is_empty()
-        );
     }
 
     #[test]

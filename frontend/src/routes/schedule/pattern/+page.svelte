@@ -2,7 +2,7 @@
 	import Mark from '$lib/Mark.svelte';
 	import { ApiError, api, type Project, type RecurringBlock } from '$lib/api';
 	import { attempt } from '$lib/attempt';
-	import { clockTime } from '$lib/dates';
+	import { clockTime, withSeconds } from '$lib/dates';
 	import { contrastInk } from '$lib/palette';
 	import { lookOf, readLooks, type Look } from '$lib/look';
 
@@ -155,7 +155,7 @@
 							type="time"
 							value={clockTime(block.start)}
 							onchange={(event) => {
-								block.start = `${event.currentTarget.value}:00`;
+								block.start = withSeconds(event.currentTarget.value);
 								dirty = true;
 							}}
 						/>
@@ -166,7 +166,7 @@
 							type="time"
 							value={clockTime(block.end)}
 							onchange={(event) => {
-								block.end = `${event.currentTarget.value}:00`;
+								block.end = withSeconds(event.currentTarget.value);
 								dirty = true;
 							}}
 						/>

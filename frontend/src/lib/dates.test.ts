@@ -8,6 +8,7 @@ import {
 	monthDay,
 	weekDates,
 	weekdayName,
+	withSeconds,
 	shiftDays,
 	startOfWeek,
 	today
@@ -143,5 +144,14 @@ describe('parsing guard', () => {
 		for (const bad of ['2026-8-1', 'yesterday', '', '2026/08/01']) {
 			expect(() => shiftDays(bad, 1)).toThrow(RangeError);
 		}
+	});
+});
+
+describe('withSeconds', () => {
+	it('is the inverse of clockTime for what the forms produce', () => {
+		expect(withSeconds('09:30')).toBe('09:30:00');
+		expect(clockTime(withSeconds('23:59'))).toBe('23:59');
+		// Already carrying seconds: trimmed first, so it cannot grow a second pair.
+		expect(withSeconds('09:30:00')).toBe('09:30:00');
 	});
 });

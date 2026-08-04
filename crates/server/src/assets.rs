@@ -4,7 +4,9 @@
 //! directory to keep in sync with the executable, and no static-file server to
 //! configure in front of it.
 
-use axum::body::Body;
+use std::borrow::Cow;
+
+use axum::body::{Body, Bytes};
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use rust_embed::{Embed, EmbeddedFile};
@@ -25,14 +27,14 @@ pub async fn serve(uri: Uri) -> Response {
     let path = if path.is_empty() { "index.html" } else { path };
 
     if let Some(file) = Assets::get(path) {
-        return respond(path, &file);
+        return respond(path, file);
     }
 
     // Anything else is a client-side route, so hand back the shell and let the
     // router sort it out. A request for a genuinely missing asset lands here
     // too; the app renders its own not-found rather than the server guessing.
     match Assets::get("index.html") {
-        Some(file) => respond("index.html", &file),
+        Some(file) => respond("index.html", file),
         None => (
             StatusCode::NOT_FOUND,
             "The web UI was not built into this binary. Run `make frontend` and rebuild.",
@@ -55,8 +57,16 @@ fn cache_control(path: &str) -> &'static str {
     }
 }
 
-fn respond(path: &str, file: &EmbeddedFile) -> Response {
+fn respond(path: &str, file: EmbeddedFile) -> Response {
     let cache = cache_control(path);
+
+    // A release build embeds the bytes as `'static`, so serving them is a
+    // pointer copy rather than a fresh allocation per request — a 200 KB bundle
+    // is not worth memcpying on every load over a phone connection.
+    let body = match file.data {
+        Cow::Borrowed(bytes) => Body::from(Bytes::from_static(bytes)),
+        Cow::Owned(bytes) => Body::from(bytes),
+    };
 
     (
         [
@@ -68,7 +78,7 @@ fn respond(path: &str, file: &EmbeddedFile) -> Response {
             ),
             (header::CACHE_CONTROL, cache.to_owned()),
         ],
-        Body::from(file.data.to_vec()),
+        body,
     )
         .into_response()
 }

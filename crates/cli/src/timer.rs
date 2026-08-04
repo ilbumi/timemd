@@ -2,6 +2,7 @@
 
 use chrono::NaiveDateTime;
 use timemd_core::active::SessionKind;
+use timemd_core::grammar::format_time;
 use timemd_core::{Minutes, ProjectSlug, Result, StartRequest, Stopped, Store, Timer};
 
 use crate::{name_or_dash, suffix};
@@ -22,7 +23,7 @@ pub fn start(
     let active = Timer::new(store).start(now, request)?;
     Ok(format!(
         "started {} → {}{}",
-        active.started.format("%H:%M"),
+        format_time(active.started.time()),
         name_or_dash(active.project.as_ref()),
         suffix(&active.note),
     ))

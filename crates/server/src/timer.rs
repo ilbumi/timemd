@@ -6,7 +6,7 @@ use axum::{Json, Router};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use timemd_core::active::SessionKind;
-use timemd_core::{Minutes, StartRequest, Timer, TimerState};
+use timemd_core::{Minutes, Settings, StartRequest, Timer, TimerState};
 
 use crate::parse::{optional_minutes, optional_slug};
 
@@ -92,9 +92,16 @@ fn focus() -> SessionKind {
     SessionKind::Focus
 }
 
+/// Reads the settings once and uses them for both halves of the answer: the
+/// timezone that fixes `now`, and the break lengths the state reports.
+fn now_and_settings(state: &AppState) -> ApiResult<(NaiveDateTime, Settings)> {
+    let settings = state.store().read_settings()?;
+    Ok((state.local_now_with(&settings), settings))
+}
+
 async fn read(State(state): State<AppState>) -> ApiResult<Json<TimerView>> {
-    let now = state.local_now()?;
-    let current = Timer::new(state.store()).state(now)?;
+    let (now, settings) = now_and_settings(&state)?;
+    let current = Timer::new(state.store()).state_with(now, &settings)?;
     Ok(Json(TimerView::build(current, now)))
 }
 
@@ -105,7 +112,7 @@ async fn start(
     let project = optional_slug(body.project)?;
     let duration = optional_minutes(body.duration)?;
 
-    let now = state.local_now()?;
+    let (now, settings) = now_and_settings(&state)?;
     let timer = Timer::new(state.store());
     timer.start(
         now,
@@ -117,19 +124,28 @@ async fn start(
         },
     )?;
 
-    Ok(Json(TimerView::build(timer.state(now)?, now)))
+    Ok(Json(TimerView::build(
+        timer.state_with(now, &settings)?,
+        now,
+    )))
 }
 
 async fn stop(State(state): State<AppState>) -> ApiResult<Json<TimerView>> {
-    let now = state.local_now()?;
+    let (now, settings) = now_and_settings(&state)?;
     let timer = Timer::new(state.store());
     timer.stop(now)?;
-    Ok(Json(TimerView::build(timer.state(now)?, now)))
+    Ok(Json(TimerView::build(
+        timer.state_with(now, &settings)?,
+        now,
+    )))
 }
 
 async fn cancel(State(state): State<AppState>) -> ApiResult<Json<TimerView>> {
-    let now = state.local_now()?;
+    let (now, settings) = now_and_settings(&state)?;
     let timer = Timer::new(state.store());
     timer.cancel()?;
-    Ok(Json(TimerView::build(timer.state(now)?, now)))
+    Ok(Json(TimerView::build(
+        timer.state_with(now, &settings)?,
+        now,
+    )))
 }

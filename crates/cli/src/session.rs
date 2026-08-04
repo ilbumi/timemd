@@ -4,6 +4,7 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use clap::Subcommand;
 use timemd_core::day::Session;
 use timemd_core::error::Error;
+use timemd_core::grammar::format_time;
 use timemd_core::{ProjectSlug, Result, Store};
 
 use crate::{name_or_dash, optional_slug, suffix};
@@ -101,8 +102,8 @@ pub fn today(store: &Store, date: Option<NaiveDate>, now: NaiveDateTime) -> Resu
     for (index, session) in day.sessions().iter().enumerate() {
         lines.push(format!(
             "  {index}  {}-{} {:>7}  {}{}",
-            session.start.format("%H:%M"),
-            session.end.format("%H:%M"),
+            format_time(session.start),
+            format_time(session.end),
             session.duration().to_string(),
             name_or_dash(session.project.as_ref()),
             suffix(&session.note),

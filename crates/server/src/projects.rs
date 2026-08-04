@@ -160,15 +160,9 @@ async fn update(
 
     // Every conversion happens before the store is touched, so a rejected value
     // cannot leave the file half-updated.
-    let color = match patch.color {
-        Some(raw) => Some(optional_color(raw)?),
-        None => None,
-    };
+    let color = patch.color.map(optional_color).transpose()?;
     let mark = optional_mark(patch.mark)?;
-    let target = match patch.target {
-        Some(raw) => Some(optional_minutes(raw)?),
-        None => None,
-    };
+    let target = patch.target.map(optional_minutes).transpose()?;
     let milestones = patch.milestones.map(milestones_from).transpose()?;
 
     let view = state.store().try_update_project(&slug, |project| {

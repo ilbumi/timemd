@@ -3,6 +3,7 @@
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use clap::Subcommand;
 use timemd_core::error::Error;
+use timemd_core::grammar::format_time;
 use timemd_core::schedule::planned_range;
 use timemd_core::{
     BlockId, DateRange, DayBlock, Minutes, Occurrence, RecurringBlock, Result, Store,
@@ -231,8 +232,8 @@ fn list(store: &Store) -> Result<String> {
                 "  `{}`  {:<16} {}-{}  {}  {}{}",
                 block.id,
                 block.days,
-                block.start.format("%H:%M"),
-                block.end.format("%H:%M"),
+                format_time(block.start),
+                format_time(block.end),
                 name_or_dash(block.project.as_ref()),
                 block.title,
                 block
@@ -305,8 +306,8 @@ pub fn repeat(store: &Store, command: RepeatCommand, now: NaiveDateTime) -> Resu
 fn body(occurrence: &Occurrence) -> String {
     format!(
         "{}-{} {:>7}  {}  {}{}",
-        occurrence.start.format("%H:%M"),
-        occurrence.end.format("%H:%M"),
+        format_time(occurrence.start),
+        format_time(occurrence.end),
         occurrence.duration().to_string(),
         name_or_dash(occurrence.project.as_ref()),
         occurrence.title,

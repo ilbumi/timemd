@@ -16,6 +16,7 @@ use rmcp::{ErrorData, schemars, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
 use timemd_core::active::SessionKind;
 use timemd_core::day::Session;
+use timemd_core::grammar::format_time;
 use timemd_core::report::{self, GroupBy};
 use timemd_core::schedule::{planned, planned_range};
 use timemd_core::{
@@ -465,7 +466,7 @@ impl TimeMd {
         Ok(Json(Outcome {
             message: format!(
                 "started {} for {} on {}",
-                active.started.format("%H:%M"),
+                format_time(active.started.time()),
                 active.duration,
                 active
                     .project
@@ -1258,8 +1259,8 @@ fn summarise_recurring(recurring: &Recurring) -> RecurringList {
                     .iter()
                     .map(|name| (*name).to_owned())
                     .collect(),
-                start: block.start.format("%H:%M").to_string(),
-                end: block.end.format("%H:%M").to_string(),
+                start: format_time(block.start),
+                end: format_time(block.end),
                 project: block.project.as_ref().map(ToString::to_string),
                 title: block.title.clone(),
                 remind_before: block.remind_before.map(|lead| lead.to_string()),
@@ -1293,8 +1294,8 @@ fn summarise_day(day: &timemd_core::day::Day, recurring: &timemd_core::Recurring
 fn logged((index, session): (usize, &Session)) -> LoggedSession {
     LoggedSession {
         index,
-        start: session.start.format("%H:%M").to_string(),
-        end: session.end.format("%H:%M").to_string(),
+        start: format_time(session.start),
+        end: format_time(session.end),
         duration: session.duration().to_string(),
         project: session.project.as_ref().map(ToString::to_string),
         note: session.note.clone(),
@@ -1306,8 +1307,8 @@ fn blocks(occurrences: &[timemd_core::Occurrence]) -> Vec<PlannedBlock> {
         .iter()
         .map(|occurrence| PlannedBlock {
             date: occurrence.date.to_string(),
-            start: occurrence.start.format("%H:%M").to_string(),
-            end: occurrence.end.format("%H:%M").to_string(),
+            start: format_time(occurrence.start),
+            end: format_time(occurrence.end),
             duration: occurrence.duration().to_string(),
             project: occurrence.project.as_ref().map(ToString::to_string),
             title: occurrence.title.clone(),

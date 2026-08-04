@@ -34,7 +34,7 @@ pub struct Reminder {
 impl Reminder {
     /// What the notification says.
     pub fn body(&self) -> String {
-        let when = self.starts_at.format("%H:%M");
+        let when = grammar::format_time(self.starts_at.time());
         match &self.project {
             Some(project) => format!("{when} · {project}"),
             None => format!("starts at {when}"),
@@ -149,7 +149,7 @@ pub fn due(
             let key = format!(
                 "{}T{} {label}",
                 occurrence.date,
-                occurrence.start.format("%H:%M"),
+                grammar::format_time(occurrence.start),
             );
             if sent.contains(&key) {
                 return None;

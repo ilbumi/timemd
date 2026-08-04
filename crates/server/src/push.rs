@@ -17,9 +17,9 @@ use p256::SecretKey;
 use p256::elliptic_curve::Generate;
 use serde::{Deserialize, Serialize};
 use timemd_core::push::Subscription;
-use timemd_core::{Error, Result};
 use web_push::{
-    ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPushMessage, WebPushMessageBuilder,
+    ContentEncoding, SubscriptionInfo, VapidSignature, VapidSignatureBuilder, WebPushError,
+    WebPushMessage, WebPushMessageBuilder,
 };
 
 use crate::error::{ApiError, ApiResult};
@@ -52,7 +52,7 @@ struct Unsubscribe {
 async fn public_key(State(state): State<AppState>) -> ApiResult<Json<KeyView>> {
     let private = ensure_keypair(&state)?;
     Ok(Json(KeyView {
-        public_key: derive_public_key(&private)?,
+        public_key: derive_public_key(&private).map_err(unusable_key)?,
     }))
 }
 
@@ -85,7 +85,7 @@ async fn unsubscribe(
 }
 
 /// Returns the VAPID private key, generating one on first use.
-pub fn ensure_keypair(state: &AppState) -> Result<String> {
+pub fn ensure_keypair(state: &AppState) -> timemd_core::Result<String> {
     // The key almost always exists already, and generating is the rare path — so
     // read first rather than making every call pay for a durable write and a
     // chmod it does not need.
@@ -104,10 +104,16 @@ pub fn ensure_keypair(state: &AppState) -> Result<String> {
 }
 
 /// The public half, base64url-encoded, as the browser expects it.
-fn derive_public_key(private: &str) -> Result<String> {
-    let builder = VapidSignatureBuilder::from_base64_no_sub(private)
-        .map_err(|error| Error::UnknownProject(format!("unusable VAPID key: {error}")))?;
+fn derive_public_key(private: &str) -> Result<String, WebPushError> {
+    let builder = VapidSignatureBuilder::from_base64_no_sub(private)?;
     Ok(URL_SAFE_NO_PAD.encode(builder.get_public_key()))
+}
+
+/// A stored key that will not parse is server state gone bad, not a request the
+/// client got wrong. Core has no vocabulary for it, so the status is decided
+/// here rather than borrowed from a domain variant that maps to the wrong one.
+fn unusable_key(error: WebPushError) -> ApiError {
+    ApiError::internal(format!("unusable VAPID key: {error}"))
 }
 
 /// Delivers notifications to every subscribed browser.
@@ -139,18 +145,35 @@ pub async fn deliver(state: &AppState, notifications: &[Notification]) {
         return;
     }
 
-    let mut messages = Vec::new();
-    for notification in notifications {
-        let payload = match serde_json::to_vec(notification) {
-            Ok(payload) => payload,
+    let payloads: Vec<Vec<u8>> = notifications
+        .iter()
+        .filter_map(|notification| match serde_json::to_vec(notification) {
+            Ok(payload) => Some(payload),
             Err(error) => {
                 tracing::error!("could not encode notification: {error}");
+                None
+            }
+        })
+        .collect();
+
+    // Devices outside, notifications inside: the VAPID JWT is signed for the
+    // endpoint's origin and says nothing about the payload, so signing once per
+    // device beats signing once per device and notification.
+    let mut messages = Vec::new();
+    for subscription in &subscriptions {
+        let (info, signature) = match credentials(&private, subscription) {
+            Ok(credentials) => credentials,
+            Err(error) => {
+                tracing::error!(
+                    endpoint = subscription.endpoint,
+                    "could not sign for this device: {error}"
+                );
                 continue;
             }
         };
 
-        for subscription in &subscriptions {
-            match build(&private, subscription, &payload) {
+        for payload in &payloads {
+            match build(&info, signature.clone(), payload) {
                 Ok(message) => messages.push(message),
                 Err(error) => tracing::error!(
                     endpoint = subscription.endpoint,
@@ -184,25 +207,30 @@ pub async fn deliver(state: &AppState, notifications: &[Notification]) {
     }
 }
 
-fn build(private: &str, subscription: &Subscription, payload: &[u8]) -> Result<WebPushMessage> {
-    let failed = |error: web_push::WebPushError| Error::UnknownProject(error.to_string());
-
+/// Everything about a device that does not depend on what is being sent.
+fn credentials(
+    private: &str,
+    subscription: &Subscription,
+) -> Result<(SubscriptionInfo, VapidSignature), WebPushError> {
     let info = SubscriptionInfo::new(
         subscription.endpoint.clone(),
         subscription.p256dh.clone(),
         subscription.auth.clone(),
     );
+    let signature = VapidSignatureBuilder::from_base64(private, &info)?.build()?;
+    Ok((info, signature))
+}
 
-    let signature = VapidSignatureBuilder::from_base64(private, &info)
-        .map_err(failed)?
-        .build()
-        .map_err(failed)?;
-
-    let mut builder = WebPushMessageBuilder::new(&info);
+fn build(
+    info: &SubscriptionInfo,
+    signature: VapidSignature,
+    payload: &[u8],
+) -> Result<WebPushMessage, WebPushError> {
+    let mut builder = WebPushMessageBuilder::new(info);
     builder.set_payload(ContentEncoding::Aes128Gcm, payload);
     builder.set_vapid_signature(signature);
     builder.set_ttl(TTL_SECONDS);
-    builder.build().map_err(failed)
+    builder.build()
 }
 
 /// Sends one message. Returns the endpoint if the push service says it is gone.
@@ -298,15 +326,10 @@ mod tests {
         let (_directory, state) = state();
         let private = ensure_keypair(&state).expect("generates");
 
-        // A well-formed but fabricated subscription: p256dh is an uncompressed
-        // point and auth is 16 bytes, which is what the encryption expects.
-        let subscription = Subscription {
-            endpoint: "https://push.example/abc".to_owned(),
-            p256dh: URL_SAFE_NO_PAD.encode(SecretKey::generate().public_key().to_sec1_bytes()),
-            auth: URL_SAFE_NO_PAD.encode([7_u8; 16]),
-        };
+        let subscription = well_formed("https://push.example/abc");
 
-        let message = build(&private, &subscription, b"{\"title\":\"hi\"}").expect("builds");
+        let (info, signature) = credentials(&private, &subscription).expect("signs");
+        let message = build(&info, signature, b"{\"title\":\"hi\"}").expect("builds");
 
         assert_eq!(message.endpoint.to_string(), "https://push.example/abc");
         assert_eq!(message.ttl, TTL_SECONDS);
@@ -324,7 +347,8 @@ mod tests {
             auth: "not-a-secret".to_owned(),
         };
 
-        assert!(build(&private, &subscription, b"{}").is_err());
+        let (info, signature) = credentials(&private, &subscription).expect("signs");
+        assert!(build(&info, signature, b"{}").is_err());
     }
 
     #[tokio::test]

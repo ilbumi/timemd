@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use chrono::NaiveDateTime;
-use timemd_core::{Reminder, Timer, reminders};
+use timemd_core::{Reminder, Settings, Timer, reminders};
 
 use crate::notify::{self, Notification};
 use crate::state::AppState;
@@ -28,13 +28,17 @@ pub async fn run(state: AppState) {
     loop {
         ticks.tick().await;
 
-        let Ok(now) = state.local_now() else {
+        // Read once and pass it down: the tick needs the timezone to establish
+        // "now" and the default lead time to decide what is due, and both live in
+        // the same file.
+        let Ok(settings) = state.store().read_settings() else {
             tracing::warn!("could not read settings to establish the local time; skipping tick");
             continue;
         };
+        let now = state.local_now_with(&settings);
 
         let mut notifications: Vec<Notification> = settle_once(&state, now).into_iter().collect();
-        notifications.extend(reminders_due(&state, now));
+        notifications.extend(reminders_due(&state, now, &settings));
         notify::deliver(&state, &notifications).await;
     }
 }
@@ -76,8 +80,8 @@ fn settle_once(state: &AppState, now: NaiveDateTime) -> Option<Notification> {
 /// Recording happens before delivery, and deliberately: sending twice because a
 /// push failed is worse than missing one, since the phone would buzz again on
 /// every tick until the block began.
-fn reminders_due(state: &AppState, now: NaiveDateTime) -> Vec<Notification> {
-    let due = match collect(state, now) {
+fn reminders_due(state: &AppState, now: NaiveDateTime, settings: &Settings) -> Vec<Notification> {
+    let due = match collect(state, now, settings) {
         Ok(due) => due,
         Err(error) => {
             tracing::error!("could not work out which reminders are due: {error}");
@@ -111,12 +115,16 @@ fn reminders_due(state: &AppState, now: NaiveDateTime) -> Vec<Notification> {
         .collect()
 }
 
-fn collect(state: &AppState, now: NaiveDateTime) -> timemd_core::Result<Vec<Reminder>> {
+fn collect(
+    state: &AppState,
+    now: NaiveDateTime,
+    settings: &Settings,
+) -> timemd_core::Result<Vec<Reminder>> {
     let store = state.store();
     Ok(reminders::due(
         &store.read_day(now.date())?,
         &store.read_recurring()?,
-        &store.read_settings()?,
+        settings,
         now,
         &store.read_sent_reminders()?,
     ))
@@ -188,6 +196,13 @@ mod tests {
         );
     }
 
+    /// What one tick would notify about, read the way `run` reads it.
+    fn due_now(state: &AppState) -> Vec<Notification> {
+        let settings = state.store().read_settings().expect("reads");
+        let now = state.local_now_with(&settings);
+        reminders_due(state, now, &settings)
+    }
+
     #[test]
     fn a_tick_on_an_idle_timer_does_nothing() {
         let (_directory, store, _clock, state) = state();
@@ -201,10 +216,10 @@ mod tests {
         with_deep_work(state.store());
 
         // Well before the window.
-        assert!(reminders_due(&state, state.local_now().expect("reads")).is_empty());
+        assert!(due_now(&state).is_empty());
 
         clock.set(instant(9, 56));
-        let due = reminders_due(&state, state.local_now().expect("reads"));
+        let due = due_now(&state);
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].title, "Deep work");
         assert_eq!(due[0].url, "/today");
@@ -218,17 +233,14 @@ mod tests {
         with_deep_work(state.store());
 
         clock.set(instant(9, 56));
-        assert_eq!(
-            reminders_due(&state, state.local_now().expect("reads")).len(),
-            1
-        );
+        assert_eq!(due_now(&state).len(), 1);
 
         clock.set(instant(9, 57));
-        assert!(reminders_due(&state, state.local_now().expect("reads")).is_empty());
+        assert!(due_now(&state).is_empty());
 
         // A restart re-reads the log from disk rather than trusting memory.
         let restarted = AppState::new(Arc::clone(&store), clock.clone());
-        assert!(reminders_due(&restarted, restarted.local_now().expect("reads")).is_empty());
+        assert!(due_now(&restarted).is_empty());
     }
 
     #[test]
@@ -242,7 +254,7 @@ mod tests {
             .expect("writes");
 
         clock.set(instant(9, 56));
-        assert!(reminders_due(&state, state.local_now().expect("reads")).is_empty());
+        assert!(due_now(&state).is_empty());
     }
 
     #[test]
@@ -251,6 +263,6 @@ mod tests {
         with_deep_work(state.store());
 
         clock.set(instant(10, 1));
-        assert!(reminders_due(&state, state.local_now().expect("reads")).is_empty());
+        assert!(due_now(&state).is_empty());
     }
 }
