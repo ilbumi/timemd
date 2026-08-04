@@ -7,14 +7,20 @@
  *   horizontalOverflow — a track that refused to shrink below its content
  *   clippedText        — a flex item squeezed below its own text, which then
  *                        spilled over its neighbour without scrolling the page
+ *   croppedText        — a box shorter than the line of text inside it, hiding
+ *                        the letters behind its `overflow: hidden` (#17)
  *   unsharedEdges      — "a screen's rules end where its content ends" (2140a19)
  *   doubledRules       — two 2px rules meeting and both drawing (6fc1b2f)
  *   roundedCorners     — the design has no radius token; a radius is a bug
  *   smallTapTargets    — 44px under a thumb, by reach rather than by box
  *
  * `page.evaluate` serialises its callback, so each probe repeats a four-line
- * `label()` rather than sharing one from module scope. That is the cost of
- * running in the page, and it is cheaper than the alternatives.
+ * `label()` rather than sharing one from module scope — and `clippedText` and
+ * `croppedText`, which ask the same question on the two axes, each walk the
+ * leaves for themselves. That is the cost of running in the page, and it is
+ * cheaper than the alternatives: merging them to share the walk would trade six
+ * lines for one assertion message where there are now two, and a probe that
+ * cannot be pointed at a screen on its own.
  */
 import { expect, type Page } from '@playwright/test';
 
@@ -342,10 +348,89 @@ export async function clippedText(page: Page): Promise<string[]> {
 	}, SLACK);
 }
 
+/**
+ * Text with its top or bottom sliced off by a box that hides its overflow.
+ *
+ * `clippedText` measures width and so misses the whole vertical half of the same
+ * bug. A schedule block's height *is* its duration, which means the box can be
+ * shorter than the one line of text inside it — and because a button centres its
+ * own contents, the half that went missing was the top of the title (#17).
+ *
+ * Only `overflow: hidden` counts. A scroller hides nothing: its content is one
+ * gesture away.
+ *
+ * The two halves below are the two ways the letters go missing, and a leaf can
+ * only ever be caught by one of them:
+ *
+ *   an ancestor is too short  — the text spills past it and is clipped
+ *   the leaf itself is too short — it clips its own text and nothing spills
+ *
+ * The second needs the leaf's *layout* height rather than the ink box the first
+ * one uses: an element that hides its own overflow does so to carry an ellipsis,
+ * which is a promise about width only, and its ink box is a couple of pixels
+ * taller than its line box at any font size.
+ */
+export async function croppedText(page: Page): Promise<string[]> {
+	return page.evaluate((slack: number) => {
+		const label = (el: Element) =>
+			el.tagName.toLowerCase() +
+			(typeof el.className === 'string' && el.className.trim()
+				? `.${el.className.trim().split(/\s+/).join('.')}`
+				: '');
+
+		const bad: string[] = [];
+		const range = document.createRange();
+		for (const el of document.querySelectorAll('.screen *')) {
+			if (el.children.length > 0 || !el.textContent?.trim()) continue;
+			const style = getComputedStyle(el);
+			if (style.display === 'none' || style.clipPath !== 'none') continue;
+
+			if (style.overflowY === 'hidden') {
+				const line = parseFloat(style.lineHeight);
+				const own =
+					el.getBoundingClientRect().height -
+					parseFloat(style.paddingTop) -
+					parseFloat(style.paddingBottom) -
+					parseFloat(style.borderTopWidth) -
+					parseFloat(style.borderBottomWidth);
+				if (own < line - slack) {
+					bad.push(`${label(el)} is ${own.toFixed(1)}px tall for a ${line.toFixed(1)}px line`);
+				}
+			}
+
+			range.selectNodeContents(el);
+			const text = range.getBoundingClientRect();
+			if (text.height === 0) continue;
+
+			for (let box: Element | null = el.parentElement; box; box = box.parentElement) {
+				const boxStyle = getComputedStyle(box);
+				if (boxStyle.overflowY !== 'hidden') continue;
+				// Overflow is clipped at the padding box, so the border is what the
+				// text is measured against rather than the outer edge.
+				const frame = box.getBoundingClientRect();
+				const top = frame.top + parseFloat(boxStyle.borderTopWidth);
+				const bottom = frame.bottom - parseFloat(boxStyle.borderBottomWidth);
+				const lost = Math.max(top - text.top, text.bottom - bottom);
+				if (lost > slack) {
+					bad.push(
+						`${label(el)} loses ${lost.toFixed(1)}px of ${text.height.toFixed(1)}px ` +
+							`of text inside ${label(box)}`
+					);
+					// One report per leaf: under nested clippers the outer box says
+					// nothing the inner one has not already said.
+					break;
+				}
+			}
+		}
+		return bad;
+	}, SLACK);
+}
+
 /** Every probe, run against whatever is currently on screen. */
 export async function expectWellAligned(page: Page, width: number): Promise<void> {
 	expect(await horizontalOverflow(page), 'horizontal overflow').toEqual([]);
 	expect(await clippedText(page), 'text overflowing its own box').toEqual([]);
+	expect(await croppedText(page), 'text cut off by a box that hides it').toEqual([]);
 	expect(await unsharedEdges(page), 'bands do not share an edge').toEqual([]);
 	expect(await doubledRules(page), 'two rules drawing where one should').toEqual([]);
 	expect(await roundedCorners(page), 'the design has no radius').toEqual([]);
