@@ -239,14 +239,17 @@ mod tests {
         );
     }
 
+    /// The break carries the project and note it is a break *from*, so that the
+    /// app can offer the same block again afterwards. Carrying them must not
+    /// make it loggable: the kind decides that, and it decides it first.
     #[test]
     fn breaks_and_zero_length_blocks_are_never_logged() {
         let rest = ActiveSession::new(
             moment(9, 0),
             SessionKind::ShortBreak,
             Minutes::new(5),
-            None,
-            "",
+            Some(ProjectSlug::new("timemd").expect("valid slug")),
+            "file store layer",
         );
         assert_eq!(rest.to_session(moment(9, 5)), None);
         assert_eq!(running().to_session(moment(9, 0)), None);

@@ -47,6 +47,12 @@
 	const spent = $derived(progress(seconds, running?.durationSeconds ?? 0));
 	const firstRun = $derived(!loadingProjects && projects.length === 0);
 
+	const completedToday = $derived(timer?.completedToday ?? 0);
+	/** The block about to be run, numbered as the running screen numbers it. */
+	const nextFocus = $derived((completedToday + 1).toString().padStart(2, '0'));
+	/** Whether the idle screen is resuming a cycle or opening one. */
+	const continuing = $derived(completedToday > 0);
+
 	const chosen = $derived(projects.find((project) => project.slug === chosenProject) ?? null);
 	const finishedProject = $derived(
 		projects.find((project) => project.slug === finished?.session.project) ?? null
@@ -119,16 +125,24 @@
 			if (session === undefined) return;
 			finished = { session, date };
 			finishedNote = session.note;
-			note = '';
+			// `note` is deliberately left alone: it belongs to the selection being
+			// carried into the next block, not to the one just logged. Clearing it
+			// here is what used to make the cycle restart from nothing.
 		} catch {
 			// Missing the celebration is not worth an error banner; the session is
 			// logged either way and the log screen will show it.
 		}
 	}
 
-	async function dismissFinished(): Promise<void> {
+	/**
+	 * Closes the completion screen, saving an edited note first.
+	 *
+	 * Reports whether it closed, so a caller with somewhere to go next can stop
+	 * rather than read the outcome back out of `finished`.
+	 */
+	async function dismissFinished(): Promise<boolean> {
 		const closing = finished;
-		if (closing === null) return;
+		if (closing === null) return true;
 
 		const trimmed = finishedNote.trim();
 		if (trimmed !== closing.session.note) {
@@ -142,10 +156,11 @@
 				});
 			} catch (failure) {
 				error = describe(failure);
-				return;
+				return false;
 			}
 		}
 		finished = null;
+		return true;
 	}
 
 	async function tickMilestone(): Promise<void> {
@@ -179,10 +194,22 @@
 
 	const discard = (): Promise<void> => run(() => api.cancelSession());
 
+	/**
+	 * Starts the break against the block it is a break *from*.
+	 *
+	 * Passing the selection is what makes the cycle continuous. A break started
+	 * bare read back as a block with no project and an empty note, and `apply`
+	 * dutifully adopted both — so every break wiped the choice and the next round
+	 * began from a cold picker. Recording it on the break instead means it also
+	 * survives a reload, and `active.md` can say what the rest is a rest from.
+	 * Breaks are still never logged: core decides that on the kind alone.
+	 */
 	async function takeBreak(): Promise<void> {
 		const kind = timer?.nextBreakKind ?? 'short_break';
-		await dismissFinished();
-		await run(() => api.startSession({ kind }));
+		// A note that would not save must not vanish into the break: `run` clears
+		// the error on its way in, taking the only explanation with it.
+		if (!(await dismissFinished())) return;
+		await run(() => api.startSession({ kind, project: chosenProject || null, note: note.trim() }));
 	}
 
 	async function begin(event: SubmitEvent): Promise<void> {
@@ -363,7 +390,7 @@
 	<section class="screen break">
 		<header class="bar">
 			<div class="eyebrow">{current.kind === 'long_break' ? 'Long break' : 'Short break'}</div>
-			<div class="meta">{timer?.completedToday ?? 0} done today</div>
+			<div class="meta">{completedToday} done today</div>
 		</header>
 
 		<div class="middle">
@@ -385,9 +412,7 @@
 	{@const current = running}
 	<section class="screen">
 		<header class="bar">
-			<div class="eyebrow">
-				Focus {((timer?.completedToday ?? 0) + 1).toString().padStart(2, '0')}
-			</div>
+			<div class="eyebrow">Focus {nextFocus}</div>
 			<div class="logo small">
 				<Mark mark="square" color="var(--red)" size={11} />
 				<Mark mark="square" color="var(--blue)" size={11} />
@@ -447,6 +472,12 @@
 	<!-- 2c: pick a project as a coloured square, then start. -->
 	<section class="screen">
 		<header class="hero">
+			{#if continuing}
+				<!-- The cycle carries on here rather than starting over: the block is
+				     numbered exactly as the running screen numbers it, and the button
+				     below says so too. -->
+				<div class="eyebrow">Focus {nextFocus}</div>
+			{/if}
 			<div class="hero-top">
 				<h1>READY<br /><strong>FOR {settings?.focus ?? '25m'}</strong></h1>
 				<a class="settings" href="/settings">Settings</a>
@@ -495,7 +526,7 @@
 			/>
 
 			<button class="start" onclick={startFocus} disabled={busy}>
-				<span>Start</span>
+				<span>{continuing ? 'Start next' : 'Start'}</span>
 				<span class="play"></span>
 			</button>
 		</div>
@@ -827,6 +858,10 @@
 
 	.hero {
 		padding: var(--gap) var(--pad) 0;
+	}
+
+	.hero .eyebrow {
+		margin-bottom: 10px;
 	}
 
 	.hero-top {

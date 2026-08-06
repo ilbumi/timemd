@@ -272,7 +272,10 @@ pub struct Outcome {
 pub struct CurrentSession {
     pub running: bool,
     pub kind: Option<String>,
+    /// The project the block belongs to. On a break this is what the break is
+    /// *from* — the user is resting, not working on it.
     pub project: Option<String>,
+    /// Likewise carried across a break, so read it against `kind`.
     pub note: Option<String>,
     pub started_at: Option<String>,
     pub remaining: Option<String>,

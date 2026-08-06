@@ -124,21 +124,40 @@ async fn cancelling_leaves_nothing_behind() {
     );
 }
 
+/// The web app starts a break against the project it is a break *from*, so that
+/// the same block can be offered again when the break ends. That must not turn
+/// the break into tracked time.
 #[tokio::test]
 async fn a_break_runs_but_is_never_logged() {
     let harness = Harness::new();
+    harness
+        .post("/api/projects", json!({ "name": "timemd" }))
+        .await;
+
     let (status, body) = harness
-        .post("/api/timer/start", json!({ "kind": "short_break" }))
+        .post(
+            "/api/timer/start",
+            json!({ "kind": "short_break", "project": "timemd", "note": "file store" }),
+        )
         .await;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["active"]["kind"], "short_break");
     assert_eq!(body["active"]["duration"], "5m");
+    assert_eq!(body["active"]["project"], "timemd");
+    assert_eq!(body["active"]["note"], "file store");
 
     harness.clock.set(instant(2026, 8, 1, 9, 10));
     let (_, body) = harness.get("/api/timer").await;
     assert!(body["active"].is_null());
     assert_eq!(body["trackedToday"], "0m");
+    assert!(
+        !harness
+            .store
+            .root()
+            .join("days/2026/2026-08-01.md")
+            .exists()
+    );
 }
 
 #[tokio::test]

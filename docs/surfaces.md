@@ -36,7 +36,7 @@ just cannot be addressed until one of them is renamed.
 | Operation | HTTP | MCP | CLI | Web |
 |---|---|---|---|---|
 | **Timer** |
-| Start | `POST /api/timer/start` | `start_session` | `start` | ✓ |
+| Start | `POST /api/timer/start` | `start_session` (focus) | `start` (focus) | ✓ |
 | Stop and log | `POST /api/timer/stop` | `stop_session` | `stop` | ✓ |
 | Discard | `POST /api/timer/cancel` | `cancel_session` | `cancel` | ✓ |
 | What is running | `GET /api/timer` | `current_session` | `status` | ✓ |
