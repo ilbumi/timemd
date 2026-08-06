@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use chrono::NaiveDateTime;
-use timemd_core::{Reminder, Timer, reminders};
+use timemd_core::{Reminder, Retired, Timer, reminders};
 
 use crate::notify::{self, Notification};
 use crate::state::AppState;
@@ -39,10 +39,34 @@ pub async fn run(state: AppState) {
     }
 }
 
-/// Retires a finished session, returning the notification it deserves.
+/// Retires a finished block, returning the notification it deserves.
 fn settle_once(state: &AppState, now: NaiveDateTime) -> Option<Notification> {
     match Timer::new(state.store()).settle(now) {
-        Ok(Some(session)) => {
+        Ok(Some(retired)) => announce(&retired),
+        Ok(None) => None,
+        // A failing tick must not kill the loop: the markdown tree may be
+        // momentarily unreadable, and the next tick is thirty seconds away.
+        Err(error) => {
+            tracing::error!("could not settle the timer: {error}");
+            None
+        }
+    }
+}
+
+/// Puts a retired block into words.
+///
+/// Both halves of the cycle are worth a buzz, for the same reason: nothing
+/// starts the next block on its own, so the end of one is the only prompt the
+/// user gets. Matching the variant rather than looking for a missing session is
+/// what keeps the wording honest — a focus block can also write no line.
+fn announce(retired: &Retired) -> Option<Notification> {
+    match retired {
+        Retired::Rested(_) => Some(Notification {
+            title: "Break over".to_owned(),
+            body: "Start the next block when you are ready.".to_owned(),
+            url: "/".to_owned(),
+        }),
+        Retired::Logged(session) => {
             tracing::info!(
                 duration = %session.duration(),
                 project = session.project.as_ref().map_or("-", |slug| slug.as_str()),
@@ -61,13 +85,8 @@ fn settle_once(state: &AppState, now: NaiveDateTime) -> Option<Notification> {
                 url: "/".to_owned(),
             })
         }
-        Ok(None) => None,
-        // A failing tick must not kill the loop: the markdown tree may be
-        // momentarily unreadable, and the next tick is thirty seconds away.
-        Err(error) => {
-            tracing::error!("could not settle the timer: {error}");
-            None
-        }
+        // A block that was not worth a line is not worth a buzz either.
+        Retired::TooShort => None,
     }
 }
 
@@ -185,6 +204,41 @@ mod tests {
         assert_eq!(
             store.read_day(now.date()).expect("reads").total(),
             Minutes::new(25)
+        );
+    }
+
+    /// A break writes nothing, so it used to end in silence — and with nothing
+    /// auto-starting the next focus block, a user who stepped away had no way to
+    /// know the cycle was waiting for them.
+    #[test]
+    fn a_tick_says_when_a_break_is_over() {
+        let (_directory, store, clock, state) = state();
+        let now = state.local_now().expect("reads");
+        Timer::new(&store)
+            .start(
+                now,
+                StartRequest {
+                    kind: timemd_core::SessionKind::ShortBreak,
+                    duration: None,
+                    project: None,
+                    note: String::new(),
+                },
+            )
+            .expect("starts");
+
+        assert_eq!(settle_once(&state, state.local_now().expect("reads")), None);
+
+        clock.set(instant(9, 10));
+        let notification = settle_once(&state, state.local_now().expect("reads"))
+            .expect("a finished break is worth a notification");
+
+        assert_eq!(notification.title, "Break over");
+        assert_eq!(notification.url, "/");
+        assert_eq!(store.read_active().expect("reads"), None);
+        assert_eq!(
+            store.read_day(now.date()).expect("reads").total(),
+            Minutes::new(0),
+            "a break is still never logged"
         );
     }
 

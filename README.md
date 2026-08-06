@@ -29,8 +29,8 @@ tools, the command and the web app each offer, and how each thing is addressed.
 - **Pomodoro timer** — server-authoritative, so a session completes, gets logged
   and notifies even while your phone is asleep. Assign a project and a note.
 - **Schedule** — weekly-repeating blocks plus one-offs, with per-day skips.
-- **Reminders** — before a block starts, and when a session completes, over web
-  push or ntfy.
+- **Reminders** — before a block starts, when a session completes, and when a
+  break is over, over web push or ntfy.
 - **Log** — every session with its note, banded by day, with the week's tracked
   total read against what the schedule set aside for it.
 - **CLI** — `timemd start`, `stop`, `today`, `log`, `report` for shell use.

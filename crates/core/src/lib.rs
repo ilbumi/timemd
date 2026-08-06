@@ -43,4 +43,4 @@ pub use schedule::{
 };
 pub use settings::{Settings, SettingsPatch};
 pub use store::{Store, Tx};
-pub use timer::{StartRequest, Stopped, Timer, TimerState};
+pub use timer::{Retired, StartRequest, Stopped, Timer, TimerState};

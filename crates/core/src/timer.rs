@@ -57,6 +57,25 @@ pub enum Stopped {
     Logged(Session),
 }
 
+/// What settling retired.
+///
+/// The same split as `Stopped`, for the same reason: these read very
+/// differently to a user, so they are variants rather than one shape with an
+/// optional session. A break writing no line and a focus block writing no line
+/// are not the same event, and a tick that told them apart by looking for the
+/// missing line would word one as the other.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Retired {
+    /// A break ran its course. Never written to the day file — but with nothing
+    /// starting the next block on its own, it is the moment the user has to be
+    /// told.
+    Rested(SessionKind),
+    /// The session that was written.
+    Logged(Session),
+    /// A focus block that ran, but was too short to be worth a line.
+    TooShort,
+}
+
 /// What the timer looks like right now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimerState {
@@ -84,7 +103,7 @@ impl<'store> Timer<'store> {
     /// Safe to call from anywhere and as often as you like: it is a no-op unless
     /// something is actually due. Both the background tick and every read of the
     /// timer go through it, so the API stays correct even if the tick is late.
-    pub fn settle(&self, now: NaiveDateTime) -> Result<Option<Session>> {
+    pub fn settle(&self, now: NaiveDateTime) -> Result<Option<Retired>> {
         self.store.transaction(|tx| {
             let Some(active) = tx.read_active()? else {
                 return Ok(None);
@@ -92,7 +111,12 @@ impl<'store> Timer<'store> {
             if !active.is_due(now) {
                 return Ok(None);
             }
-            retire(tx, &active, active.ends_at())
+            let logged = retire(tx, &active, active.ends_at())?;
+            Ok(Some(match (logged, active.kind.is_focus()) {
+                (Some(session), _) => Retired::Logged(session),
+                (None, true) => Retired::TooShort,
+                (None, false) => Retired::Rested(active.kind),
+            }))
         })
     }
 
@@ -311,10 +335,9 @@ mod tests {
             .start(moment(9, 0), StartRequest::focus(slug("timemd"), "done"))
             .expect("starts");
 
-        let logged = timer
-            .settle(moment(9, 25))
-            .expect("settles")
-            .expect("logged");
+        let Some(Retired::Logged(logged)) = timer.settle(moment(9, 25)).expect("settles") else {
+            panic!("expected a logged session");
+        };
 
         assert_eq!(logged.duration(), Minutes::new(25));
         assert_eq!(store.read_active().expect("reads"), None);
@@ -329,10 +352,9 @@ mod tests {
             .start(moment(9, 0), StartRequest::focus(None, ""))
             .expect("starts");
 
-        let logged = timer
-            .settle(moment(15, 0))
-            .expect("settles")
-            .expect("logged");
+        let Some(Retired::Logged(logged)) = timer.settle(moment(15, 0)).expect("settles") else {
+            panic!("expected a logged session");
+        };
 
         assert_eq!(logged.duration(), Minutes::new(25));
         assert_eq!(
@@ -407,8 +429,12 @@ mod tests {
         );
     }
 
+    /// A break retires like anything else and is still never written. Settling
+    /// reports it rather than staying silent: with nothing auto-starting the
+    /// next focus block, the break ending is the moment the user has to come
+    /// back, and the tick is the only thing that can say so.
     #[test]
-    fn breaks_are_never_logged() {
+    fn a_break_retires_without_being_logged() {
         let (_directory, store) = store();
         let timer = Timer::new(&store);
         let request = StartRequest {
@@ -419,7 +445,11 @@ mod tests {
         };
         timer.start(moment(9, 0), request).expect("starts");
 
-        assert_eq!(timer.settle(moment(9, 5)).expect("settles"), None);
+        assert_eq!(
+            timer.settle(moment(9, 5)).expect("settles"),
+            Some(Retired::Rested(SessionKind::ShortBreak))
+        );
+        assert_eq!(store.read_active().expect("reads"), None);
         assert!(
             store
                 .read_day(moment(9, 0).date())
@@ -427,6 +457,28 @@ mod tests {
                 .sessions()
                 .is_empty()
         );
+    }
+
+    /// `start` refuses a zero-length block, but the tree is hand-editable by
+    /// design, so one can still reach the tick. It must not be reported as a
+    /// break — that is the whole reason settling names what it retired.
+    #[test]
+    fn a_hand_written_zero_length_focus_block_is_not_a_break() {
+        let (_directory, store) = store();
+        let active = ActiveSession::new(
+            moment(9, 0),
+            SessionKind::Focus,
+            Minutes::new(0),
+            None,
+            "hand-edited",
+        );
+        store.set_active(Some(&active)).expect("writes");
+
+        assert_eq!(
+            Timer::new(&store).settle(moment(9, 5)).expect("settles"),
+            Some(Retired::TooShort)
+        );
+        assert_eq!(store.read_active().expect("reads"), None);
     }
 
     #[test]
