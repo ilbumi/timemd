@@ -197,6 +197,10 @@ Deliberately readable: "what is the user working on right now" is answerable by
 reading one small file, with no server running. A file without a `started` key
 means idle.
 
+A break carries the `project` and `note` of the block it is a break *from*, so
+the same block can be offered again when it ends. That never makes it loggable —
+only `kind: focus` becomes a session line.
+
 ## ntfy — `state/ntfy.md`
 
 ```markdown
