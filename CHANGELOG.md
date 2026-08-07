@@ -2,6 +2,11 @@
 
 Written from the conventional commits in each release.
 
+## [0.3.0](https://github.com/ilbumi/timemd/compare/v0.2.1...v0.3.0) - 2026-08-07
+
+### Added
+
+- **timer:** keep the pomodoro cycle running across a break (#20) ([07d4702](https://github.com/ilbumi/timemd/commit/07d47028b2c0568ed5918ba8c3757019d8df19c3))
 ## [0.2.1](https://github.com/ilbumi/timemd/compare/v0.2.0...v0.2.1) - 2026-08-04
 
 ### Fixed
