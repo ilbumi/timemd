@@ -24,6 +24,7 @@ pub mod state;
 pub(crate) mod testing;
 mod ticker;
 mod timer;
+mod todos;
 
 use axum::Router;
 use axum::extract::OriginalUri;
@@ -42,6 +43,7 @@ pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(health::health))
         .merge(projects::routes())
+        .merge(todos::routes())
         .merge(timer::routes())
         .merge(schedule::routes())
         .merge(report::routes())

@@ -16,6 +16,7 @@ pub mod schedule;
 pub mod session;
 pub mod settings;
 pub mod timer;
+pub mod todo;
 
 #[cfg(test)]
 pub(crate) mod testing;
@@ -62,6 +63,10 @@ pub enum Command {
         /// Length, e.g. `25m` or `1h30m`. Defaults to the configured focus length.
         #[arg(short, long)]
         duration: Option<String>,
+        /// Work on a todo, named by its id. Its project and description fill in
+        /// for the two above.
+        #[arg(long)]
+        todo: Option<String>,
     },
 
     /// Stop the running session, logging the time worked.
@@ -98,6 +103,12 @@ pub enum Command {
     /// List projects.
     Projects,
 
+    /// The todo list. Open todos only, unless `--all`.
+    Todos {
+        #[command(flatten)]
+        filter: todo::Filter,
+    },
+
     /// Total time over a range. Defaults to the last seven days.
     Report {
         #[arg(long)]
@@ -122,6 +133,12 @@ pub enum Command {
     Milestone {
         #[command(subcommand)]
         operation: project::MilestoneCommand,
+    },
+
+    /// Add, change or delete a todo in `todos.md`.
+    Todo {
+        #[command(subcommand)]
+        operation: todo::TodoCommand,
     },
 
     /// Amend or remove time already logged.
@@ -193,7 +210,8 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
             project,
             note,
             duration,
-        } => timer::start(store, project, note, duration, now),
+            todo,
+        } => timer::start(store, project, note, duration, todo, now),
 
         Command::Stop => timer::stop(store, now),
 
@@ -216,6 +234,10 @@ pub fn run(store: &Store, command: Command, now: NaiveDateTime) -> Result<String
         Command::Project { operation } => project::run(store, operation, now.date()),
 
         Command::Milestone { operation } => project::milestone(store, operation),
+
+        Command::Todos { filter } => todo::list(store, &filter),
+
+        Command::Todo { operation } => todo::run(store, operation, now.date()),
 
         Command::Session { operation } => session::run(store, operation, now),
 
@@ -367,6 +389,7 @@ mod tests {
             project,
             note,
             duration,
+            ..
         } = cli.command
         else {
             panic!("expected start");

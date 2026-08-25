@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import Layout from './+layout.svelte';
 import Timer from './+page.svelte';
+import Todos from './todos/+page.svelte';
 import ProjectDetail from './projects/[slug]/+page.svelte';
 import Projects from './projects/+page.svelte';
 import NewProject from './projects/new/+page.svelte';
@@ -46,6 +47,24 @@ const PROJECT = {
 	problems: []
 };
 
+const TODO = {
+	id: 'abc123',
+	status: 'open',
+	description: 'Draft the release notes',
+	project: 'thesis',
+	priority: 'high',
+	tags: [],
+	recurrence: null,
+	dependsOn: [],
+	created: '2026-08-01',
+	start: null,
+	scheduled: '2026-08-01 14:00',
+	due: '2026-08-31',
+	cancelled: null,
+	done: null,
+	onCompletion: null
+};
+
 const DAY = {
 	date: '2026-08-01',
 	tracked: '1h15m',
@@ -66,6 +85,7 @@ const DAY = {
 		}
 	],
 	skipped: [],
+	todos: [TODO],
 	problems: []
 };
 
@@ -94,6 +114,7 @@ function stubApi(): void {
 				];
 			}
 			if (url.startsWith('/api/schedule')) return DAY.planned;
+			if (url.startsWith('/api/todos')) return { todos: [TODO], problems: [] };
 			if (url.startsWith('/api/reports')) {
 				return {
 					from: '2026-07-27',
@@ -158,6 +179,7 @@ const SCREENS = [
 		path: '/projects/thesis',
 		heading: /thesis/i
 	},
+	{ name: 'todos', component: Todos, path: '/todos', heading: /todos/i },
 	{ name: 'day', component: Day, path: '/schedule', heading: /day/i },
 	{ name: 'week', component: Week, path: '/schedule/week', heading: /week/i },
 	{ name: 'log', component: Log, path: '/schedule/log', heading: /log/i },
@@ -179,12 +201,12 @@ describe('screens', () => {
 		});
 	}
 
-	it('renders the three-mark tab bar', () => {
+	it('renders the four-mark tab bar', () => {
 		stubApi();
 		const children = createRawSnippet(() => ({ render: () => '<p>screen</p>' }));
 		render(Layout, { children });
 
-		for (const label of ['Timer', 'Projects', 'Schedule']) {
+		for (const label of ['Timer', 'Projects', 'Todos', 'Schedule']) {
 			expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
 		}
 	});

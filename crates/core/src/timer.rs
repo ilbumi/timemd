@@ -21,6 +21,7 @@ use crate::error::{Error, Result};
 use crate::ids::ProjectSlug;
 use crate::minutes::Minutes;
 use crate::store::{Store, Tx};
+use crate::todo::Todo;
 
 /// What to start. Absent values fall back to the stored settings.
 #[derive(Debug, Clone)]
@@ -39,6 +40,18 @@ impl StartRequest {
             project,
             note: note.into(),
         }
+    }
+
+    /// Refills the project and the note from a todo.
+    ///
+    /// The todo wins over whatever was already there: a caller that named both
+    /// meant the todo, and the other two are the defaults its surface filled
+    /// in. Here rather than at each surface because the rule is the same on all
+    /// four, and a session logged against a todo has to be findable by the words
+    /// the todo is written in.
+    pub fn on_todo(&mut self, todo: &Todo) {
+        self.project = todo.project.clone();
+        self.note = todo.description().to_owned();
     }
 }
 

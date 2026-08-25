@@ -10,6 +10,7 @@
 	import { contrastInk } from '$lib/palette';
 	import { lookOf, readLooks, type Look } from '$lib/look';
 	import { hourMarks, minutesNow, offsetIn, placeIn, spanOf } from '$lib/timeline';
+	import { stampTime } from '$lib/todos';
 
 	/** The hours the timeline always shows, widened to fit anything outside them. */
 	const DEFAULT_FROM = 8 * 60;
@@ -56,6 +57,7 @@
 	let blockTitle = $state(NEW_BLOCK.title);
 
 	const planned = $derived(day?.planned ?? []);
+	const scheduledTodos = $derived(day?.todos ?? []);
 	const isToday = $derived(date === today());
 	const projects = $derived(allProjects.filter((project) => project.status === 'active'));
 
@@ -304,6 +306,20 @@
 			</ul>
 		{/if}
 
+		{#if scheduledTodos.length > 0}
+			<!-- Read-only: the plan and the list are one picture here, but a todo
+			     is edited where it lives. -->
+			<ul class="todos">
+				{#each scheduledTodos as todo (todo.id ?? todo.description)}
+					<li>
+						<Mark mark="diamond" color="var(--ink)" size={13} outline={todo.status !== 'done'} />
+						<span class="numeric when">{stampTime(todo.scheduled) ?? '—'}</span>
+						<span class="what">{todo.description}</span>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
 		{#each day?.skipped ?? [] as id (id)}
 			<p class="skipped">
 				<span><code>{id}</code> skipped today</span>
@@ -361,6 +377,22 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
+	}
+
+	/* Same row shape as the legend above it, so the day reads as one list. */
+	.todos {
+		list-style: none;
+		margin: 0;
+		padding: 0 var(--pad);
+	}
+
+	.todos li {
+		display: flex;
+		align-items: center;
+		gap: 11px;
+		padding: 10px 0;
+		border-top: 1px solid var(--ink-15);
+		font-size: 0.8125rem;
 	}
 
 	.timeline {

@@ -72,6 +72,8 @@ export interface StartSession {
 	project?: string | null;
 	note?: string;
 	duration?: string;
+	/** Work on a todo: its project and description fill in for the two above. */
+	todo?: string;
 }
 
 export interface Occurrence {
@@ -103,7 +105,78 @@ export interface DayView {
 	tracked: string;
 	planned: Occurrence[];
 	skipped: string[];
+	/** Todos scheduled for this day, untimed first. Read-only here. */
+	todos: Todo[];
 	problems: string[];
+}
+
+export type TodoStatus = 'open' | 'done' | 'cancelled';
+
+export type Priority = 'highest' | 'high' | 'medium' | 'normal' | 'low' | 'lowest';
+
+/**
+ * One todo, in the same spelling `todos.md` uses.
+ *
+ * Dates are `YYYY-MM-DD`, optionally with a ` HH:MM`. They stay strings rather
+ * than becoming `Date`s: the files carry no offsets, and parsing them into an
+ * instant is exactly the conversion that would put one back.
+ */
+export interface Todo {
+	/** Null only for a hand-written todo the app has not written yet. */
+	id: string | null;
+	/** `open`, `done`, `cancelled`, or a single character somebody chose. */
+	status: string;
+	description: string;
+	project: string | null;
+	priority: Priority;
+	tags: string[];
+	recurrence: string | null;
+	dependsOn: string[];
+	created: string | null;
+	start: string | null;
+	scheduled: string | null;
+	due: string | null;
+	cancelled: string | null;
+	done: string | null;
+	onCompletion: string | null;
+}
+
+export interface TodoList {
+	todos: Todo[];
+	/** Lines the server could not read, kept and reported. */
+	problems: string[];
+}
+
+export interface NewTodo {
+	description: string;
+	project?: string | null;
+	priority?: Priority;
+	scheduled?: string | null;
+	due?: string | null;
+	start?: string | null;
+	recurrence?: string | null;
+}
+
+/** An absent field means "leave it"; `null` means "clear it". */
+export interface TodoPatch {
+	description?: string;
+	status?: string;
+	project?: string | null;
+	priority?: Priority;
+	scheduled?: string | null;
+	due?: string | null;
+	start?: string | null;
+	done?: string | null;
+	cancelled?: string | null;
+	recurrence?: string | null;
+}
+
+/** Narrows `listTodos`. Every field absent means every todo. */
+export interface TodoFilter {
+	project?: string;
+	status?: TodoStatus;
+	dueBefore?: string;
+	scheduledOn?: string;
 }
 
 /**
@@ -288,6 +361,26 @@ export const api = {
 
 	deleteProject: (slug: string): Promise<void> =>
 		request('DELETE', `/api/projects/${encodeURIComponent(slug)}`),
+
+	listTodos: (filter: TodoFilter = {}): Promise<TodoList> => {
+		const query = new URLSearchParams();
+		if (filter.project !== undefined) query.set('project', filter.project);
+		if (filter.status !== undefined) query.set('status', filter.status);
+		if (filter.dueBefore !== undefined) query.set('dueBefore', filter.dueBefore);
+		if (filter.scheduledOn !== undefined) query.set('scheduledOn', filter.scheduledOn);
+		const suffix = query.size === 0 ? '' : `?${query}`;
+		return request('GET', `/api/todos${suffix}`);
+	},
+
+	createTodo: (todo: NewTodo): Promise<Todo> => request('POST', '/api/todos', { ...todo }),
+
+	/** Edits one todo. Unlike milestones there is no whole-list write: a todo
+	    has an id, so naming the one row that changed cannot clobber another. */
+	updateTodo: (id: string, patch: TodoPatch): Promise<Todo> =>
+		request('PATCH', `/api/todos/${encodeURIComponent(id)}`, { ...patch }),
+
+	deleteTodo: (id: string): Promise<void> =>
+		request('DELETE', `/api/todos/${encodeURIComponent(id)}`),
 
 	readTimer: (): Promise<TimerState> => request('GET', '/api/timer'),
 

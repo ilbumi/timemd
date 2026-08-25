@@ -3,7 +3,8 @@
 A phone-first time tracker whose database is a tree of markdown files.
 
 The point is the files. Projects, tracked time and your schedule are plain
-markdown you can read, grep, commit and hand-edit — and so can an agent. The web
+markdown you can read, grep, commit and hand-edit — and so can an agent. The
+todo list is Obsidian Tasks format, so Obsidian can edit it too. The web
 app, the CLI and the MCP server are three views onto the same tree; whichever one
 writes, the others see it on their next read.
 
@@ -28,15 +29,20 @@ tools, the command and the web app each offer, and how each thing is addressed.
   milestone list. Create, edit, archive, delete.
 - **Pomodoro timer** — server-authoritative, so a session completes, gets logged
   and notifies even while your phone is asleep. Assign a project and a note.
+- **Todos** — one global list in [Obsidian Tasks][tasks] format, with priorities,
+  due and scheduled dates, tags and dependencies. Scheduled ones show on the day,
+  and any of them can be started as a timed session.
 - **Schedule** — weekly-repeating blocks plus one-offs, with per-day skips.
 - **Reminders** — before a block starts, when a session completes, and when a
   break is over, over web push or ntfy.
 - **Log** — every session with its note, banded by day, with the week's tracked
   total read against what the schedule set aside for it.
 - **CLI** — `timemd start`, `stop`, `today`, `log`, `report` for shell use.
-- **MCP server** — 27 tools so Claude and other agents get first-class tooling.
+- **MCP server** — 31 tools so Claude and other agents get first-class tooling.
 
-### The app is three screens
+[tasks]: https://publish.obsidian.md/tasks/Reference/Task+Formats/Tasks+Emoji+Format
+
+### The app is four screens
 
 A project is drawn as a shape as well as a colour, so the running timer can be
 read at a glance, and the tab bar is those same shapes:
@@ -45,6 +51,7 @@ read at a glance, and the tab bar is those same shapes:
 |---|---|
 | ● | **Timer** — pick a project, run a session, log what got done and tick a milestone |
 | ■ | **Projects** — targets and milestones; archived projects collapse into a footer |
+| ◆ | **Todos** — banded by when they are due, ticked in one tap, started as a session |
 | ▲ | **Schedule** — `Day` timeline · `Week` raster · `Log`, with the repeating pattern behind the week |
 
 Settings hangs off the timer's header. Nothing is fetched at runtime — the font
@@ -190,11 +197,12 @@ Tools, by what they touch:
 | Logged time | `log_time`, `edit_session`, `delete_session`, `day` |
 | Projects | `list_projects`, `project`, `upsert_project`, `delete_project` |
 | Milestones | `add_milestone`, `update_milestone`, `remove_milestone` |
+| Todos | `list_todos`, `add_todo`, `update_todo`, `remove_todo` |
 | Schedule | `schedule`, `recurring`, `set_recurring_block`, `remove_recurring_block`, `add_block`, `edit_block`, `remove_block`, `skip_block`, `unskip_block` |
 | Everything else | `report`, `settings`, `ntfy` |
 
 Sessions and one-off blocks are addressed by index, milestones by title, and
-repeating blocks by id. Every tool that writes a session or a block answers with
+repeating blocks and todos by id. Every tool that writes a session or a block answers with
 the whole day, renumbered, because both lists re-sort on write.
 
 Agents can equally just edit the files. Anything the app does not understand —

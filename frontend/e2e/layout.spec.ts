@@ -12,6 +12,7 @@ const SCREENS: { name: string; path: string; widths: readonly number[] }[] = [
 	{ name: 'schedule-day', path: '/schedule', widths: ALL },
 	{ name: 'schedule-week', path: '/schedule/week', widths: ALL },
 	{ name: 'project-detail', path: '/projects/thesis', widths: ALL },
+	{ name: 'todos', path: '/todos', widths: ALL },
 	{ name: 'projects', path: '/projects', widths: ENDS },
 	{ name: 'project-new', path: '/projects/new', widths: ENDS },
 	{ name: 'schedule-log', path: '/schedule/log', widths: ENDS },
@@ -172,6 +173,25 @@ test.describe('controls behind a click', () => {
 		await open(page, '/projects/thesis', WIDTHS.phone);
 		await page.getByRole('button', { name: 'Arrange' }).click();
 		await expect(page.getByRole('button', { name: /^Move .* up$/ }).first()).toBeVisible();
+		await expectWellAligned(page, WIDTHS.phone);
+	});
+
+	test('a todo row with its fields open', async ({ page }) => {
+		await open(page, '/todos', WIDTHS.phone);
+
+		await page
+			.getByRole('button', { name: /^Edit / })
+			.first()
+			.click();
+		await expect(page.getByLabel('Due').first()).toBeVisible();
+		await expectWellAligned(page, WIDTHS.phone);
+	});
+
+	test('the settled todos are shown', async ({ page }) => {
+		await open(page, '/todos', WIDTHS.phone);
+
+		await page.getByRole('button', { name: 'Show settled' }).click();
+		await expect(page.getByText('Send the outline')).toBeVisible();
 		await expectWellAligned(page, WIDTHS.phone);
 	});
 

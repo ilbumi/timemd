@@ -10,8 +10,8 @@ gap, that is a bug report, not a footnote.
 
 ## Addressing
 
-Nothing in the tree has a synthetic id, so each thing is addressed by what it
-actually has:
+Almost nothing in the tree has a synthetic id, so each thing is addressed by what
+it actually has:
 
 | Thing | Handle | Why |
 |---|---|---|
@@ -20,6 +20,7 @@ actually has:
 | Session | index in the day | It has no name. |
 | One-off block | index among that day's one-offs | Likewise. Not its position in the merged list. |
 | Repeating block | `BlockId` | It has one, and skips already point at it. |
+| Todo | `TodoId`, written on the line as `🆔 dcf64c` | The one synthetic id, and it earns it: a todo list has hundreds of entries in no order, the same words come round again next week, and `⛔ dependsOn` needs something to name. Every todo the app writes is given one. |
 
 Sessions and one-off blocks are kept in start order, so **changing a start time
 renumbers the day**. Every surface copes the same way: whoever writes one answers
@@ -27,7 +28,10 @@ with, or re-reads, the whole day. Never reuse an index across a write.
 
 Milestone titles are unique per project on the way *in* — writes are strict — but
 a hand-written duplicate still parses and lists, because reads are lenient. It
-just cannot be addressed until one of them is renamed.
+just cannot be addressed until one of them is renamed. The same bargain holds for
+a todo carrying an id another one already has, and for a hand-written todo with
+no id at all: it lists, and becomes addressable the moment anything writes
+`todos.md`.
 
 ## What each surface can do
 
@@ -57,6 +61,16 @@ just cannot be addressed until one of them is renamed.
 | Retitle | whole-list `PATCH` | `update_milestone` | `milestone set --rename` | ✓ |
 | Reorder | whole-list `PATCH` | `update_milestone` | `milestone set --position` | ✓ |
 | Remove | whole-list `PATCH` | `remove_milestone` | `milestone rm` | ✓ |
+| **Todos** |
+| List | `GET /api/todos` | `list_todos` | `todos` | ✓ |
+| Read one | `GET /api/todos/{id}` | `list_todos` | `todos` | ✓ |
+| Add | `POST /api/todos` | `add_todo` | `todo add` | ✓ |
+| Tick / untick | `PATCH /api/todos/{id}` | `update_todo` | `todo set --done` | ✓ |
+| Rewrite | `PATCH /api/todos/{id}` | `update_todo` | `todo set --rename` | ✓ |
+| Date or re-prioritise | `PATCH /api/todos/{id}` | `update_todo` | `todo set --due …` | ✓ |
+| Remove | `DELETE /api/todos/{id}` | `remove_todo` | `todo rm` | ✓ |
+| Start a session on one | `POST /api/timer/start` | `start_session` | `start --todo` | ✓ |
+| See today's | `GET /api/days/{date}` | `list_todos` | `todos --scheduled-on` | ✓ ⁶ |
 | **Schedule** |
 | Read a range | `GET /api/schedule` | `schedule` | `schedule` | ✓ |
 | Read the pattern | `GET …/recurring` | `recurring` | `repeat list` | ✓ |
@@ -100,6 +114,9 @@ looking at a screen and can be told. It catches a wrong server or a wrong token,
 never a wrong topic — the message says so. The CLI and MCP write without one:
 both are synchronous by design and hold no HTTP client.
 
+⁶ Read-only on the day screen: the plan and the list are one picture there, but a
+todo is edited where it lives.
+
 ## Two deliberate asymmetries
 
 **HTTP replaces a list where MCP and the CLI address one element.** Milestones and
@@ -108,6 +125,11 @@ only client that already holds the whole list, so for it one field beats three
 endpoints; an agent does not hold it, and a read-then-write across two calls
 silently clobbers whatever changed in between. Same domain rule, two shapes,
 because the callers genuinely differ.
+
+Todos are the exception, and they show what the rule is really about: a todo has
+an id, so the web app can name the one row it changed. Nothing has to hold the
+whole list, and nothing clobbers a neighbour — so all four surfaces address one
+element and the asymmetry disappears.
 
 **Archived projects are read-only in the web app only.** The API, MCP and the CLI
 will all still change one. The web app hides the controls because archiving is

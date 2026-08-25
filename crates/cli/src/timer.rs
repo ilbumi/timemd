@@ -2,7 +2,7 @@
 
 use chrono::NaiveDateTime;
 use timemd_core::active::SessionKind;
-use timemd_core::{Minutes, ProjectSlug, Result, StartRequest, Stopped, Store, Timer};
+use timemd_core::{Minutes, ProjectSlug, Result, StartRequest, Stopped, Store, Timer, TodoId};
 
 use crate::{name_or_dash, suffix};
 
@@ -11,14 +11,20 @@ pub fn start(
     project: Option<String>,
     note: String,
     duration: Option<String>,
+    todo: Option<String>,
     now: NaiveDateTime,
 ) -> Result<String> {
-    let request = StartRequest {
+    let mut request = StartRequest {
         kind: SessionKind::Focus,
         duration: duration.map(|raw| raw.parse::<Minutes>()).transpose()?,
         project: project.map(ProjectSlug::new).transpose()?,
         note,
     };
+
+    if let Some(id) = todo {
+        let todos = store.read_todos()?;
+        request.on_todo(todos.get(&TodoId::new(id)?)?);
+    }
     let active = Timer::new(store).start(now, request)?;
     Ok(format!(
         "started {} → {}{}",
@@ -81,6 +87,7 @@ mod tests {
                 project: Some("timemd".to_owned()),
                 note: "file store".to_owned(),
                 duration: None,
+                todo: None,
             },
             moment(9, 0),
         )

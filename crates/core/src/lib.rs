@@ -26,12 +26,13 @@ pub mod schedule;
 pub mod settings;
 pub mod store;
 pub mod timer;
+pub mod todo;
 
 pub use active::{ActiveSession, SessionKind};
 pub use day::{Day, Session};
 pub use document::{Document, Section};
 pub use error::{Error, ParseError, ParseErrorKind, Result};
-pub use ids::{BlockId, ProjectSlug};
+pub use ids::{BlockId, ProjectSlug, TodoId};
 pub use minutes::Minutes;
 pub use ntfy::{NtfyConfig, NtfyPatch};
 pub use project::{Color, Mark, Milestone, MilestoneEdit, Project, ProjectStatus};
@@ -44,3 +45,4 @@ pub use schedule::{
 pub use settings::{Settings, SettingsPatch};
 pub use store::{Store, Tx};
 pub use timer::{Retired, StartRequest, Stopped, Timer, TimerState};
+pub use todo::{OnCompletion, Priority, Stamp, Todo, TodoEdit, TodoQuery, TodoStatus, Todos};

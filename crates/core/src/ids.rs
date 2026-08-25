@@ -13,6 +13,10 @@ use crate::error::ParseErrorKind;
 
 const MAX_LEN: usize = 64;
 
+/// Length of a minted todo id. Six base-36 symbols is what Obsidian Tasks
+/// generates, and it is short enough to type into a `⛔` list by hand.
+const ID_LEN: usize = 6;
+
 /// Canonical identity of a project. Equal to the stem of its markdown file.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct ProjectSlug(String);
@@ -21,6 +25,14 @@ pub struct ProjectSlug(String);
 /// an occurrence is skipped.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct BlockId(String);
+
+/// Stable identity of a todo, written to the line as `🆔 dcf64c`.
+///
+/// Looser than a slug because the charset is not ours: Obsidian Tasks writes
+/// these, and it uses mixed case and underscores. Nothing here becomes a
+/// filename, so the traversal argument that narrows a slug does not apply.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct TodoId(String);
 
 /// Shared rule: lowercase alphanumerics and dashes, no leading or trailing
 /// dash, non-empty, bounded length.
@@ -48,16 +60,27 @@ fn slugify(name: &str) -> String {
     slug.trim_matches('-').to_owned()
 }
 
+/// The todo-id rule: ASCII alphanumerics, dashes and underscores, non-empty,
+/// bounded length. No case fold — an id is compared, never displayed as prose,
+/// and lowering it would stop matching the file Obsidian wrote.
+fn validate_id(candidate: &str) -> bool {
+    !candidate.is_empty()
+        && candidate.len() <= MAX_LEN
+        && candidate
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+}
+
 macro_rules! identifier {
-    ($type:ty, $label:literal) => {
+    ($type:ty, $label:literal, $validate:path, $error:ident) => {
         impl $type {
             /// Validates and wraps an identifier.
             pub fn new(candidate: impl Into<String>) -> Result<Self, ParseErrorKind> {
                 let candidate = candidate.into();
-                if validate(&candidate) {
+                if $validate(&candidate) {
                     Ok(Self(candidate))
                 } else {
-                    Err(ParseErrorKind::InvalidSlug { found: candidate })
+                    Err(ParseErrorKind::$error { found: candidate })
                 }
             }
 
@@ -97,8 +120,42 @@ macro_rules! identifier {
     };
 }
 
-identifier!(ProjectSlug, "project slug");
-identifier!(BlockId, "block id");
+identifier!(ProjectSlug, "project slug", validate, InvalidSlug);
+identifier!(BlockId, "block id", validate, InvalidSlug);
+identifier!(TodoId, "todo id", validate_id, InvalidTodoId);
+
+impl TodoId {
+    /// Mints an id for a todo that has none, skipping any `taken`.
+    ///
+    /// Derived from the description by hashing rather than drawn at random, so
+    /// there is no `rand` in core and a proptest that writes the same tree twice
+    /// gets the same file. Collisions are resolved by salting and rehashing,
+    /// which is also what makes two todos sharing a description addressable.
+    pub fn mint(seed: &str, taken: impl Fn(&Self) -> bool) -> Self {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+
+        for salt in 0u64.. {
+            let mut hasher = DefaultHasher::new();
+            seed.hash(&mut hasher);
+            salt.hash(&mut hasher);
+            let mut digest = hasher.finish();
+
+            let mut id = String::with_capacity(ID_LEN);
+            for _ in 0..ID_LEN {
+                // Base 36 over `0-9a-z`, which `validate_id` accepts.
+                let symbol = u32::try_from(digest % 36).expect("a remainder below 36");
+                id.push(char::from_digit(symbol, 36).expect("a digit below the radix"));
+                digest /= 36;
+            }
+
+            let candidate = Self(id);
+            if !taken(&candidate) {
+                return candidate;
+            }
+        }
+        unreachable!("the salt range is exhausted only after 2^64 collisions")
+    }
+}
 
 #[cfg(test)]
 mod tests {

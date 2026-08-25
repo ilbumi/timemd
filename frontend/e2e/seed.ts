@@ -186,6 +186,31 @@ created: ${isoDay(daysAgo(90))}
 `
 	);
 
+	// Todos in every band and every state, so the list screen renders each of
+	// its group headings and both a ticked and an unticked row. The long one is
+	// there because a description that wraps is where a row's rule stopped
+	// meeting the one below it.
+	write(
+		root,
+		'todos.md',
+		`
+---
+---
+
+# Todos
+
+## Todos
+
+- [ ] [[thesis]] Draft the release notes 🔺 🆔 dcf64c ➕ ${isoDay(daysAgo(9))} 📅 ${isoDay(daysAgo(2))}
+- [ ] [[atlas]] Fix the ticker drift ⏫ 🆔 0h17ye ⏳ ${isoDay(daysAgo(0))} 14:00 📅 ${isoDay(daysAgo(0))}
+- [ ] [[thesis]] Read the two papers the committee sent back and write up what changes 🆔 8kq2mv ⏳ ${isoDay(daysAgo(0))}
+- [ ] [[atlas]] Ship the retry path 🔽 🆔 pk39ab 📅 ${isoDay(daysAgo(-4))}
+- [ ] Renew the library card 🆔 zz01qn 📅 ${isoDay(daysAgo(-40))}
+- [ ] Water the plants 🔁 every day when done 🆔 w4t3rs
+- [x] [[thesis]] Send the outline 🆔 s3nt01 ✅ ${isoDay(daysAgo(3))}
+`
+	);
+
 	write(
 		root,
 		'state/active.md',
