@@ -2,6 +2,11 @@
 
 Written from the conventional commits in each release.
 
+## [0.4.0](https://github.com/ilbumi/timemd/compare/v0.3.0...v0.4.0) - 2026-08-25
+
+### Added
+
+- **todos:** add a global todo list in Obsidian Tasks format (#27) ([99cb51a](https://github.com/ilbumi/timemd/commit/99cb51a307e26d4f05424aaf9cfd2e3f27ee7c1f))
 ## [0.3.0](https://github.com/ilbumi/timemd/compare/v0.2.1...v0.3.0) - 2026-08-07
 
 ### Added
