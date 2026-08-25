@@ -6,7 +6,7 @@
 //! text. Keeping the scanners here means the day and schedule grammars cannot
 //! drift apart.
 
-use chrono::{NaiveTime, Timelike};
+use chrono::{NaiveDate, NaiveTime, Timelike};
 
 use crate::error::ParseErrorKind;
 use crate::ids::{BlockId, ProjectSlug};
@@ -41,6 +41,24 @@ pub fn time(text: &str) -> Result<NaiveTime, ParseErrorKind> {
 
 pub fn format_time(value: NaiveTime) -> String {
     format!("{:02}:{:02}", value.hour(), value.minute())
+}
+
+/// Reads a `YYYY-MM-DD` calendar date.
+///
+/// Strict about the padding for the same reason [`time`] is: the tree is sorted
+/// and grepped as text, and `2026-8-1` breaks both.
+pub fn date(text: &str) -> Result<NaiveDate, ParseErrorKind> {
+    let invalid = || ParseErrorKind::InvalidDate {
+        found: text.to_owned(),
+    };
+    if text.len() != 10 {
+        return Err(invalid());
+    }
+    NaiveDate::parse_from_str(text, "%Y-%m-%d").map_err(|_| invalid())
+}
+
+pub fn format_date(value: NaiveDate) -> String {
+    value.format("%Y-%m-%d").to_string()
 }
 
 /// Consumes a leading `HH:MM-HH:MM`, returning the range and the remainder.

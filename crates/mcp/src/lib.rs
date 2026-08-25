@@ -18,10 +18,12 @@ use timemd_core::active::SessionKind;
 use timemd_core::day::Session;
 use timemd_core::report::{self, GroupBy};
 use timemd_core::schedule::{planned, planned_range};
+use timemd_core::todo::Priority;
 use timemd_core::{
     BlockId, Color, DateRange, DayBlock, Mark, Milestone, MilestoneEdit, Minutes, NtfyConfig,
     NtfyPatch, Project, ProjectSlug, ProjectStatus, Recurring, RecurringBlock, Settings,
-    SettingsPatch, StartRequest, Stopped, Store, Timer,
+    SettingsPatch, Stamp, StartRequest, Stopped, Store, Timer, Todo, TodoEdit, TodoId, TodoQuery,
+    TodoStatus, Todos,
 };
 
 /// The MCP server. One store, no other state.
@@ -41,6 +43,10 @@ pub struct StartParams {
     pub note: Option<String>,
     /// Length such as `25m` or `1h30m`. Defaults to the configured focus length.
     pub duration: Option<String>,
+    /// Work on a todo, named by its id. Its project and description fill in for
+    /// `project` and `note`, so the logged session is findable by the words the
+    /// todo is written in.
+    pub todo: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -127,6 +133,68 @@ pub struct UpdateMilestoneParams {
     pub new_title: Option<String>,
     /// Move it to this 0-based position. Omit to leave it where it is.
     pub position: Option<usize>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct ListTodosParams {
+    /// Only todos on this project slug. Omit for all.
+    pub project: Option<String>,
+    /// `open`, `done` or `cancelled`. Omit for all.
+    pub status: Option<String>,
+    /// Only todos due on or before this `YYYY-MM-DD`.
+    pub due_before: Option<String>,
+    /// Only todos scheduled for this `YYYY-MM-DD`.
+    pub scheduled_on: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct AddTodoParams {
+    /// The line's text. Must be non-empty, on one line, carry no Obsidian Tasks
+    /// signifier emoji, and not open with `[[`.
+    pub description: String,
+    /// Project slug to file it under. Omit for a todo that belongs to none.
+    pub project: Option<String>,
+    /// `highest`, `high`, `medium`, `normal`, `low` or `lowest`. Defaults to normal.
+    pub priority: Option<String>,
+    /// `YYYY-MM-DD`, optionally with a ` HH:MM`.
+    pub scheduled: Option<String>,
+    /// `YYYY-MM-DD`, optionally with a ` HH:MM`.
+    pub due: Option<String>,
+    /// `YYYY-MM-DD`, optionally with a ` HH:MM`.
+    pub start: Option<String>,
+    /// An Obsidian Tasks recurrence rule such as `every day when done`. Stored
+    /// and handed back untouched; timemd does not spawn the next instance.
+    pub recurrence: Option<String>,
+    /// Ids of todos this one waits on.
+    pub depends_on: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct UpdateTodoParams {
+    /// The todo to change, named by its id — the `id` field `list_todos`
+    /// reports. Every field below is left alone when omitted; pass an empty
+    /// string to clear one.
+    pub id: String,
+    /// `open`, `done` or `cancelled`.
+    pub status: Option<String>,
+    pub description: Option<String>,
+    pub project: Option<String>,
+    /// `highest`, `high`, `medium`, `normal`, `low` or `lowest`.
+    pub priority: Option<String>,
+    pub scheduled: Option<String>,
+    pub due: Option<String>,
+    pub start: Option<String>,
+    /// The date it was finished. Ticking a todo does not stamp this for you.
+    pub done: Option<String>,
+    pub cancelled: Option<String>,
+    pub recurrence: Option<String>,
+    pub depends_on: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct TodoParams {
+    /// The todo's id.
+    pub id: String,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -415,6 +483,55 @@ impl From<&Milestone> for MilestoneIo {
     }
 }
 
+/// One todo, in the same spelling `todos.md` uses.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TodoIo {
+    /// Null only for a hand-written todo the app has not written yet. It
+    /// becomes addressable the moment anything edits that file.
+    pub id: Option<String>,
+    pub status: String,
+    pub description: String,
+    pub project: Option<String>,
+    pub priority: String,
+    pub tags: Vec<String>,
+    pub recurrence: Option<String>,
+    pub depends_on: Vec<String>,
+    pub created: Option<String>,
+    pub start: Option<String>,
+    pub scheduled: Option<String>,
+    pub due: Option<String>,
+    pub cancelled: Option<String>,
+    pub done: Option<String>,
+}
+
+impl From<&Todo> for TodoIo {
+    fn from(todo: &Todo) -> Self {
+        Self {
+            id: todo.id().map(ToString::to_string),
+            status: todo.status.to_string(),
+            description: todo.description().to_owned(),
+            project: todo.project.as_ref().map(ToString::to_string),
+            priority: todo.priority.to_string(),
+            tags: todo.tags().map(ToOwned::to_owned).collect(),
+            recurrence: todo.recurrence.clone(),
+            depends_on: todo.depends_on.iter().map(ToString::to_string).collect(),
+            created: todo.created.map(|stamp| stamp.to_string()),
+            start: todo.start.map(|stamp| stamp.to_string()),
+            scheduled: todo.scheduled.map(|stamp| stamp.to_string()),
+            due: todo.due.map(|stamp| stamp.to_string()),
+            cancelled: todo.cancelled.map(|stamp| stamp.to_string()),
+            done: todo.done.map(|stamp| stamp.to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TodoList {
+    pub todos: Vec<TodoIo>,
+    /// Lines in `todos.md` the parser could not read.
+    pub problems: Vec<String>,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ReportBucket {
     /// Project slug or date, depending on the grouping. Null means no project.
@@ -454,12 +571,18 @@ impl TimeMd {
         &self,
         Parameters(params): Parameters<StartParams>,
     ) -> Result<Json<Outcome>, ErrorData> {
-        let request = StartRequest {
+        let mut request = StartRequest {
             kind: SessionKind::Focus,
             duration: params.duration.as_deref().map(minutes).transpose()?,
             project: params.project.as_deref().map(slug).transpose()?,
             note: params.note.unwrap_or_default(),
         };
+
+        if let Some(raw) = &params.todo {
+            let id = todo_id(raw)?;
+            let todos = self.store.read_todos().map_err(failed)?;
+            request.on_todo(todos.get(&id).map_err(|error| invalid(error.to_string()))?);
+        }
 
         let active = Timer::new(&self.store)
             .start(self.now()?, request)
@@ -860,6 +983,144 @@ impl TimeMd {
         })
     }
 
+    #[tool(
+        name = "list_todos",
+        description = "The todo list, narrowed by project, status or date. Todos are addressed by their id."
+    )]
+    fn list_todos(
+        &self,
+        Parameters(params): Parameters<ListTodosParams>,
+    ) -> Result<Json<TodoList>, ErrorData> {
+        let todos = self.store.read_todos().map_err(failed)?;
+
+        let query = TodoQuery {
+            project: params.project.as_deref().map(slug).transpose()?,
+            status: params.status.as_deref().map(todo_status).transpose()?,
+            only_open: false,
+            due_before: params.due_before.as_deref().map(stamp).transpose()?,
+            scheduled_on: params.scheduled_on.as_deref().map(stamp).transpose()?,
+        };
+
+        Ok(Json(TodoList {
+            todos: todos
+                .matching(&query)
+                .into_iter()
+                .map(TodoIo::from)
+                .collect(),
+            problems: todos.problems().iter().map(ToString::to_string).collect(),
+        }))
+    }
+
+    #[tool(
+        name = "add_todo",
+        description = "Add a todo to `todos.md`, in Obsidian Tasks format. Answers with the todo, including the id it was given."
+    )]
+    fn add_todo(
+        &self,
+        Parameters(params): Parameters<AddTodoParams>,
+    ) -> Result<Json<TodoIo>, ErrorData> {
+        let mut todo = Todo::new(TodoStatus::Open, &params.description)
+            .map_err(|error| invalid(error.to_string()))?;
+        todo.project = params.project.as_deref().map(slug).transpose()?;
+        todo.priority = params
+            .priority
+            .as_deref()
+            .map(todo_priority)
+            .transpose()?
+            .unwrap_or_default();
+        todo.scheduled = params.scheduled.as_deref().map(stamp).transpose()?;
+        todo.due = params.due.as_deref().map(stamp).transpose()?;
+        todo.start = params.start.as_deref().map(stamp).transpose()?;
+        todo.recurrence = params.recurrence.filter(|rule| !rule.trim().is_empty());
+        todo.depends_on = todo_ids(params.depends_on.unwrap_or_default())?;
+        todo.created = Some(Stamp::on(self.now()?.date()));
+
+        self.store
+            .try_update_todos(|todos| {
+                let id = todos
+                    .add(todo)
+                    .map_err(|error| invalid(error.to_string()))?;
+                let added = todos.get(&id).map_err(|error| invalid(error.to_string()))?;
+                Ok(Json(TodoIo::from(added)))
+            })
+            .map_err(failed)?
+    }
+
+    #[tool(
+        name = "update_todo",
+        description = "Change one todo, named by its id. Omit a field to leave it; pass an empty string to clear it."
+    )]
+    fn update_todo(
+        &self,
+        Parameters(params): Parameters<UpdateTodoParams>,
+    ) -> Result<Json<TodoIo>, ErrorData> {
+        let id = todo_id(&params.id)?;
+        let edit = TodoEdit {
+            status: params.status.as_deref().map(todo_status).transpose()?,
+            description: params.description,
+            project: clearable(params.project.as_deref(), slug)?,
+            priority: params.priority.as_deref().map(todo_priority).transpose()?,
+            recurrence: params
+                .recurrence
+                .map(|rule| Some(rule).filter(|rule| !rule.trim().is_empty())),
+            depends_on: params.depends_on.map(todo_ids).transpose()?,
+            created: None,
+            start: clearable(params.start.as_deref(), stamp)?,
+            scheduled: clearable(params.scheduled.as_deref(), stamp)?,
+            due: clearable(params.due.as_deref(), stamp)?,
+            cancelled: clearable(params.cancelled.as_deref(), stamp)?,
+            done: clearable(params.done.as_deref(), stamp)?,
+            on_completion: None,
+        };
+
+        self.edit_todos(&id, |todos| {
+            todos
+                .update(&id, edit)
+                .map_err(|error| invalid(error.to_string()))
+        })
+    }
+
+    #[tool(
+        name = "remove_todo",
+        description = "Delete one todo, named by its id. Answers with what was removed."
+    )]
+    fn remove_todo(
+        &self,
+        Parameters(params): Parameters<TodoParams>,
+    ) -> Result<Json<TodoIo>, ErrorData> {
+        let id = todo_id(&params.id)?;
+
+        self.store
+            .try_update_todos(|todos| {
+                todos
+                    .remove(&id)
+                    .map(|removed| Json(TodoIo::from(&removed)))
+                    .map_err(|error| invalid(error.to_string()))
+            })
+            .map_err(failed)?
+    }
+
+    /// Edits one todo inside one transaction, answering with that todo.
+    ///
+    /// One transaction for the same reason `edit_project` is one: read with a
+    /// tool and write with another and two agents race. One todo rather than
+    /// the whole list because an id is stable across a write, so the agent's
+    /// next handle is not invalidated by anyone else's edit — which is exactly
+    /// what an index would be.
+    fn edit_todos(
+        &self,
+        id: &TodoId,
+        edit: impl FnOnce(&mut Todos) -> Result<(), ErrorData>,
+    ) -> Result<Json<TodoIo>, ErrorData> {
+        self.store
+            .try_update_todos(|todos| {
+                edit(todos)?;
+                let updated = todos.get(id).map_err(|error| invalid(error.to_string()))?;
+                Ok(Json(TodoIo::from(updated)))
+            })
+            .map_err(failed)?
+    }
+
     /// Reads, edits and writes a project inside one transaction, answering with
     /// the whole project.
     ///
@@ -1176,12 +1437,17 @@ timemd tracks time in markdown files. Every tool here reads and writes that same
 tree, and so can you: projects live in `projects/<slug>.md` (frontmatter plus a
 `## Milestones` list of `- [x] Title` lines), tracked time in
 `days/YYYY/YYYY-MM-DD.md` under a `## Sessions` list, and repeating schedule
-blocks in `schedule/recurring.md`. Editing those files by hand is supported — the
+blocks in `schedule/recurring.md`, and the todo list in `todos.md` under a
+`## Todos` list in Obsidian Tasks emoji format. Editing those files by hand is supported — the
 app re-reads them on the next request, and anything it does not understand
 (prose, your own `##` sections, extra frontmatter keys) is preserved untouched.
 
 Times are local wall-clock with no offsets; the timezone lives in `settings.md`.
-A session whose end is earlier than its start crossed midnight.";
+A session whose end is earlier than its start crossed midnight.
+
+A milestone is addressed by its title; a todo is addressed by its `id`, the one
+written on the line as `\u{1f194} dcf64c`. A todo you write by hand has no id until
+something edits `todos.md`, at which point it is given one.";
 
 // Points at the stored router so it is built once, at construction, rather
 // than rebuilt on every tools/list and every call.
@@ -1352,6 +1618,29 @@ fn slug(raw: &str) -> Result<ProjectSlug, ErrorData> {
     ProjectSlug::new(raw).map_err(|error| invalid(error.to_string()))
 }
 
+fn todo_id(raw: &str) -> Result<TodoId, ErrorData> {
+    TodoId::new(raw).map_err(|error| invalid(error.to_string()))
+}
+
+fn todo_ids(raw: Vec<String>) -> Result<Vec<TodoId>, ErrorData> {
+    raw.iter().map(String::as_str).map(todo_id).collect()
+}
+
+fn stamp(raw: &str) -> Result<Stamp, ErrorData> {
+    raw.parse()
+        .map_err(|error: timemd_core::ParseErrorKind| invalid(error.to_string()))
+}
+
+fn todo_status(raw: &str) -> Result<TodoStatus, ErrorData> {
+    raw.parse()
+        .map_err(|error: timemd_core::Error| invalid(error.to_string()))
+}
+
+fn todo_priority(raw: &str) -> Result<Priority, ErrorData> {
+    raw.parse()
+        .map_err(|error: timemd_core::Error| invalid(error.to_string()))
+}
+
 fn block_id(raw: &str) -> Result<BlockId, ErrorData> {
     BlockId::new(raw).map_err(|error| invalid(error.to_string()))
 }
@@ -1454,6 +1743,10 @@ mod tests {
             "upsert_project",
             "delete_project",
             "add_milestone",
+            "list_todos",
+            "add_todo",
+            "update_todo",
+            "remove_todo",
             "update_milestone",
             "remove_milestone",
         ] {
@@ -2330,6 +2623,7 @@ mod tests {
                 project: Some("timemd".to_owned()),
                 note: Some("file store".to_owned()),
                 duration: Some("50m".to_owned()),
+                todo: None,
             }))
             .expect("starts");
         assert!(started.0.message.contains("50m"), "{}", started.0.message);
@@ -2731,6 +3025,260 @@ mod tests {
                 .0
                 .tracked,
             "30m"
+        );
+    }
+
+    fn add(server: &TimeMd, description: &str) -> String {
+        server
+            .add_todo(Parameters(AddTodoParams {
+                description: description.to_owned(),
+                ..AddTodoParams::default()
+            }))
+            .expect("adds")
+            .0
+            .id
+            .expect("an id was minted")
+    }
+
+    /// One call to add, one to change, one to remove — each answering with the
+    /// todo, so the id the next call takes arrives with the last one's answer.
+    #[test]
+    fn a_todo_is_added_changed_and_removed_by_id() {
+        let (_directory, server) = server();
+
+        let added = server
+            .add_todo(Parameters(AddTodoParams {
+                description: "Draft the release notes".to_owned(),
+                priority: Some("high".to_owned()),
+                due: Some("2026-08-31".to_owned()),
+                ..AddTodoParams::default()
+            }))
+            .expect("adds")
+            .0;
+        assert_eq!(added.priority, "high");
+        assert_eq!(added.due.as_deref(), Some("2026-08-31"));
+        assert_eq!(added.status, "open");
+        let id = added.id.expect("an id was minted");
+
+        let updated = server
+            .update_todo(Parameters(UpdateTodoParams {
+                id: id.clone(),
+                status: Some("done".to_owned()),
+                done: Some("2026-08-30".to_owned()),
+                ..UpdateTodoParams::default()
+            }))
+            .expect("updates")
+            .0;
+        assert_eq!(updated.status, "done");
+        assert_eq!(updated.done.as_deref(), Some("2026-08-30"));
+
+        let removed = server
+            .remove_todo(Parameters(TodoParams { id: id.clone() }))
+            .expect("removes")
+            .0;
+        assert_eq!(removed.description, "Draft the release notes");
+        assert!(
+            server.remove_todo(Parameters(TodoParams { id })).is_err(),
+            "removing it twice"
+        );
+    }
+
+    /// An empty string is how a caller says "clear it"; omitting the field
+    /// leaves it alone. Without the distinction there is no way to spell
+    /// "drop the deadline".
+    #[test]
+    fn an_empty_string_clears_a_date_and_omitting_it_does_not() {
+        let (_directory, server) = server();
+        let id = server
+            .add_todo(Parameters(AddTodoParams {
+                description: "Ship it".to_owned(),
+                due: Some("2026-08-31".to_owned()),
+                ..AddTodoParams::default()
+            }))
+            .expect("adds")
+            .0
+            .id
+            .expect("an id");
+
+        let untouched = server
+            .update_todo(Parameters(UpdateTodoParams {
+                id: id.clone(),
+                priority: Some("low".to_owned()),
+                ..UpdateTodoParams::default()
+            }))
+            .expect("updates")
+            .0;
+        assert_eq!(untouched.due.as_deref(), Some("2026-08-31"));
+
+        let cleared = server
+            .update_todo(Parameters(UpdateTodoParams {
+                id,
+                due: Some(String::new()),
+                ..UpdateTodoParams::default()
+            }))
+            .expect("updates")
+            .0;
+        assert_eq!(cleared.due, None);
+    }
+
+    #[test]
+    fn refuses_a_description_the_reader_could_not_get_back() {
+        let (_directory, server) = server();
+
+        for description in ["", "   ", "has a 📅 in it", "[[timemd]] leading link"] {
+            assert!(
+                server
+                    .add_todo(Parameters(AddTodoParams {
+                        description: description.to_owned(),
+                        ..AddTodoParams::default()
+                    }))
+                    .is_err(),
+                "{description:?} should be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn lists_todos_narrowed_by_status_and_date() {
+        let (_directory, server) = server();
+        let soon = server
+            .add_todo(Parameters(AddTodoParams {
+                description: "Soon".to_owned(),
+                due: Some("2026-08-05".to_owned()),
+                ..AddTodoParams::default()
+            }))
+            .expect("adds")
+            .0
+            .id
+            .expect("an id");
+        add(&server, "Later");
+
+        server
+            .update_todo(Parameters(UpdateTodoParams {
+                id: soon,
+                status: Some("done".to_owned()),
+                ..UpdateTodoParams::default()
+            }))
+            .expect("ticks");
+
+        let descriptions = |params: ListTodosParams| -> Vec<String> {
+            server
+                .list_todos(Parameters(params))
+                .expect("lists")
+                .0
+                .todos
+                .into_iter()
+                .map(|todo| todo.description)
+                .collect()
+        };
+
+        assert_eq!(descriptions(ListTodosParams::default()), ["Soon", "Later"]);
+        assert_eq!(
+            descriptions(ListTodosParams {
+                status: Some("open".to_owned()),
+                ..ListTodosParams::default()
+            }),
+            ["Later"]
+        );
+        assert_eq!(
+            descriptions(ListTodosParams {
+                due_before: Some("2026-09-01".to_owned()),
+                ..ListTodosParams::default()
+            }),
+            ["Soon"]
+        );
+    }
+
+    /// Reads are lenient, so a hand-written duplicate id lists fine. Writes are
+    /// strict, so addressing one is refused rather than resolved by picking
+    /// whichever came first.
+    #[test]
+    fn a_hand_written_duplicate_id_lists_but_is_not_addressable() {
+        let (directory, server) = server();
+        std::fs::write(
+            directory.path().join("todos.md"),
+            "---\n---\n\n## Todos\n\n- [ ] One 🆔 abc123\n- [ ] Two 🆔 abc123\n",
+        )
+        .expect("writes the file");
+
+        assert_eq!(
+            server
+                .list_todos(Parameters(ListTodosParams::default()))
+                .expect("lists")
+                .0
+                .todos
+                .len(),
+            2
+        );
+        assert!(
+            server
+                .update_todo(Parameters(UpdateTodoParams {
+                    id: "abc123".to_owned(),
+                    status: Some("done".to_owned()),
+                    ..UpdateTodoParams::default()
+                }))
+                .is_err()
+        );
+    }
+
+    /// A recurrence rule is handed back untouched. timemd does not spawn the
+    /// next instance, and an agent needs to know the rule is still there.
+    #[test]
+    fn a_recurrence_rule_survives_a_round_trip() {
+        let (_directory, server) = server();
+        let added = server
+            .add_todo(Parameters(AddTodoParams {
+                description: "Water the plants".to_owned(),
+                recurrence: Some("every day when done".to_owned()),
+                ..AddTodoParams::default()
+            }))
+            .expect("adds")
+            .0;
+
+        assert_eq!(added.recurrence.as_deref(), Some("every day when done"));
+    }
+
+    /// Starting on a todo takes its project and description, so the session
+    /// that gets logged is findable by the words the todo is written in.
+    #[test]
+    fn a_session_started_on_a_todo_takes_its_project_and_words() {
+        let (_directory, server) = server();
+        let id = server
+            .add_todo(Parameters(AddTodoParams {
+                description: "Fix the ticker drift".to_owned(),
+                project: Some("timemd".to_owned()),
+                ..AddTodoParams::default()
+            }))
+            .expect("adds")
+            .0
+            .id
+            .expect("an id");
+
+        server
+            .start_session(Parameters(StartParams {
+                todo: Some(id),
+                ..StartParams::default()
+            }))
+            .expect("starts");
+
+        let running = server
+            .current_session(Parameters(NoParams {}))
+            .expect("reads")
+            .0;
+        assert_eq!(running.project.as_deref(), Some("timemd"));
+        assert_eq!(running.note.as_deref(), Some("Fix the ticker drift"));
+    }
+
+    #[test]
+    fn refuses_to_start_on_a_todo_that_is_not_there() {
+        let (_directory, server) = server();
+        assert!(
+            server
+                .start_session(Parameters(StartParams {
+                    todo: Some("nothere".to_owned()),
+                    ..StartParams::default()
+                }))
+                .is_err()
         );
     }
 }

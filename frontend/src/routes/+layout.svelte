@@ -7,17 +7,19 @@
 	let { children } = $props();
 
 	/**
-	 * Three tabs, drawn as the three basic shapes: circle is time, square is a
-	 * project, triangle is a plan. The log is a segment of the schedule, which is
-	 * what keeps the bar down to three thumb-sized targets.
+	 * Four tabs, each drawn as its own shape: circle is time, square is a
+	 * project, diamond is a todo, triangle is a plan. The log is a segment of
+	 * the schedule rather than a fifth tab, which is what keeps every target
+	 * thumb-sized at 360px.
 	 *
 	 * Settings is here rather than in the bar: on a phone it hangs off the
 	 * timer's header, and on a desktop there is room for it at the foot of the
-	 * sidebar. Either way it is one link, not a fourth tab.
+	 * sidebar. Either way it is one link, not another tab.
 	 */
 	const tabs: { href: string; label: string; mark: MarkShape }[] = [
 		{ href: '/', label: 'Timer', mark: 'circle' },
 		{ href: '/projects', label: 'Projects', mark: 'square' },
+		{ href: '/todos', label: 'Todos', mark: 'diamond' },
 		{ href: '/schedule', label: 'Schedule', mark: 'triangle' }
 	];
 

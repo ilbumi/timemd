@@ -13,6 +13,7 @@ use timemd_core::{DateRange, DayBlock, Minutes, Occurrence, RecurringBlock};
 use crate::error::{ApiError, ApiResult};
 use crate::parse::{block_id, optional_minutes, optional_slug};
 use crate::state::AppState;
+use crate::todos::TodoView;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -96,6 +97,10 @@ pub struct DayView {
     tracked: Minutes,
     planned: Vec<OccurrenceView>,
     skipped: Vec<String>,
+    /// Todos scheduled for this day, untimed ones first. Read-only here: the
+    /// day view shows them so the plan and the list are one picture, but a todo
+    /// is edited where it lives.
+    todos: Vec<TodoView>,
     /// Lines the app could not parse, so a broken file is visible in the UI
     /// rather than silently half-loaded.
     problems: Vec<String>,
@@ -191,6 +196,7 @@ async fn read_day(
 ) -> ApiResult<Json<DayView>> {
     let day = state.store().read_day(date)?;
     let recurring = state.store().read_recurring()?;
+    let todos = state.store().read_todos()?;
 
     Ok(Json(DayView {
         date,
@@ -210,6 +216,11 @@ async fn read_day(
         tracked: day.total(),
         planned: views_for(planned(&day, &recurring)),
         skipped: day.skipped().iter().map(ToString::to_string).collect(),
+        todos: todos
+            .scheduled_on(date)
+            .into_iter()
+            .map(TodoView::from)
+            .collect(),
         problems: day.problems().iter().map(ToString::to_string).collect(),
     }))
 }

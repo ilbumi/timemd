@@ -4,7 +4,9 @@
 //! and had already diverged over whether an empty string means "absent".
 
 use serde::{Deserialize, Deserializer};
-use timemd_core::{BlockId, Color, Mark, Minutes, ProjectSlug};
+use timemd_core::{
+    BlockId, Color, Mark, Minutes, OnCompletion, Priority, ProjectSlug, Stamp, TodoId, TodoStatus,
+};
 
 use crate::error::{ApiError, ApiResult};
 
@@ -54,6 +56,43 @@ pub fn optional_mark(raw: Option<String>) -> ApiResult<Option<Mark>> {
 
 pub fn block_id(raw: &str) -> ApiResult<BlockId> {
     BlockId::new(raw).map_err(bad_request)
+}
+
+/// A path segment that is not a valid id names no todo, so it is a 404 rather
+/// than a 400 — the same reading `slug_from_path` takes for projects.
+pub fn todo_id(raw: &str) -> ApiResult<TodoId> {
+    TodoId::new(raw).map_err(|_| ApiError::not_found(format!("no todo with id {raw:?}")))
+}
+
+/// A date, optionally narrowed to a time: `2026-08-30` or `2026-08-30 14:00`.
+pub fn optional_stamp(raw: Option<String>) -> ApiResult<Option<Stamp>> {
+    present(raw)
+        .map(|value| value.parse::<Stamp>().map_err(bad_request))
+        .transpose()
+}
+
+pub fn optional_priority(raw: Option<String>) -> ApiResult<Option<Priority>> {
+    present(raw)
+        .map(|value| value.parse::<Priority>().map_err(ApiError::from))
+        .transpose()
+}
+
+pub fn optional_status(raw: Option<String>) -> ApiResult<Option<TodoStatus>> {
+    present(raw)
+        .map(|value| value.parse::<TodoStatus>().map_err(ApiError::from))
+        .transpose()
+}
+
+pub fn optional_on_completion(raw: Option<String>) -> ApiResult<Option<OnCompletion>> {
+    present(raw)
+        .map(|value| value.parse::<OnCompletion>().map_err(ApiError::from))
+        .transpose()
+}
+
+pub fn todo_ids(raw: Vec<String>) -> ApiResult<Vec<TodoId>> {
+    raw.into_iter()
+        .map(|value| TodoId::new(value).map_err(bad_request))
+        .collect()
 }
 
 fn present(raw: Option<String>) -> Option<String> {

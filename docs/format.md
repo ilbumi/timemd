@@ -32,6 +32,7 @@ data/
   projects/<slug>.md              one file per project
   days/YYYY/YYYY-MM-DD.md         tracked time, planned blocks, free notes
   schedule/recurring.md           weekly-repeating blocks
+  todos.md                        the todo list, in Obsidian Tasks format
   settings.md                     pomodoro lengths, timezone, reminder default
   state/active.md                 the running timer
   state/reminders.md              reminders already sent
@@ -54,7 +55,8 @@ Every structured line is a markdown list item built from the same pieces:
 | Project | `[[slug]]` | Slug is `[a-z0-9]` and dashes, no leading or trailing dash. |
 | Reminder | `!5m` | Lead time, at the end of the line. `!0m` disables. |
 | Block id | `` `deep-work` `` | Backtick-quoted. |
-| Checkbox | `[x]` or `[ ]` | Opens a milestone line. `[X]` is read, `[x]` written. |
+| Checkbox | `[x]` or `[ ]` | Opens a milestone or todo line. `[X]` is read, `[x]` written. |
+| Date | `YYYY-MM-DD` | Zero-padded. `2026-8-1` is rejected. |
 
 **One `##` section, one line grammar.** A parser never has to guess what a line
 inside a section is meant to be.
@@ -162,6 +164,76 @@ duration form, and is absent when there is no target.
 read is preserved and reported, as everywhere else. The app writes a title back
 exactly as given, so it must be non-empty and on one line — anything else is
 refused at the point of writing rather than silently mangled.
+
+## Todos — `todos.md`
+
+```markdown
+---
+---
+
+## Todos
+
+- [ ] [[timemd]] Draft the release notes ⏫ 🆔 dcf64c ➕ 2026-08-24 ⏳ 2026-08-30 14:00 📅 2026-08-31 #writing
+- [x] [[timemd]] Fix the ticker drift 🔺 🆔 0h17ye ⛔ dcf64c ✅ 2026-08-23
+- [-] Rewrite the CSS 🆔 8kq2mv ❌ 2026-08-20
+- [ ] Water the plants 🔁 every day when done ⏳ 2026-08-25
+```
+
+One global file rather than a section per project, because a todo outlives the
+project it belongs to and many belong to no project at all. Milestones are
+something else and stay where they are: a project's spine, short and ordered.
+
+The line grammar is [Obsidian Tasks' emoji format][tasks], so the same file is
+editable by hand, by an agent, and by Obsidian. After the checkbox comes an
+optional `[[project]]`, then the description, then the fields:
+
+| Signifier | Field | Value |
+|---|---|---|
+| `🔺 ⏫ 🔼 🔽 ⏬` | Priority | Highest, high, medium, low, lowest. No signifier means normal. |
+| `➕` | Created | A date |
+| `🛫` | Start | A date |
+| `⏳` | Scheduled | A date |
+| `📅` | Due | A date |
+| `✅` | Done | A date |
+| `❌` | Cancelled | A date |
+| `🔁` | Recurrence | A rule, kept verbatim — see below |
+| `🆔` | Id | Letters, digits, dashes and underscores |
+| `⛔` | Depends on | Comma-separated ids |
+| `🏁` | On completion | `keep` or `delete`, kept for Obsidian's benefit |
+
+A `#tag` is description text, not a field: it stays where you put it.
+
+**A date may be narrowed to a time**, as `⏳ 2026-08-30 14:00`. This is the one
+deliberate departure from Obsidian, because a scheduled todo has to be able to
+mean a slot on the day timeline and not just a day. A date with no time is
+written back exactly as Obsidian writes it, so a file that never uses one stays
+byte-identical.
+
+**Reads accept the fields in any order; writes emit one order** — description,
+priority, `🔁`, `🆔`, `⛔`, `➕`, `🛫`, `⏳`, `📅`, `❌`, `✅`, `🏁`. That is what
+makes a second write a no-op, and an idempotent write is what lets Obsidian and
+timemd both hold the file open.
+
+The checkbox is `[ ]` open, `[x]` done, `[-]` cancelled. Any other single
+character — Obsidian lets you define your own — is kept as typed and counts as
+not yet done.
+
+**A todo is addressed by its id.** A milestone is addressed by its title
+because a project has a handful in a deliberate order; a todo list has hundreds
+in none, and the same words come round again next week. Every todo the app
+creates gets an id, and any todo the app *writes* that has none is given one.
+A hand-written todo is left exactly as typed until something edits that file —
+at which point it becomes addressable, and `⛔` can name it.
+
+**Recurrence is preserved, not executed.** `🔁 every day when done` survives a
+round trip untouched, and ticking a recurring todo here does not spawn the next
+one. Obsidian already does that.
+
+A description is refused at the point of writing if the app could not read it
+back: blank, spanning lines, containing a signifier, or opening with `[[` —
+which would be swallowed as the project link.
+
+[tasks]: https://publish.obsidian.md/tasks/Reference/Task+Formats/Tasks+Emoji+Format
 
 ## Settings — `settings.md`
 

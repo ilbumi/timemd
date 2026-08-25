@@ -82,6 +82,15 @@ pub enum ParseErrorKind {
 
     #[error("expected a checkbox and a title, as in `[x] Ch. 1`, found {found:?}")]
     MissingCheckbox { found: String },
+
+    #[error("invalid todo id {found:?}; expected letters, digits, dashes and underscores")]
+    InvalidTodoId { found: String },
+
+    #[error("invalid date {found:?}; expected YYYY-MM-DD, optionally followed by HH:MM")]
+    InvalidDate { found: String },
+
+    #[error("unreadable todo line {found:?}")]
+    InvalidTodo { found: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use timemd_core::active::SessionKind;
 use timemd_core::{Minutes, StartRequest, Timer, TimerState};
 
-use crate::parse::{optional_minutes, optional_slug};
+use crate::parse::{optional_minutes, optional_slug, todo_id};
 
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -86,6 +86,10 @@ pub struct StartBody {
     #[serde(default)]
     note: String,
     duration: Option<String>,
+    /// Start on a todo: its project and description fill in for `project` and
+    /// `note`, which is the whole point — a session logged against a todo
+    /// should be findable by the words the todo is written in.
+    todo: Option<String>,
 }
 
 fn focus() -> SessionKind {
@@ -102,20 +106,25 @@ async fn start(
     State(state): State<AppState>,
     Json(body): Json<StartBody>,
 ) -> ApiResult<Json<TimerView>> {
-    let project = optional_slug(body.project)?;
-    let duration = optional_minutes(body.duration)?;
+    let mut request = StartRequest {
+        kind: body.kind,
+        duration: optional_minutes(body.duration)?,
+        project: optional_slug(body.project)?,
+        note: body.note.trim().to_owned(),
+    };
+
+    if let Some(raw) = &body.todo {
+        let id = todo_id(raw)?;
+        let todos = state.store().read_todos()?;
+        let todo = todos
+            .get(&id)
+            .map_err(|_| ApiError::not_found(format!("no todo with id {id:?}")))?;
+        request.on_todo(todo);
+    }
 
     let now = state.local_now()?;
     let timer = Timer::new(state.store());
-    timer.start(
-        now,
-        StartRequest {
-            kind: body.kind,
-            duration,
-            project,
-            note: body.note.trim().to_owned(),
-        },
-    )?;
+    timer.start(now, request)?;
 
     Ok(Json(TimerView::build(timer.state(now)?, now)))
 }

@@ -294,3 +294,38 @@ describe('reports', () => {
 		expect(calls[0]?.url).toBe('/api/reports?from=2026-08-01&to=2026-08-31&groupBy=day');
 	});
 });
+
+describe('todos', () => {
+	it('sends only the filters that were given', async () => {
+		const calls = mockFetch(200, { todos: [], problems: [] });
+		await api.listTodos({ status: 'open', dueBefore: '2026-08-31' });
+
+		expect(calls[0]?.url).toBe('/api/todos?status=open&dueBefore=2026-08-31');
+	});
+
+	it('asks for everything when no filter is given', async () => {
+		const calls = mockFetch(200, { todos: [], problems: [] });
+		await api.listTodos();
+
+		expect(calls[0]?.url).toBe('/api/todos');
+	});
+
+	/* An absent key means "leave it"; an explicit null means "clear it", and
+	   the client has to be able to spell the second one. */
+	it('sends an explicit null to clear a date', async () => {
+		const calls = mockFetch(200, { id: 'abc123' });
+		await api.updateTodo('abc123', { due: null });
+
+		expect(calls[0]?.init.method).toBe('PATCH');
+		expect(calls[0]?.init.body).toBe('{"due":null}');
+		expect(calls[0]?.url).toBe('/api/todos/abc123');
+	});
+
+	it('escapes an id into the path', async () => {
+		mockFetch(204, null);
+		const calls = mockFetch(204, null);
+		await api.deleteTodo('a b');
+
+		expect(calls[0]?.url).toBe('/api/todos/a%20b');
+	});
+});

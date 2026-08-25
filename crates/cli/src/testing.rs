@@ -31,6 +31,7 @@ pub fn start(project: Option<&str>, duration: Option<&str>) -> Command {
         project: project.map(ToOwned::to_owned),
         note: String::new(),
         duration: duration.map(ToOwned::to_owned),
+        todo: None,
     }
 }
 

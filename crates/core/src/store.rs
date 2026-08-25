@@ -27,6 +27,7 @@ use crate::push::PushState;
 use crate::reminders::SentLog;
 use crate::schedule::Recurring;
 use crate::settings::Settings;
+use crate::todo::Todos;
 
 /// `crate::Result` fixes the error to [`Error`]; an edit refuses with its own.
 type StdResult<T, E> = std::result::Result<T, E>;
@@ -49,6 +50,7 @@ const STATE_DIR: &str = "state";
 const SCHEDULE_DIR: &str = "schedule";
 const RECURRING_FILE: &str = "recurring.md";
 const SETTINGS_FILE: &str = "settings.md";
+const TODOS_FILE: &str = "todos.md";
 const ACTIVE_FILE: &str = "active.md";
 const REMINDERS_FILE: &str = "reminders.md";
 const PUSH_FILE: &str = "push.md";
@@ -239,6 +241,31 @@ impl Store {
 
     pub fn update_recurring<T>(&self, edit: impl FnOnce(&mut Recurring) -> T) -> Result<T> {
         self.transaction(|tx| tx.update_recurring(edit))
+    }
+
+    // ---- todos -------------------------------------------------------------
+
+    pub fn todos_path(&self) -> PathBuf {
+        self.root.join(TODOS_FILE)
+    }
+
+    pub fn read_todos(&self) -> Result<Todos> {
+        let path = self.todos_path();
+        match read_to_string(&path)? {
+            Some(text) => Todos::parse(&text).map_err(|source| Error::Frontmatter { path, source }),
+            None => Ok(Todos::default()),
+        }
+    }
+
+    pub fn update_todos<T>(&self, edit: impl FnOnce(&mut Todos) -> T) -> Result<T> {
+        self.transaction(|tx| tx.update_todos(edit))
+    }
+
+    pub fn try_update_todos<T, E>(
+        &self,
+        edit: impl FnOnce(&mut Todos) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
+        self.transaction(|tx| tx.try_update_todos(edit))
     }
 
     // ---- settings and timer state -----------------------------------------
@@ -539,6 +566,28 @@ impl Tx<'_> {
         let mut recurring = self.store.read_recurring()?;
         let outcome = edit(&mut recurring);
         write_atomic(&self.store.recurring_path(), &recurring.render())?;
+        Ok(outcome)
+    }
+
+    pub fn update_todos<T>(&self, edit: impl FnOnce(&mut Todos) -> T) -> Result<T> {
+        settled(self.try_update_todos(|todos| Ok(edit(todos))))
+    }
+
+    /// Edits the todo list, writing only if the edit returned `Ok`.
+    ///
+    /// The id stamping happens here rather than inside `Todos::render`, which
+    /// takes `&self`: a file that is only read must come back byte-for-byte,
+    /// and this is the one path that means the file is about to change anyway.
+    pub fn try_update_todos<T, E>(
+        &self,
+        edit: impl FnOnce(&mut Todos) -> StdResult<T, E>,
+    ) -> Result<StdResult<T, E>> {
+        let mut todos = self.store.read_todos()?;
+        let outcome = edit(&mut todos);
+        if outcome.is_ok() {
+            todos.assign_ids();
+            write_atomic(&self.store.todos_path(), &todos.render())?;
+        }
         Ok(outcome)
     }
 }
