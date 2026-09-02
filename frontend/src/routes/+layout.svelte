@@ -2,9 +2,14 @@
 	import { page } from '$app/state';
 	import Mark from '$lib/Mark.svelte';
 	import type { Mark as MarkShape } from '$lib/api';
+	import { fullscreen } from '$lib/fullscreen.svelte';
 	import '../app.css';
 
 	let { children } = $props();
+
+	// Leaving fullscreen by Esc or F11 has to put the navigation back, so the
+	// mode follows the browser rather than only the button that turned it on.
+	$effect(() => fullscreen.watch());
 
 	/**
 	 * Four tabs, each drawn as its own shape: circle is time, square is a
@@ -28,7 +33,7 @@
 	}
 </script>
 
-<div class="shell">
+<div class="shell" class:immersive={fullscreen.active}>
 	<main>
 		{@render children()}
 	</main>
@@ -71,6 +76,27 @@
 		max-width: var(--shell);
 		margin: 0 auto;
 		background: var(--paper);
+	}
+
+	/*
+	 * Fullscreen mode. The shell keeps its grid and loses a track, rather than
+	 * the navigation being removed from the markup: at 700px the sidebar's
+	 * column would otherwise stay behind as an empty strip beside the timer.
+	 */
+	.shell.immersive {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr);
+	}
+
+	/* Both of these are more specific than the sidebar rules below, so they win
+	   there without a second media query saying the same thing twice. */
+	.immersive main {
+		grid-column: 1;
+		grid-row: 1;
+	}
+
+	.immersive nav {
+		display: none;
 	}
 
 	main {

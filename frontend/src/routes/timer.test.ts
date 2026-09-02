@@ -13,6 +13,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionKind, StartSession, TimerState } from '$lib/api';
+import { fullscreen } from '$lib/fullscreen.svelte';
 
 import Timer from './+page.svelte';
 
@@ -311,5 +312,54 @@ describe('stopping under a minute', () => {
 		await vi.waitFor(() => {
 			expect(screen.getByRole('alert')).toHaveTextContent(/under a minute/i);
 		});
+	});
+});
+
+/**
+ * Fullscreen is a mode of the *session*, which is the half that cannot be seen
+ * from the component alone: the button turns it on, and the block ending has to
+ * turn it back off — there is no fullscreen control on the screens that follow.
+ */
+describe('fullscreen mode', () => {
+	/** A block with time left on it, so the poll queue does not advance under us. */
+	function holding(): TimerState {
+		const state = running('focus', PROJECT.slug, NOTE, COMPLETED);
+		state.active = { ...state.active!, remainingSeconds: 900 };
+		return state;
+	}
+
+	afterEach(() => {
+		fullscreen.active = false;
+	});
+
+	it('fills the screen, and gives it back when the block is logged', async () => {
+		states = [holding(), idle(COMPLETED + 1)];
+		stubApi();
+		render(Timer);
+
+		const fill = await vi.waitFor(
+			() => screen.getByRole('button', { name: /^fullscreen$/i }),
+			SETTLING
+		);
+		await fireEvent.click(fill);
+		expect(fullscreen.active).toBe(true);
+		expect(screen.getByRole('button', { name: /leave fullscreen/i })).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: /stop and log/i }));
+		await vi.waitFor(() => {
+			expect(fullscreen.active).toBe(false);
+		}, SETTLING);
+	});
+
+	it('turns back off from its own button', async () => {
+		states = [holding()];
+		stubApi();
+		render(Timer);
+
+		await fireEvent.click(
+			await vi.waitFor(() => screen.getByRole('button', { name: /^fullscreen$/i }), SETTLING)
+		);
+		await fireEvent.click(screen.getByRole('button', { name: /leave fullscreen/i }));
+		expect(fullscreen.active).toBe(false);
 	});
 });

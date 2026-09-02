@@ -12,7 +12,7 @@
  * specs for it would make every one of them flaky. A route handler is per-page
  * and per-test, so these stay parallel-safe.
  */
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { WIDTHS, expectWellAligned } from './probes';
 
 const NOW = '2026-08-01T09:10:00';
@@ -91,5 +91,28 @@ for (const width of [WIDTHS.phone, WIDTHS.sidebar, WIDTHS.desktop]) {
 		completed = true;
 		await page.locator('.complete').waitFor({ state: 'visible' });
 		await expectWellAligned(page, width);
+	});
+}
+
+/**
+ * Fullscreen mode, measured the same way as the screens it hides the chrome on.
+ *
+ * The browser's own fullscreen is a side effect of the click; what is under
+ * test is the app's half — the navigation gone, and the timer still square with
+ * its edges once it is the only thing on the screen.
+ */
+for (const width of [WIDTHS.phone, WIDTHS.desktop]) {
+	test(`fullscreen @ ${width}px`, async ({ page }) => {
+		await page.setViewportSize({ width, height: 900 });
+		await stubTimer(page, () => timerState(running('focus'), 3));
+		await page.goto('/');
+		await page.locator('.dial').waitFor({ state: 'visible' });
+
+		await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+		await expect(page.locator('nav')).toBeHidden();
+		await expectWellAligned(page, width);
+
+		await page.getByRole('button', { name: 'Leave fullscreen' }).click();
+		await expect(page.locator('nav')).toBeVisible();
 	});
 }
