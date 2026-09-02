@@ -2,9 +2,22 @@
 	import { page } from '$app/state';
 	import Mark from '$lib/Mark.svelte';
 	import type { Mark as MarkShape } from '$lib/api';
+	import { fullscreen } from '$lib/fullscreen.svelte';
 	import '../app.css';
 
 	let { children } = $props();
+
+	// Leaving fullscreen by Esc or F11 has to put the navigation back, so the
+	// mode follows the browser rather than only the button that turned it on.
+	$effect(() => fullscreen.watch());
+
+	// The chrome is hidden here, so it is given back here too. The timer ends
+	// the mode when its session does; this ends it if the app is anywhere else,
+	// which with the tab bar gone means a back gesture — and every other screen
+	// draws no way out of a mode it does not know about.
+	$effect(() => {
+		if (page.url.pathname !== '/' && fullscreen.active) void fullscreen.exit();
+	});
 
 	/**
 	 * Four tabs, each drawn as its own shape: circle is time, square is a
@@ -28,7 +41,7 @@
 	}
 </script>
 
-<div class="shell">
+<div class="shell" class:immersive={fullscreen.active}>
 	<main>
 		{@render children()}
 	</main>
@@ -71,6 +84,17 @@
 		max-width: var(--shell);
 		margin: 0 auto;
 		background: var(--paper);
+	}
+
+	/*
+	 * Fullscreen mode is the third arrangement, and the only one the shell has to
+	 * be told about: the phone column already is one child in one track, so
+	 * hiding the navigation is the whole of it here. The sidebar is what has to
+	 * be asked for rather than assumed, which is why the 700px block below tests
+	 * for this class instead of being undone by overrides written after it.
+	 */
+	.immersive nav {
+		display: none;
 	}
 
 	main {
@@ -124,6 +148,9 @@
 	@media (min-width: 700px) {
 		.shell {
 			max-width: none;
+		}
+
+		.shell:not(.immersive) {
 			grid-template-rows: none;
 			grid-template-columns: var(--sidebar) minmax(0, 1fr);
 		}
@@ -147,9 +174,14 @@
 			padding-left: env(safe-area-inset-left);
 		}
 
-		main {
+		.shell:not(.immersive) main {
 			grid-column: 2;
 			grid-row: 1;
+		}
+
+		/* Kept in fullscreen too: a dial and a one-line header stretched across a
+		   2560px window is not more immersive, it is further apart. */
+		main {
 			/* Centres the content in a readable measure without the screens having
 			   to know they are on a desktop. The sidebar absorbs the left inset,
 			   so only the right one has to be kept clear here — and only when the

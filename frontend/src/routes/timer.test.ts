@@ -13,6 +13,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionKind, StartSession, TimerState } from '$lib/api';
+import { fullscreen } from '$lib/fullscreen.svelte';
 
 import Timer from './+page.svelte';
 
@@ -103,7 +104,8 @@ function running(
 	kind: SessionKind,
 	project: string | null,
 	note: string,
-	completedToday: number
+	completedToday: number,
+	remainingSeconds = 0
 ): TimerState {
 	return {
 		...idle(completedToday),
@@ -115,7 +117,7 @@ function running(
 			endsAt: '2026-08-01T09:25:00',
 			duration: '25m',
 			durationSeconds: 1500,
-			remainingSeconds: 0
+			remainingSeconds
 		}
 	};
 }
@@ -311,5 +313,38 @@ describe('stopping under a minute', () => {
 		await vi.waitFor(() => {
 			expect(screen.getByRole('alert')).toHaveTextContent(/under a minute/i);
 		});
+	});
+});
+
+/**
+ * Fullscreen is a mode of the *session*, which is the half that cannot be seen
+ * from the component alone: the button turns it on, and the block ending has to
+ * turn it back off — there is no fullscreen control on the screens that follow.
+ */
+describe('fullscreen mode', () => {
+	/** A block with time left on it, so the poll queue does not advance under us. */
+	const holding = (): TimerState => running('focus', PROJECT.slug, NOTE, COMPLETED, 900);
+
+	afterEach(() => {
+		fullscreen.active = false;
+	});
+
+	it('fills the screen, and gives it back when the block is logged', async () => {
+		states = [holding(), idle(COMPLETED + 1)];
+		stubApi();
+		render(Timer);
+
+		const fill = await vi.waitFor(
+			() => screen.getByRole('button', { name: /^fullscreen$/i }),
+			SETTLING
+		);
+		await fireEvent.click(fill);
+		expect(fullscreen.active).toBe(true);
+		expect(screen.getByRole('button', { name: /leave fullscreen/i })).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: /stop and log/i }));
+		await vi.waitFor(() => {
+			expect(fullscreen.active).toBe(false);
+		}, SETTLING);
 	});
 });

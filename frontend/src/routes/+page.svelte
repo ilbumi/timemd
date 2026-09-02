@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FullscreenButton from '$lib/FullscreenButton.svelte';
 	import Mark from '$lib/Mark.svelte';
 	import IdentityPicker from '$lib/IdentityPicker.svelte';
 	import {
@@ -12,6 +13,7 @@
 	} from '$lib/api';
 	import { describe } from '$lib/attempt';
 	import { Countdown, formatClock, formatHours, progress } from '$lib/countdown';
+	import { fullscreen } from '$lib/fullscreen.svelte';
 	import { today } from '$lib/dates';
 	import { contrastInk, DEFAULT_COLOR, paletteColor } from '$lib/palette';
 	import { readWeekTotals, targetFill, targetMinutes, totalsFor, type Totals } from '$lib/totals';
@@ -275,6 +277,14 @@
 	});
 
 	$effect(() => {
+		// Fullscreen belongs to the session, not to the app. Once nothing is
+		// running the chrome has to come back on its own: the screens that follow
+		// — complete, then the picker — carry no fullscreen control, and on a
+		// browser with no Fullscreen API there would be no Esc to press either.
+		if (running === null && fullscreen.active) void fullscreen.exit();
+	});
+
+	$effect(() => {
 		// Tick locally between polls, and re-ask the server the moment the deadline
 		// passes so the finished session is picked up promptly.
 		const tick = setInterval(() => {
@@ -410,7 +420,10 @@
 	<section class="screen break">
 		<header class="bar">
 			<div class="eyebrow">{current.kind === 'long_break' ? 'Long break' : 'Short break'}</div>
-			<div class="meta">{completedToday} done today</div>
+			<div class="bar-end">
+				<div class="meta">{completedToday} done today</div>
+				<FullscreenButton />
+			</div>
 		</header>
 
 		<div class="middle">
@@ -433,10 +446,13 @@
 	<section class="screen">
 		<header class="bar">
 			<div class="eyebrow">Focus {nextFocus}</div>
-			<div class="logo small">
-				<Mark mark="square" color="var(--red)" size={11} />
-				<Mark mark="square" color="var(--blue)" size={11} />
-				<Mark mark="square" color="var(--yellow)" size={11} />
+			<div class="bar-end">
+				<div class="logo small">
+					<Mark mark="square" color="var(--red)" size={11} />
+					<Mark mark="square" color="var(--blue)" size={11} />
+					<Mark mark="square" color="var(--yellow)" size={11} />
+				</div>
+				<FullscreenButton />
 			</div>
 		</header>
 
@@ -561,6 +577,14 @@
 		gap: var(--gap);
 		padding: 14px var(--pad) 10px;
 		border-bottom: var(--rule) solid var(--ink);
+	}
+
+	/* What the bar carries opposite its eyebrow: the logo or the count, and the
+	   fullscreen corners. Grouped so `space-between` still has two ends. */
+	.bar-end {
+		display: flex;
+		align-items: center;
+		gap: var(--gap);
 	}
 
 	.middle {
