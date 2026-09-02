@@ -52,17 +52,10 @@
 		color: var(--ink);
 	}
 
+	/* 20px of glyph plus 12 on every side is the 44 a thumb needs. */
 	.expand::after {
 		content: '';
 		position: absolute;
-		left: 50%;
-		top: 50%;
-		width: var(--tap-target);
-		height: var(--tap-target);
-		transform: translate(-50%, -50%);
-	}
-
-	svg {
-		display: block;
+		inset: -12px;
 	}
 </style>

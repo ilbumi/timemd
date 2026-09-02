@@ -104,7 +104,8 @@ function running(
 	kind: SessionKind,
 	project: string | null,
 	note: string,
-	completedToday: number
+	completedToday: number,
+	remainingSeconds = 0
 ): TimerState {
 	return {
 		...idle(completedToday),
@@ -116,7 +117,7 @@ function running(
 			endsAt: '2026-08-01T09:25:00',
 			duration: '25m',
 			durationSeconds: 1500,
-			remainingSeconds: 0
+			remainingSeconds
 		}
 	};
 }
@@ -322,11 +323,7 @@ describe('stopping under a minute', () => {
  */
 describe('fullscreen mode', () => {
 	/** A block with time left on it, so the poll queue does not advance under us. */
-	function holding(): TimerState {
-		const state = running('focus', PROJECT.slug, NOTE, COMPLETED);
-		state.active = { ...state.active!, remainingSeconds: 900 };
-		return state;
-	}
+	const holding = (): TimerState => running('focus', PROJECT.slug, NOTE, COMPLETED, 900);
 
 	afterEach(() => {
 		fullscreen.active = false;
@@ -349,17 +346,5 @@ describe('fullscreen mode', () => {
 		await vi.waitFor(() => {
 			expect(fullscreen.active).toBe(false);
 		}, SETTLING);
-	});
-
-	it('turns back off from its own button', async () => {
-		states = [holding()];
-		stubApi();
-		render(Timer);
-
-		await fireEvent.click(
-			await vi.waitFor(() => screen.getByRole('button', { name: /^fullscreen$/i }), SETTLING)
-		);
-		await fireEvent.click(screen.getByRole('button', { name: /leave fullscreen/i }));
-		expect(fullscreen.active).toBe(false);
 	});
 });

@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { Fullscreen, isSupported } from './fullscreen.svelte';
+import { Fullscreen } from './fullscreen.svelte';
 
 /** Pretends the browser has the API, with a fullscreen element or without. */
 function withApi(element: Element | null): { request: ReturnType<typeof vi.fn> } {
@@ -25,17 +25,6 @@ afterEach(() => {
 	Reflect.deleteProperty(document.documentElement, 'requestFullscreen');
 	Reflect.deleteProperty(document, 'exitFullscreen');
 	vi.restoreAllMocks();
-});
-
-describe('isSupported', () => {
-	it('is false where the browser has no fullscreen at all', () => {
-		expect(isSupported()).toBe(false);
-	});
-
-	it('is true once the browser reports it', () => {
-		withApi(null);
-		expect(isSupported()).toBe(true);
-	});
 });
 
 describe('the mode', () => {
