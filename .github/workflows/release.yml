@@ -55,7 +55,7 @@ jobs:
         with:
           cache: false # only `cargo update` runs here
 
-      - uses: taiki-e/install-action@v2.85.5
+      - uses: taiki-e/install-action@v2.87.0
         with:
           tool: git-cliff
 
