@@ -2,6 +2,15 @@
 
 Written from the conventional commits in each release.
 
+## [0.5.0](https://github.com/ilbumi/timemd/compare/v0.4.0...v0.5.0) - 2026-09-02
+
+### Added
+
+- **ui:** fullscreen mode for a running session (#28) ([01d5a6e](https://github.com/ilbumi/timemd/commit/01d5a6ec2af1a6ef966605fe5f891291aef89052))
+
+### Fixed
+
+- five phone-first usability issues in the web UI (#29) ([6b19949](https://github.com/ilbumi/timemd/commit/6b199490d43cfa70e64e192814a601cb3eaa115b))
 ## [0.4.0](https://github.com/ilbumi/timemd/compare/v0.3.0...v0.4.0) - 2026-08-25
 
 ### Added
