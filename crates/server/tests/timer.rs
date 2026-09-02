@@ -100,6 +100,7 @@ async fn stopping_early_logs_only_the_time_worked() {
     assert_eq!(status, StatusCode::OK);
     assert!(body["active"].is_null());
     assert_eq!(body["trackedToday"], "10m");
+    assert_eq!(body["stopped"], "logged");
 }
 
 #[tokio::test]
@@ -208,12 +209,35 @@ async fn rejects_a_malformed_duration_or_project() {
 }
 
 #[tokio::test]
+async fn stopping_under_a_minute_does_not_log() {
+    let harness = Harness::new();
+    harness
+        .post("/api/timer/start", json!({ "note": "too soon" }))
+        .await;
+
+    let (status, body) = harness.post("/api/timer/stop", json!({})).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["active"].is_null());
+    assert_eq!(body["trackedToday"], "0m");
+    assert_eq!(body["stopped"], "tooShort");
+    assert!(
+        !harness
+            .store
+            .root()
+            .join("days/2026/2026-08-01.md")
+            .exists()
+    );
+}
+
+#[tokio::test]
 async fn stopping_when_nothing_runs_is_harmless() {
     let harness = Harness::new();
     let (status, body) = harness.post("/api/timer/stop", json!({})).await;
 
     assert_eq!(status, StatusCode::OK);
     assert!(body["active"].is_null());
+    assert_eq!(body["stopped"], "idle");
 }
 
 /// The property the whole server-authoritative design exists for: a phone that

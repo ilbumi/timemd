@@ -77,7 +77,6 @@
 		</div>
 
 		<div class="field">
-			<span class="label">Mark</span>
 			<IdentityPicker bind:mark bind:color />
 		</div>
 

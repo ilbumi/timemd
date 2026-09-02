@@ -55,3 +55,85 @@ test('the add-time form opens empty after an edit was cancelled', async ({ page 
 	await expect(page.getByLabel('Project', { exact: true })).toHaveValue('');
 	await expect(page.getByLabel('Note', { exact: true })).toHaveValue('');
 });
+
+/**
+ * Phone chrome: a native date field's min-content width used to eat the
+ * composer, leaving the title as a ~40px square whose placeholder could not
+ * be read. The title takes the remaining row; the date stays compact.
+ */
+test('the todos composer gives the title the remaining width', async ({ page }) => {
+	for (const width of [WIDTHS.phone, 390, WIDTHS.desktop]) {
+		await open(page, '/todos', width);
+		const title = page.getByRole('textbox', { name: 'New todo' });
+		const due = page.getByLabel('Due date for the new todo');
+		const titleBox = (await title.boundingBox())!;
+		const dueBox = (await due.boundingBox())!;
+		expect(titleBox.width, `title at ${width}px`).toBeGreaterThan(dueBox.width);
+		expect(titleBox.width, `title readable at ${width}px`).toBeGreaterThan(160);
+		const overflow = await title.evaluate((el) => el.scrollWidth - el.clientWidth);
+		expect(overflow, `placeholder clipped at ${width}px`).toBeLessThanOrEqual(1);
+		await expect(title).toHaveAttribute('placeholder', 'Add a todo…');
+	}
+});
+
+/**
+ * A control is clear of the tab bar when a tap on its centre hits it, not ●■◆▲.
+ * The add/edit sheets reuse the delete dialog's chrome so this stays true on
+ * a 390×844 phone, where the inline form used to sit under the nav.
+ */
+async function expectClearOfTabBar(page: import('@playwright/test').Page, name: string | RegExp) {
+	const control = page.getByRole('button', { name });
+	await expect(control).toBeVisible();
+	const box = (await control.boundingBox())!;
+	const viewport = page.viewportSize()!;
+	expect(box.y).toBeGreaterThanOrEqual(0);
+	expect(box.y + box.height).toBeLessThanOrEqual(viewport.height + 0.5);
+	const hit = await control.evaluate((el) => {
+		const seen = el.getBoundingClientRect();
+		const target = document.elementFromPoint(
+			seen.left + seen.width / 2,
+			seen.top + seen.height / 2
+		);
+		return !!target && (target === el || el.contains(target));
+	});
+	expect(hit, `${String(name)} is under another layer`).toBe(true);
+}
+
+test('the add-block sheet is fully usable on a phone', async ({ page }) => {
+	await open(page, '/schedule', WIDTHS.phone);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByRole('button', { name: '+ Block' }).click();
+	await expect(page.getByRole('dialog', { name: 'Add block' })).toBeVisible();
+	await expect(page.getByLabel('Title', { exact: true })).toBeVisible();
+	await expect(page.getByLabel('Project', { exact: true })).toBeVisible();
+	await expectClearOfTabBar(page, 'Add block');
+});
+
+test('the edit-block sheet is fully usable on a phone', async ({ page }) => {
+	await open(page, '/schedule', WIDTHS.phone);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByRole('button', { name: 'Edit Standup', exact: true }).click();
+	await expect(page.getByRole('dialog', { name: 'Edit block' })).toBeVisible();
+	await expectClearOfTabBar(page, 'Save block');
+});
+
+test('the add-time sheet is fully usable on a phone', async ({ page }) => {
+	await open(page, '/schedule/log', WIDTHS.phone);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByRole('button', { name: '+ Time by hand' }).click();
+	await expect(page.getByRole('dialog', { name: 'Log time by hand' })).toBeVisible();
+	await expect(page.getByLabel('Date', { exact: true })).toBeVisible();
+	await expectClearOfTabBar(page, 'Log it');
+});
+
+test('skip and restore stay tappable on a phone', async ({ page }) => {
+	await open(page, '/schedule', WIDTHS.phone);
+	await page.setViewportSize({ width: 390, height: 844 });
+	const skip = page.getByRole('button', { name: 'Skip' }).first();
+	await skip.scrollIntoViewIfNeeded();
+	await expectClearOfTabBar(page, /^Skip$/);
+	await skip.click();
+	const restore = page.getByRole('button', { name: 'Restore' }).first();
+	await restore.scrollIntoViewIfNeeded();
+	await expectClearOfTabBar(page, /^Restore$/);
+});

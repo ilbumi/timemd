@@ -1,8 +1,10 @@
 <script lang="ts">
 	import Mark from '$lib/Mark.svelte';
+	import IdentityPicker from '$lib/IdentityPicker.svelte';
 	import {
 		api,
 		type LoggedSession,
+		type Mark as MarkShape,
 		type Project,
 		type Running,
 		type Settings,
@@ -11,7 +13,7 @@
 	import { describe } from '$lib/attempt';
 	import { Countdown, formatClock, formatHours, progress } from '$lib/countdown';
 	import { today } from '$lib/dates';
-	import { contrastInk, paletteColor } from '$lib/palette';
+	import { contrastInk, DEFAULT_COLOR, paletteColor } from '$lib/palette';
 	import { readWeekTotals, targetFill, targetMinutes, totalsFor, type Totals } from '$lib/totals';
 
 	/** How often to re-ask the server while the screen is visible. */
@@ -34,6 +36,8 @@
 	/** Kept apart from `note`: the first-run screen asks for a project name, not
 	    a note, and sharing one variable made two unrelated meanings of it. */
 	let firstProjectName = $state('');
+	let firstMark = $state<MarkShape>('square');
+	let firstColor = $state(DEFAULT_COLOR);
 
 	/**
 	 * The screen shown after a focus block is logged — the design's one moment
@@ -190,7 +194,14 @@
 			api.startSession({ kind: 'focus', project: chosenProject || null, note: note.trim() })
 		);
 
-	const stop = (): Promise<void> => run(() => api.stopSession());
+	const stop = (): Promise<void> =>
+		run(async () => {
+			const next = await api.stopSession();
+			if (next.stopped === 'tooShort') {
+				error = 'Under a minute, so nothing was logged.';
+			}
+			return next;
+		});
 
 	const discard = (): Promise<void> => run(() => api.cancelSession());
 
@@ -218,7 +229,11 @@
 		if (name === '') return;
 		error = null;
 		try {
-			const created = await api.createProject({ name });
+			const created = await api.createProject({
+				name,
+				color: firstColor,
+				mark: firstMark
+			});
 			projects = [created];
 			chosenProject = created.slug;
 			firstProjectName = '';
@@ -319,6 +334,8 @@
 				placeholder="e.g. Thesis"
 				bind:value={firstProjectName}
 			/>
+
+			<IdentityPicker bind:mark={firstMark} bind:color={firstColor} />
 
 			<div class="spacer"></div>
 
@@ -840,6 +857,10 @@
 		flex-direction: column;
 		flex: 1;
 		margin-top: 32px;
+	}
+
+	.welcome :global(.picker) {
+		margin-top: 22px;
 	}
 
 	.spacer {

@@ -235,36 +235,9 @@
 							onclick={() => removeSession(band.date, session.index)}>×</button
 						>
 					</li>
-
-					{#if editor?.mode === 'amend' && editor.date === band.date && editor.index === session.index}
-						<form onsubmit={saveSession}>
-							{@render fields()}
-							<div class="actions">
-								<button type="button" onclick={() => (editor = null)}>Cancel</button>
-								<button class="primary" type="submit">Save</button>
-							</div>
-						</form>
-					{/if}
 				{/each}
 			</ul>
 		{/each}
-
-		{#if editor?.mode === 'add'}
-			<form onsubmit={addSession}>
-				<input
-					type="date"
-					aria-label="Date"
-					min={week[0]}
-					max={week[week.length - 1]}
-					bind:value={date}
-				/>
-				{@render fields()}
-				<div class="actions">
-					<button type="button" onclick={() => (editor = null)}>Cancel</button>
-					<button class="primary" type="submit">Log it</button>
-				</div>
-			</form>
-		{/if}
 	</div>
 
 	<div class="foot">
@@ -275,6 +248,42 @@
 		</div>
 	</div>
 </section>
+
+{#if editor}
+	<!-- Sibling of `.screen`: a child would be trapped by the container query
+	     and the sheet would stop covering the tab bar. Same chrome as delete. -->
+	<div class="sheet-backdrop">
+		<div
+			class="sheet"
+			role="dialog"
+			aria-modal="true"
+			aria-label={editor.mode === 'add' ? 'Log time by hand' : 'Edit session'}
+		>
+			<form onsubmit={editor.mode === 'add' ? addSession : saveSession}>
+				<div class="sheet-body">
+					{#if editor.mode === 'add'}
+						<input
+							type="date"
+							aria-label="Date"
+							min={week[0]}
+							max={week[week.length - 1]}
+							bind:value={date}
+						/>
+					{/if}
+					{@render fields()}
+				</div>
+				<div class="sheet-foot">
+					<div class="actions">
+						<button type="button" onclick={() => (editor = null)}>Cancel</button>
+						<button class="primary" type="submit">
+							{editor.mode === 'add' ? 'Log it' : 'Save'}
+						</button>
+					</div>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
 
 <!-- What a session is, in both the form that creates one and the form that
      amends one. Rendered twice so the two cannot drift apart. -->
@@ -378,13 +387,6 @@
 
 	.note.none {
 		color: var(--ink-45);
-	}
-
-	form {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		padding: var(--gap) var(--pad) 0;
 	}
 
 	.row {
