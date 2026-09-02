@@ -304,5 +304,12 @@ describe('stopping under a minute', () => {
 		});
 		expect(screen.getByText(/ready/i)).toBeInTheDocument();
 		expect(screen.queryByText(/session complete/i)).not.toBeInTheDocument();
+
+		// A visibility refresh used to go through `run`, which clears `error`,
+		// so the banner vanished the moment the tab was looked at again.
+		document.dispatchEvent(new Event('visibilitychange'));
+		await vi.waitFor(() => {
+			expect(screen.getByRole('alert')).toHaveTextContent(/under a minute/i);
+		});
 	});
 });

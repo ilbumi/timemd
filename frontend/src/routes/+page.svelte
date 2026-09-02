@@ -29,6 +29,8 @@
 	let settings = $state<Settings | null>(null);
 	let loadingProjects = $state(true);
 	let error = $state<string | null>(null);
+	/** Survives a timer poll; `error` is cleared at the start of every `run`. */
+	let notice = $state<string | null>(null);
 	let busy = $state(false);
 	let seconds = $state(0);
 	let chosenProject = $state('');
@@ -106,6 +108,7 @@
 		countdown.sync(next.active?.remainingSeconds ?? null, performance.now());
 		seconds = countdown.remaining(performance.now());
 		if (next.active) {
+			notice = null;
 			chosenProject = next.active.project ?? '';
 			note = next.active.note;
 		}
@@ -198,7 +201,7 @@
 		run(async () => {
 			const next = await api.stopSession();
 			if (next.stopped === 'tooShort') {
-				error = 'Under a minute, so nothing was logged.';
+				notice = 'Under a minute, so nothing was logged.';
 			}
 			return next;
 		});
@@ -303,8 +306,8 @@
 	});
 </script>
 
-{#if error}
-	<p class="error" role="alert">{error}</p>
+{#if error ?? notice}
+	<p class="error" role="alert">{error ?? notice}</p>
 {/if}
 
 {#if firstRun}
