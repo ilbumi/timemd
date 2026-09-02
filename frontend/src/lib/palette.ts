@@ -8,22 +8,17 @@
 
 import type { Mark } from './api';
 
-/** The workshop palette, in the order the mark picker offers it. */
+/** The workshop palette, in the order the colour picker offers it. */
 export const PALETTE = ['#245a8d', '#d1332e', '#e9b83a', '#8b6f8e', '#4a6b63'] as const;
 
-const MARKS: readonly Mark[] = ['square', 'circle', 'triangle', 'diamond', 'bar'];
+/** The five marks, in the order the shape picker offers them. */
+export const MARKS: readonly Mark[] = ['square', 'circle', 'triangle', 'diamond', 'bar'];
 
 /**
- * The five identities the picker offers, each pairing a shape with a colour.
- *
- * Offered as pairs rather than two independent choices because that is what
- * makes projects distinguishable: two shapes in similar colours, or two colours
- * in the same shape, are exactly the collisions the mark exists to avoid.
+ * Names for the palette, aligned with `PALETTE`. Used as radio labels so a
+ * colour can be chosen without also naming a shape.
  */
-export const IDENTITIES: readonly { mark: Mark; color: string }[] = MARKS.map((mark, index) => ({
-	mark,
-	color: PALETTE[index] ?? PALETTE[0]
-}));
+export const PALETTE_NAMES: readonly string[] = ['blue', 'red', 'yellow', 'purple', 'green'];
 
 /** What a project gets before anyone chooses. Widened from the `as const` tuple
     so a `$state` seeded with it stays assignable from any colour. */

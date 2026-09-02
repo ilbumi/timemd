@@ -6,7 +6,7 @@ use axum::{Json, Router};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use timemd_core::active::SessionKind;
-use timemd_core::{Minutes, StartRequest, Timer, TimerState};
+use timemd_core::{Minutes, StartRequest, Stopped, Timer, TimerState};
 
 use crate::parse::{optional_minutes, optional_slug, todo_id};
 
@@ -77,6 +77,35 @@ impl TimerView {
     }
 }
 
+/// `POST /api/timer/stop` names what stopping did, because idle-with-no-session
+/// is three different events: nothing was running, a session was logged, or
+/// the session rounded to zero minutes and was dropped.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StopView {
+    #[serde(flatten)]
+    timer: TimerView,
+    stopped: StoppedKind,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+enum StoppedKind {
+    Logged,
+    TooShort,
+    Idle,
+}
+
+impl From<Stopped> for StoppedKind {
+    fn from(stopped: Stopped) -> Self {
+        match stopped {
+            Stopped::Logged(_) => Self::Logged,
+            Stopped::TooShort => Self::TooShort,
+            Stopped::Idle => Self::Idle,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartBody {
@@ -129,11 +158,14 @@ async fn start(
     Ok(Json(TimerView::build(timer.state(now)?, now)))
 }
 
-async fn stop(State(state): State<AppState>) -> ApiResult<Json<TimerView>> {
+async fn stop(State(state): State<AppState>) -> ApiResult<Json<StopView>> {
     let now = state.local_now()?;
     let timer = Timer::new(state.store());
-    timer.stop(now)?;
-    Ok(Json(TimerView::build(timer.state(now)?, now)))
+    let stopped = StoppedKind::from(timer.stop(now)?);
+    Ok(Json(StopView {
+        timer: TimerView::build(timer.state(now)?, now),
+        stopped,
+    }))
 }
 
 async fn cancel(State(state): State<AppState>) -> ApiResult<Json<TimerView>> {

@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { IDENTITIES, PALETTE, contrastInk, markFor, paletteColor } from './palette';
+import { MARKS, PALETTE, PALETTE_NAMES, contrastInk, markFor, paletteColor } from './palette';
 
-describe('IDENTITIES', () => {
-	it('offers every mark exactly once, each with its own colour', () => {
-		expect(IDENTITIES.map((identity) => identity.mark)).toEqual([
-			'square',
-			'circle',
-			'triangle',
-			'diamond',
-			'bar'
-		]);
-		expect(new Set(IDENTITIES.map((identity) => identity.color)).size).toBe(IDENTITIES.length);
+describe('the picker lists', () => {
+	it('offers every mark and every palette colour, independently', () => {
+		expect(MARKS).toEqual(['square', 'circle', 'triangle', 'diamond', 'bar']);
+		expect(PALETTE).toHaveLength(MARKS.length);
+		expect(PALETTE_NAMES).toHaveLength(PALETTE.length);
+		expect(new Set(PALETTE).size).toBe(PALETTE.length);
 	});
 });
 

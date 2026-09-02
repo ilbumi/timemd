@@ -41,7 +41,7 @@ no id at all: it lists, and becomes addressable the moment anything writes
 |---|---|---|---|---|
 | **Timer** |
 | Start | `POST /api/timer/start` | `start_session` (focus) | `start` (focus) | ✓ |
-| Stop and log | `POST /api/timer/stop` | `stop_session` | `stop` | ✓ |
+| Stop and log | `POST /api/timer/stop` ⁷ | `stop_session` | `stop` | ✓ |
 | Discard | `POST /api/timer/cancel` | `cancel_session` | `cancel` | ✓ |
 | What is running | `GET /api/timer` | `current_session` | `status` | ✓ |
 | **Logged time** |
@@ -116,6 +116,10 @@ both are synchronous by design and hold no HTTP client.
 
 ⁶ Read-only on the day screen: the plan and the list are one picture there, but a
 todo is edited where it lives.
+
+⁷ Whole minutes only: a focus session that rounds to zero is not written. CLI and
+MCP say so in the result; HTTP names it `stopped: "tooShort"`; the web shows the
+same rather than returning to idle as if 0m had been logged.
 
 ## Two deliberate asymmetries
 

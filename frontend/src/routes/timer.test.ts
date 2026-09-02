@@ -274,3 +274,42 @@ describe('the idle screen', () => {
 		expect(screen.queryByText(/focus 0/i)).not.toBeInTheDocument();
 	});
 });
+
+describe('stopping under a minute', () => {
+	it('says nothing was logged rather than returning to idle as if it was', async () => {
+		states = [
+			{
+				...idle(0),
+				trackedToday: '0m',
+				active: {
+					kind: 'focus',
+					project: PROJECT.slug,
+					note: NOTE,
+					startedAt: '2026-08-01T09:00:00',
+					endsAt: '2026-08-01T09:25:00',
+					duration: '25m',
+					durationSeconds: 1500,
+					remainingSeconds: 1498
+				}
+			},
+			{ ...idle(0), trackedToday: '0m', stopped: 'tooShort' }
+		];
+		stubApi();
+		render(Timer);
+
+		(await vi.waitFor(() => screen.getByRole('button', { name: /stop and log/i }))).click();
+
+		await vi.waitFor(() => {
+			expect(screen.getByRole('alert')).toHaveTextContent(/under a minute/i);
+		});
+		expect(screen.getByText(/ready/i)).toBeInTheDocument();
+		expect(screen.queryByText(/session complete/i)).not.toBeInTheDocument();
+
+		// A visibility refresh used to go through `run`, which clears `error`,
+		// so the banner vanished the moment the tab was looked at again.
+		document.dispatchEvent(new Event('visibilitychange'));
+		await vi.waitFor(() => {
+			expect(screen.getByRole('alert')).toHaveTextContent(/under a minute/i);
+		});
+	});
+});

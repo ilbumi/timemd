@@ -271,7 +271,6 @@
 						<label class="label" for="edit-name" style:color="inherit">Name</label>
 						<input id="edit-name" type="text" bind:value={draftName} />
 
-						<span class="label" style:color="inherit">Mark</span>
 						<IdentityPicker bind:mark={draftMark} bind:color={draftColor} />
 
 						<label class="label" for="edit-target" style:color="inherit">
@@ -843,25 +842,6 @@
 
 	/* ---- 4c: the delete sheet -------------------------------------------- */
 
-	.sheet-backdrop {
-		position: fixed;
-		inset: 0;
-		display: flex;
-		align-items: flex-end;
-		justify-content: center;
-		background: rgba(17, 17, 17, 0.55);
-	}
-
-	.sheet {
-		width: 100%;
-		max-width: 440px;
-		max-height: 100%;
-		overflow-y: auto;
-		background: var(--paper);
-		border-top: var(--rule) solid var(--ink);
-		padding-bottom: env(safe-area-inset-bottom);
-	}
-
 	.sheet > header {
 		display: flex;
 		align-items: center;
@@ -877,13 +857,6 @@
 		font-weight: 600;
 		letter-spacing: 0.06em;
 		text-transform: uppercase;
-	}
-
-	.sheet-body {
-		display: flex;
-		flex-direction: column;
-		gap: 14px;
-		padding: 18px var(--pad) 0;
 	}
 
 	.sheet-body p {
@@ -910,13 +883,6 @@
 
 	.losses span {
 		flex: 1;
-	}
-
-	.sheet-foot {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		padding: 16px var(--pad) 18px;
 	}
 
 	.sheet-foot .actions {

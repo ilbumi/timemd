@@ -101,7 +101,10 @@
 	function adopt(next: Ntfy): void {
 		ntfy = next;
 		topic = next.topic ?? '';
-		server = next.server;
+		// The public default is not a saved choice. Showing it as a filled value
+		// made an empty config look live, and the topic placeholder beside it
+		// looked like a topic someone could already be subscribed to.
+		server = next.topic !== null || next.server !== 'https://ntfy.sh' ? next.server : '';
 		appUrl = next.appUrl ?? '';
 		tested = next.test;
 		// Never refilled from the server, which does not send it back. Clearing
@@ -228,7 +231,12 @@
 
 			<label class="entry">
 				<span>Topic</span>
-				<input bind:value={topic} disabled={busy} placeholder="timemd-a7f3c9e1" />
+				<input
+					bind:value={topic}
+					disabled={busy}
+					placeholder="a name nobody would guess"
+					autocomplete="off"
+				/>
 			</label>
 			<label class="entry">
 				<span>Server</span>
@@ -240,12 +248,17 @@
 					bind:value={token}
 					disabled={busy}
 					type="password"
-					placeholder={ntfy?.hasToken ? 'Set — type to replace' : 'Only for a private topic'}
+					placeholder={ntfy?.hasToken ? 'Set — type to replace' : 'only for a private topic'}
 				/>
 			</label>
 			<label class="entry">
 				<span>App URL</span>
-				<input bind:value={appUrl} disabled={busy} placeholder="https://box.tailnet.ts.net" />
+				<input
+					bind:value={appUrl}
+					disabled={busy}
+					placeholder="the URL of this app"
+					autocomplete="off"
+				/>
 			</label>
 
 			<button class="primary wide" onclick={saveNtfy} disabled={busy}>Save</button>
@@ -441,6 +454,10 @@
 		outline: none;
 		background: var(--yellow);
 		color: var(--ink);
+	}
+
+	.entry input::placeholder {
+		color: var(--ink-45);
 	}
 
 	.bad {

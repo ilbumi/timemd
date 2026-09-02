@@ -326,31 +326,6 @@
 				<button class="quiet" onclick={() => unskip(id)}>Restore</button>
 			</p>
 		{/each}
-
-		{#if form}
-			<form class="add" onsubmit={saveBlock}>
-				<div class="row">
-					<input type="time" aria-label="Start" bind:value={blockStart} />
-					<input type="time" aria-label="End" bind:value={blockEnd} />
-				</div>
-				<select aria-label="Project" bind:value={blockProject}>
-					<option value="">No project</option>
-					{#each projects as project (project.slug)}
-						<option value={project.slug}>{project.name}</option>
-					{/each}
-				</select>
-				<input type="text" placeholder="Title" aria-label="Title" bind:value={blockTitle} />
-				<div class="actions">
-					<button type="button" onclick={() => (form = null)}>Cancel</button>
-					<button class="primary" type="submit">
-						<!-- `==` on purpose, and the only loose comparison here:
-						     `form` may be null (closed) and `index` may be null
-						     (creating), and both have to read as "not amending". -->
-						{form?.index == null ? 'Add block' : 'Save block'}
-					</button>
-				</div>
-			</form>
-		{/if}
 	</div>
 
 	<div class="foot">
@@ -367,6 +342,46 @@
 		</div>
 	</div>
 </section>
+
+{#if form}
+	<!-- Sibling of `.screen`: a child would be trapped by the container query
+	     and the sheet would stop covering the tab bar. Same chrome as delete. -->
+	<div class="sheet-backdrop">
+		<div
+			class="sheet"
+			role="dialog"
+			aria-modal="true"
+			aria-label={form.index == null ? 'Add block' : 'Edit block'}
+		>
+			<form onsubmit={saveBlock}>
+				<div class="sheet-body">
+					<div class="row">
+						<input type="time" aria-label="Start" bind:value={blockStart} />
+						<input type="time" aria-label="End" bind:value={blockEnd} />
+					</div>
+					<select aria-label="Project" bind:value={blockProject}>
+						<option value="">No project</option>
+						{#each projects as project (project.slug)}
+							<option value={project.slug}>{project.name}</option>
+						{/each}
+					</select>
+					<input type="text" placeholder="Title" aria-label="Title" bind:value={blockTitle} />
+				</div>
+				<div class="sheet-foot">
+					<div class="actions">
+						<button type="button" onclick={() => (form = null)}>Cancel</button>
+						<button class="primary" type="submit">
+							<!-- `==` on purpose, and the only loose comparison here:
+							     `form` may be null (closed) and `index` may be null
+							     (creating), and both have to read as "not amending". -->
+							{form.index == null ? 'Add block' : 'Save block'}
+						</button>
+					</div>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.light {
@@ -590,13 +605,6 @@
 		color: var(--ink-60);
 	}
 
-	.add {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		margin: var(--gap) var(--pad) 0;
-	}
-
 	.row {
 		display: flex;
 		gap: 8px;
@@ -659,8 +667,7 @@
 			padding-right: var(--pad);
 		}
 
-		.skipped,
-		.add {
+		.skipped {
 			grid-column: 1 / -1;
 		}
 	}

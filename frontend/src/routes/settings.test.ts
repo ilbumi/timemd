@@ -125,4 +125,49 @@ describe('the ntfy panel', () => {
 		const token = await vi.waitFor(() => screen.getByPlaceholderText(/type to replace/i));
 		expect(token).toHaveValue('');
 	});
+
+	it('shows empty instructional placeholders when nothing is configured', async () => {
+		stubApi();
+		render(Settings);
+
+		const topic = await vi.waitFor(() => screen.getByLabelText('Topic'));
+		expect(topic).toHaveValue('');
+		expect(topic).toHaveAttribute('placeholder', 'a name nobody would guess');
+		expect(screen.getByLabelText('Server')).toHaveValue('');
+		expect(screen.getByLabelText('App URL')).toHaveValue('');
+		expect(document.body.innerHTML).not.toContain('timemd-a7f3c9e1');
+		expect(document.body.innerHTML).not.toContain('box.tailnet.ts.net');
+	});
+
+	it('does not submit an example topic or app URL on save', async () => {
+		const writes: unknown[] = [];
+		vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+			if (init?.method === 'PUT' && url.startsWith('/api/ntfy')) {
+				const body = JSON.parse(String(init.body));
+				writes.push(body);
+				return Promise.resolve(
+					new Response(JSON.stringify({ ...NTFY, ...body }), {
+						headers: { 'content-type': 'application/json' }
+					})
+				);
+			}
+			return Promise.resolve(
+				new Response(JSON.stringify(url.startsWith('/api/ntfy') ? NTFY : SETTINGS), {
+					headers: { 'content-type': 'application/json' }
+				})
+			);
+		});
+		render(Settings);
+
+		const save = await vi.waitFor(() => {
+			const button = screen.getByRole('button', { name: /^save$/i });
+			expect(button).not.toBeDisabled();
+			return button;
+		});
+		save.click();
+
+		await vi.waitFor(() => expect(writes).toHaveLength(1));
+		expect(writes[0]).toEqual({ server: '', topic: null, appUrl: null });
+		expect(JSON.stringify(writes[0])).not.toMatch(/timemd-a7f3c9e1|box\.tailnet/);
+	});
 });

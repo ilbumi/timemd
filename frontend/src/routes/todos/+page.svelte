@@ -367,15 +367,47 @@
 
 	.adder {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: stretch;
 		gap: 10px;
 		padding: 12px var(--pad);
 		border-top: var(--rule) solid var(--ink);
 	}
 
+	/*
+	 * Native date controls have a large minimum content width. On a phone they
+	 * ate the row and left the title as a ~40px square whose placeholder could
+	 * not be read. The title takes a full row there; from 500px it shares the
+	 * row and the date stays a compact optional field.
+	 */
 	.adder input[type='text'] {
-		flex: 1;
+		flex: 1 0 100%;
+		width: auto;
 		min-width: 0;
+	}
+
+	.adder input[type='date'] {
+		flex: 1 1 8rem;
+		width: auto;
+		min-width: 0;
+		max-width: 11rem;
+		padding-inline: 8px;
+	}
+
+	.adder .primary {
+		flex: none;
+	}
+
+	@container screen (min-width: 500px) {
+		.adder input[type='text'] {
+			flex: 1 1 0;
+		}
+
+		.adder input[type='date'] {
+			flex: 0 0 9.5rem;
+			width: 9.5rem;
+			max-width: none;
+		}
 	}
 
 	@container screen (min-width: 900px) {

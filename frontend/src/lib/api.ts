@@ -65,6 +65,13 @@ export interface TimerState {
 	nextBreak: string;
 	nextBreakKind: SessionKind;
 	serverNow: string;
+	/**
+	 * Why a stop left the timer idle. Only on `POST /api/timer/stop`.
+	 *
+	 * `tooShort` means the session ran, rounded to zero minutes, and was not
+	 * written — the same event CLI and MCP spell out rather than calling idle.
+	 */
+	stopped?: 'logged' | 'tooShort' | 'idle';
 }
 
 export interface StartSession {
