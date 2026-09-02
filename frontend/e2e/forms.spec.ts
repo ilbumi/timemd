@@ -133,7 +133,7 @@ test('skip and restore stay tappable on a phone', async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	const skip = page
 		.getByRole('listitem')
-		.filter({ hasText: 'Inbox sweep' })
+		.filter({ hasText: 'Atlas ingest' })
 		.getByRole('button', { name: 'Skip' });
 	await skip.scrollIntoViewIfNeeded();
 	await expectClearOfTabBar(page, skip);
