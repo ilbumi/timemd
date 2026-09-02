@@ -64,7 +64,7 @@ test('the add-time form opens empty after an edit was cancelled', async ({ page 
 test('the todos composer gives the title the remaining width', async ({ page }) => {
 	for (const width of [WIDTHS.phone, 390, WIDTHS.desktop]) {
 		await open(page, '/todos', width);
-		const title = page.getByRole('textbox', { name: 'New todo' });
+		const title = page.getByRole('textbox', { name: 'New todo', exact: true });
 		const due = page.getByLabel('Due date for the new todo');
 		const titleBox = (await title.boundingBox())!;
 		const dueBox = (await due.boundingBox())!;
@@ -81,8 +81,10 @@ test('the todos composer gives the title the remaining width', async ({ page }) 
  * The add/edit sheets reuse the delete dialog's chrome so this stays true on
  * a 390×844 phone, where the inline form used to sit under the nav.
  */
-async function expectClearOfTabBar(page: import('@playwright/test').Page, name: string | RegExp) {
-	const control = page.getByRole('button', { name });
+async function expectClearOfTabBar(
+	page: import('@playwright/test').Page,
+	control: import('@playwright/test').Locator
+) {
 	await expect(control).toBeVisible();
 	const box = (await control.boundingBox())!;
 	const viewport = page.viewportSize()!;
@@ -96,7 +98,7 @@ async function expectClearOfTabBar(page: import('@playwright/test').Page, name: 
 		);
 		return !!target && (target === el || el.contains(target));
 	});
-	expect(hit, `${String(name)} is under another layer`).toBe(true);
+	expect(hit, 'control is under another layer').toBe(true);
 }
 
 test('the add-block sheet is fully usable on a phone', async ({ page }) => {
@@ -106,7 +108,7 @@ test('the add-block sheet is fully usable on a phone', async ({ page }) => {
 	await expect(page.getByRole('dialog', { name: 'Add block' })).toBeVisible();
 	await expect(page.getByLabel('Title', { exact: true })).toBeVisible();
 	await expect(page.getByLabel('Project', { exact: true })).toBeVisible();
-	await expectClearOfTabBar(page, 'Add block');
+	await expectClearOfTabBar(page, page.getByRole('button', { name: 'Add block' }));
 });
 
 test('the edit-block sheet is fully usable on a phone', async ({ page }) => {
@@ -114,7 +116,7 @@ test('the edit-block sheet is fully usable on a phone', async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.getByRole('button', { name: 'Edit Standup', exact: true }).click();
 	await expect(page.getByRole('dialog', { name: 'Edit block' })).toBeVisible();
-	await expectClearOfTabBar(page, 'Save block');
+	await expectClearOfTabBar(page, page.getByRole('button', { name: 'Save block' }));
 });
 
 test('the add-time sheet is fully usable on a phone', async ({ page }) => {
@@ -123,17 +125,20 @@ test('the add-time sheet is fully usable on a phone', async ({ page }) => {
 	await page.getByRole('button', { name: '+ Time by hand' }).click();
 	await expect(page.getByRole('dialog', { name: 'Log time by hand' })).toBeVisible();
 	await expect(page.getByLabel('Date', { exact: true })).toBeVisible();
-	await expectClearOfTabBar(page, 'Log it');
+	await expectClearOfTabBar(page, page.getByRole('button', { name: 'Log it' }));
 });
 
 test('skip and restore stay tappable on a phone', async ({ page }) => {
 	await open(page, '/schedule', WIDTHS.phone);
 	await page.setViewportSize({ width: 390, height: 844 });
-	const skip = page.getByRole('button', { name: 'Skip' }).first();
+	const skip = page
+		.getByRole('listitem')
+		.filter({ hasText: 'Inbox sweep' })
+		.getByRole('button', { name: 'Skip' });
 	await skip.scrollIntoViewIfNeeded();
-	await expectClearOfTabBar(page, /^Skip$/);
+	await expectClearOfTabBar(page, skip);
 	await skip.click();
-	const restore = page.getByRole('button', { name: 'Restore' }).first();
+	const restore = page.getByRole('button', { name: 'Restore' });
 	await restore.scrollIntoViewIfNeeded();
-	await expectClearOfTabBar(page, /^Restore$/);
+	await expectClearOfTabBar(page, restore);
 });
