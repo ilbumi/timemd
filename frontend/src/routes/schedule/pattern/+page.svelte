@@ -429,10 +429,6 @@
 		background: var(--ink);
 	}
 
-	.foot {
-		border-top: var(--rule) solid var(--ink);
-	}
-
 	/* ---- wide ------------------------------------------------------------ */
 
 	@media (min-width: 700px) {

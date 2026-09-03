@@ -6,6 +6,7 @@
 	import { formatHours } from '$lib/countdown';
 	import { isoWeek, minutesOfDay, shiftDays, startOfWeek, today, weekDates } from '$lib/dates';
 	import { lookOf, readLooks, type Look } from '$lib/look';
+	import { contrastInk } from '$lib/palette';
 	import { hourMarks, minutesNow, offsetIn, placeIn, spanOf } from '$lib/timeline';
 
 	const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -117,8 +118,11 @@
 								style:top="{place.top}%"
 								style:height="{place.height}%"
 								style:background={look.color}
+								style:color={contrastInk(look.color)}
 								title="{block.title || look.name} · {block.start}–{block.end}"
-							></span>
+							>
+								<span class="chip-title">{block.title || look.name}</span>
+							</span>
 						{/each}
 
 						{#if isToday && nowMinutes >= span.from && nowMinutes <= span.to}
@@ -166,6 +170,7 @@
 		display: flex;
 		min-height: 300px;
 		padding: 10px var(--pad) 0;
+		border-bottom: var(--rule) solid var(--ink);
 	}
 
 	.gutter {
@@ -243,6 +248,28 @@
 		left: 0;
 		right: 0;
 		min-height: 3px;
+		overflow: hidden;
+		container-type: size;
+	}
+
+	.chip-title {
+		display: none;
+		padding: 4px 5px;
+		font-size: 0.5625rem;
+		font-weight: 600;
+		line-height: 1.2;
+		letter-spacing: 0.02em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/* A block shorter than this cannot hold a line of type; the colour is the
+	   whole of what it says, and the title lives on `title` for a hover. */
+	@container (min-height: 28px) {
+		.chip-title {
+			display: block;
+		}
 	}
 
 	/* Confined to today's column. Reaching into the gaps put a stray mark across
@@ -280,7 +307,7 @@
 	}
 
 	.foot {
-		border-top: var(--rule) solid var(--ink);
+		padding-top: 12px;
 	}
 
 	.key {
@@ -320,8 +347,7 @@
 	}
 
 	.fill {
-		background: var(--red);
-		color: var(--paper);
+		background: var(--yellow);
 		font-weight: 600;
 	}
 

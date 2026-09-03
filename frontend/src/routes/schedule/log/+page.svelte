@@ -217,7 +217,7 @@
 					<li>
 						<Mark mark={look.mark} color={look.color} size={14} />
 						<button
-							class="entry"
+							class="entry named"
 							aria-label="Edit {look.name} at {clockTime(session.start)}"
 							onclick={() => openEditor(band.date, session)}
 						>
@@ -397,10 +397,6 @@
 	.row > * {
 		flex: 1;
 		min-width: 0;
-	}
-
-	.foot {
-		border-top: var(--rule) solid var(--ink);
 	}
 
 	/* ---- wide ------------------------------------------------------------ */

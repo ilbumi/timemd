@@ -136,6 +136,7 @@ function started(request: StartSession): TimerState {
 let startBodies: StartSession[] = [];
 let states: TimerState[] = [];
 let dayStatus = 200;
+let listedProjects: unknown[] = [PROJECT];
 
 /** The head of the queue, advancing until only the resting state is left. */
 function nextState(): TimerState {
@@ -163,7 +164,7 @@ function stubApi(): void {
 		}
 
 		const payload = (() => {
-			if (url.startsWith('/api/projects')) return [PROJECT];
+			if (url.startsWith('/api/projects')) return listedProjects;
 			if (url.startsWith('/api/days')) return DAY;
 			if (url.startsWith('/api/reports')) return REPORT;
 			if (url.startsWith('/api/settings')) return SETTINGS;
@@ -196,6 +197,7 @@ beforeEach(() => {
 	startBodies = [];
 	states = [];
 	dayStatus = 200;
+	listedProjects = [PROJECT];
 });
 
 afterEach(() => {
@@ -274,6 +276,18 @@ describe('the idle screen', () => {
 			expect(screen.getByRole('button', { name: /^start$/i })).toBeInTheDocument();
 		});
 		expect(screen.queryByText(/focus 0/i)).not.toBeInTheDocument();
+	});
+
+	it('opens first-run with the four tab marks', async () => {
+		listedProjects = [];
+		states = [idle(0)];
+		stubApi();
+		render(Timer);
+
+		await vi.waitFor(() => {
+			expect(screen.getByRole('button', { name: /begin/i })).toBeInTheDocument();
+		});
+		expect(document.querySelectorAll('.logo svg')).toHaveLength(4);
 	});
 });
 

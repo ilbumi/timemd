@@ -171,3 +171,14 @@ describe('the ntfy panel', () => {
 		expect(JSON.stringify(writes[0])).not.toMatch(/timemd-a7f3c9e1|box\.tailnet/);
 	});
 });
+
+describe('the duration steppers', () => {
+	it('says they move by five minutes', async () => {
+		stubApi();
+		render(Settings);
+
+		await vi.waitFor(() => screen.getByRole('button', { name: /shorten focus by 5 minutes/i }));
+		expect(screen.getByRole('button', { name: /lengthen break by 5 minutes/i })).toBeInTheDocument();
+		expect(screen.getByText(/minutes, in steps of 5/i)).toBeInTheDocument();
+	});
+});

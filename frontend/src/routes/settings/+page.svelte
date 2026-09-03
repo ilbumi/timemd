@@ -14,9 +14,9 @@
 
 	/** The three lengths, each with the colour the design gives it. */
 	const LENGTHS = [
-		{ key: 'focus', label: 'Focus', fill: 'var(--red)', ink: 'var(--paper)' },
-		{ key: 'shortBreak', label: 'Break', fill: 'var(--yellow)', ink: 'var(--ink)' },
-		{ key: 'longBreak', label: 'Long', fill: 'var(--blue)', ink: 'var(--paper)' }
+		{ key: 'focus', label: 'Focus', fill: 'var(--red)' },
+		{ key: 'shortBreak', label: 'Break', fill: 'var(--yellow)' },
+		{ key: 'longBreak', label: 'Long', fill: 'var(--blue)' }
 	] as const;
 
 	let settings = $state<Settings | null>(null);
@@ -171,18 +171,19 @@
 			<span class="label">Durations</span>
 			<div class="lengths">
 				{#each LENGTHS as length (length.key)}
-					<div class="length" style:background={length.fill} style:color={length.ink}>
+					<div class="length">
+						<span class="length-bar" style:background={length.fill}></span>
 						<div class="stepper">
 							<button
-								aria-label="Shorten {length.label}"
+								aria-label="Shorten {length.label} by 5 minutes"
 								disabled={busy || settings === null}
-								onclick={() => adjust(length.key, -5)}>−</button
+								onclick={() => adjust(length.key, -5)}>−5</button
 							>
 							<strong class="numeric">{minutesOf(length.key)}</strong>
 							<button
-								aria-label="Lengthen {length.label}"
+								aria-label="Lengthen {length.label} by 5 minutes"
 								disabled={busy || settings === null}
-								onclick={() => adjust(length.key, 5)}>+</button
+								onclick={() => adjust(length.key, 5)}>+5</button
 							>
 						</div>
 						<span>{length.label}</span>
@@ -191,8 +192,8 @@
 			</div>
 			{#if settings}
 				<p class="meta">
-					A long break every {settings.longBreakEvery} sessions. Reminders lead by {settings.remindBefore}
-					unless a block says otherwise.
+					Minutes, in steps of 5. A long break every {settings.longBreakEvery} sessions. Reminders
+					lead by {settings.remindBefore} unless a block says otherwise.
 				</p>
 			{/if}
 		</div>
@@ -229,37 +230,39 @@
 				notifications, so pick a name nobody would guess.
 			</p>
 
-			<label class="entry">
-				<span>Topic</span>
-				<input
-					bind:value={topic}
-					disabled={busy}
-					placeholder="a name nobody would guess"
-					autocomplete="off"
-				/>
-			</label>
-			<label class="entry">
-				<span>Server</span>
-				<input bind:value={server} disabled={busy} placeholder="https://ntfy.sh" />
-			</label>
-			<label class="entry">
-				<span>Token</span>
-				<input
-					bind:value={token}
-					disabled={busy}
-					type="password"
-					placeholder={ntfy?.hasToken ? 'Set — type to replace' : 'only for a private topic'}
-				/>
-			</label>
-			<label class="entry">
-				<span>App URL</span>
-				<input
-					bind:value={appUrl}
-					disabled={busy}
-					placeholder="the URL of this app"
-					autocomplete="off"
-				/>
-			</label>
+			<div class="stack">
+				<label class="entry">
+					<span>Topic</span>
+					<input
+						bind:value={topic}
+						disabled={busy}
+						placeholder="a name nobody would guess"
+						autocomplete="off"
+					/>
+				</label>
+				<label class="entry">
+					<span>Server</span>
+					<input bind:value={server} disabled={busy} placeholder="https://ntfy.sh" />
+				</label>
+				<label class="entry">
+					<span>Token</span>
+					<input
+						bind:value={token}
+						disabled={busy}
+						type="password"
+						placeholder={ntfy?.hasToken ? 'Set — type to replace' : 'only for a private topic'}
+					/>
+				</label>
+				<label class="entry">
+					<span>App URL</span>
+					<input
+						bind:value={appUrl}
+						disabled={busy}
+						placeholder="the URL of this app"
+						autocomplete="off"
+					/>
+				</label>
+			</div>
 
 			<button class="primary wide" onclick={saveNtfy} disabled={busy}>Save</button>
 
@@ -336,12 +339,20 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 5px;
-		padding: 10px 0 12px;
+		gap: 6px;
+		padding: 0 0 12px;
+		background: var(--paper);
+		color: var(--ink);
 	}
 
 	.length + .length {
 		border-left: var(--rule) solid var(--ink);
+	}
+
+	.length-bar {
+		display: block;
+		width: 100%;
+		height: 6px;
 	}
 
 	.stepper {
@@ -359,14 +370,16 @@
 	.stepper button {
 		position: relative;
 		min-height: 34px;
-		width: 30px;
-		padding: 0;
+		width: auto;
+		min-width: 32px;
+		padding: 0 2px;
 		border: none;
 		background: none;
 		color: inherit;
-		font-size: 1.125rem;
-		font-weight: 300;
-		opacity: 0.75;
+		font-size: 0.75rem;
+		font-weight: 500;
+		letter-spacing: 0.04em;
+		opacity: 0.55;
 	}
 
 	.stepper button::after {
@@ -427,7 +440,7 @@
 		display: flex;
 		align-items: center;
 		gap: 12px;
-		border: var(--rule) solid var(--ink);
+		margin: 0;
 	}
 
 	.entry > span {
@@ -440,7 +453,7 @@
 		color: var(--ink-60);
 	}
 
-	/* The `.entry` draws the box, so the input inside it draws nothing. */
+	/* The `.stack` draws the box, so the input inside an entry draws nothing. */
 	.entry input {
 		flex: 1;
 		min-width: 0;
