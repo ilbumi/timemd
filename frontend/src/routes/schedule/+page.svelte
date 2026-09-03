@@ -285,7 +285,7 @@
 							     the one destructive action. A second button beside it would
 							     put two 44px reach-overlays side by side. -->
 							<button
-								class="what edit"
+								class="what edit named"
 								aria-label="Edit {block.title || look.name}"
 								onclick={() => openEditor(block, index)}
 							>
@@ -588,7 +588,9 @@
 	}
 
 	.edit .title {
+		flex: 1;
 		min-width: 0;
+		font-weight: 600;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -613,10 +615,6 @@
 	.row > * {
 		flex: 1;
 		min-width: 0;
-	}
-
-	.foot {
-		border-top: var(--rule) solid var(--ink);
 	}
 
 	.grow {

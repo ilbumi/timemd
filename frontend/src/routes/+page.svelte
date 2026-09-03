@@ -323,10 +323,11 @@
 {#if firstRun}
 	<!-- 3k: no account, no tour. One project and you are timing. -->
 	<section class="screen welcome">
-		<div class="logo">
-			<Mark mark="square" color="var(--red)" size={26} />
-			<Mark mark="circle" color="var(--blue)" size={26} />
-			<Mark mark="triangle" color="var(--yellow)" size={28} />
+		<div class="logo" aria-hidden="true">
+			<Mark mark="circle" color="var(--blue)" size={22} />
+			<Mark mark="square" color="var(--red)" size={22} />
+			<Mark mark="diamond" color="var(--ink)" size={22} />
+			<Mark mark="triangle" color="var(--yellow)" size={24} />
 		</div>
 
 		<div class="pitch">
@@ -446,14 +447,7 @@
 	<section class="screen">
 		<header class="bar">
 			<div class="eyebrow">Focus {nextFocus}</div>
-			<div class="bar-end">
-				<div class="logo small">
-					<Mark mark="square" color="var(--red)" size={11} />
-					<Mark mark="square" color="var(--blue)" size={11} />
-					<Mark mark="square" color="var(--yellow)" size={11} />
-				</div>
-				<FullscreenButton />
-			</div>
+			<FullscreenButton />
 		</header>
 
 		<div class="middle">
@@ -508,17 +502,13 @@
 	<!-- 2c: pick a project as a coloured square, then start. -->
 	<section class="screen">
 		<header class="hero">
-			{#if continuing}
-				<!-- The cycle carries on here rather than starting over: the block is
-				     numbered exactly as the running screen numbers it, and the button
-				     below says so too. -->
-				<div class="eyebrow">Focus {nextFocus}</div>
-			{/if}
-			<div class="hero-top">
-				<h1>READY<br /><strong>FOR {settings?.focus ?? '25m'}</strong></h1>
+			<div class="hero-meta">
+				{#if continuing}
+					<div class="eyebrow">Focus {nextFocus}</div>
+				{/if}
 				<a class="settings" href="/settings">Settings</a>
 			</div>
-			<div class="rule"></div>
+			<h1>READY<br /><strong>FOR {settings?.focus ?? '25m'}</strong></h1>
 		</header>
 
 		<div class="grid">
@@ -604,10 +594,6 @@
 		display: flex;
 		gap: 10px;
 		align-items: center;
-	}
-
-	.logo.small {
-		gap: 5px;
 	}
 
 	/* ---- 2a: the dial ---------------------------------------------------- */
@@ -905,18 +891,21 @@
 	/* ---- 2c: idle home ---------------------------------------------------- */
 
 	.hero {
-		padding: var(--gap) var(--pad) 0;
+		padding: var(--gap) var(--pad) 14px;
+		border-bottom: var(--rule) solid var(--ink);
 	}
 
-	.hero .eyebrow {
+	.hero-meta {
+		display: flex;
+		align-items: baseline;
+		justify-content: flex-end;
+		gap: var(--gap);
+		min-height: 1em;
 		margin-bottom: 10px;
 	}
 
-	.hero-top {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--gap);
+	.hero-meta .eyebrow {
+		margin-right: auto;
 	}
 
 	.hero h1 {
@@ -930,15 +919,9 @@
 		font-weight: 600;
 	}
 
-	/* Vertical only, and the reason is optical: the 44px tap box is taller than
-	   the eyebrow beside it, so centring it in the row sat the label low. */
 	.settings {
+		position: relative;
 		flex: none;
-		display: flex;
-		align-items: center;
-		min-height: var(--tap-target);
-		padding: 0 0 0 12px;
-		margin-top: -6px;
 		font-size: 0.6875rem;
 		font-weight: 500;
 		letter-spacing: 0.16em;
@@ -947,13 +930,10 @@
 		color: var(--ink-60);
 	}
 
-	/*
-	 * Pulled out to the hero's edges so it lines up with the project grid below,
-	 * which is full-bleed. Inset by the padding it stopped a little short of the
-	 * grid on both sides, which reads worse than either extreme.
-	 */
-	.hero .rule {
-		margin: 14px calc(-1 * var(--pad)) 0;
+	.settings::after {
+		content: '';
+		position: absolute;
+		inset: -14px 0;
 	}
 
 	/*
@@ -970,9 +950,7 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--rule);
-		margin-top: 18px;
 		background: var(--ink);
-		border-top: var(--rule) solid var(--ink);
 		border-bottom: var(--rule) solid var(--ink);
 	}
 
@@ -994,7 +972,9 @@
 	}
 
 	.tile[aria-pressed='true'] {
-		box-shadow: inset 0 0 0 4px currentColor;
+		box-shadow:
+			inset 0 0 0 2px var(--paper),
+			inset 0 0 0 5px var(--ink);
 	}
 
 	/*

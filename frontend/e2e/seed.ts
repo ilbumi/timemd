@@ -235,7 +235,7 @@ Nothing running.
 		// window, so `spanOf` has something to stretch for.
 		const schedule =
 			Number(offset) === 0
-				? '\n## Schedule\n\n- 07:45-08:00 [[notes]] Walk (pad)\n- 12:00-12:45 [[atlas]] Standup !5m\n'
+				? '\n## Schedule\n\n- 07:45-08:00 [[notes]] Walk (pad)\n- 12:00-12:45 [[atlas]] Standup !5m\n- 18:00-19:30 [[thesis]] Evening draft\n'
 				: '';
 		write(
 			root,

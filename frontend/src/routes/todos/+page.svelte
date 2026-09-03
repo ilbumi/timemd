@@ -250,7 +250,7 @@
 		{/each}
 	</div>
 
-	<div class="adder">
+	<div class="adder cluster">
 		<input
 			type="text"
 			placeholder="Add a todo…"
@@ -286,8 +286,16 @@
 		line-height: 0.9;
 	}
 
+	/* Fill the shell and let the list scroll, so the composer stays above ●■◆▲
+	   instead of wrapping a second row off the bottom of the viewport. */
+	.screen {
+		height: 100%;
+	}
+
 	.body {
 		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
 	}
 
 	.section-head {
@@ -307,7 +315,7 @@
 	.todos {
 		list-style: none;
 		margin: 0;
-		padding: 4px var(--pad) 0;
+		padding: 0 var(--pad);
 	}
 
 	.todos li {
@@ -317,7 +325,7 @@
 	.row {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: 8px;
 	}
 
 	/* The whole row is the target: ticking one-handed should not need a 20px
@@ -328,7 +336,7 @@
 		align-items: center;
 		gap: 12px;
 		min-width: 0;
-		padding: 9px 0;
+		padding: 12px 0;
 		border: none;
 		background: none;
 		text-align: left;
@@ -340,7 +348,7 @@
 	.text {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 3px;
 		min-width: 0;
 	}
 
@@ -352,6 +360,10 @@
 	.done {
 		color: var(--ink-45);
 		text-decoration: line-through;
+	}
+
+	.row > .quiet {
+		color: var(--ink-45);
 	}
 
 	.fields {
@@ -366,12 +378,8 @@
 	}
 
 	.adder {
-		display: flex;
 		flex-wrap: wrap;
-		align-items: stretch;
-		gap: 10px;
-		padding: 12px var(--pad);
-		border-top: var(--rule) solid var(--ink);
+		margin: 12px var(--pad) 16px;
 	}
 
 	/*
@@ -379,34 +387,49 @@
 	 * ate the row and left the title as a ~40px square whose placeholder could
 	 * not be read. The title takes a full row there; from 500px it shares the
 	 * row and the date stays a compact optional field.
+	 *
+	 * The cluster's shared rule is the one box. Wrapping the title, the generic
+	 * sibling `border-left` would land on the date's left — against the cluster's
+	 * own left edge — so it is dropped here and put back only on Add, and on
+	 * the date once the row is one line.
 	 */
+	.adder > :is(button, input) + :is(button, input) {
+		border-left: none;
+	}
+
 	.adder input[type='text'] {
 		flex: 1 0 100%;
 		width: auto;
 		min-width: 0;
+		border-bottom: var(--rule) solid var(--ink);
 	}
 
 	.adder input[type='date'] {
 		flex: 1 1 8rem;
 		width: auto;
 		min-width: 0;
-		max-width: 11rem;
-		padding-inline: 8px;
+		padding-inline: 10px;
 	}
 
 	.adder .primary {
 		flex: none;
+		border-left: var(--rule) solid var(--ink);
 	}
 
 	@container screen (min-width: 500px) {
+		.adder {
+			flex-wrap: nowrap;
+		}
+
 		.adder input[type='text'] {
 			flex: 1 1 0;
+			border-bottom: none;
 		}
 
 		.adder input[type='date'] {
 			flex: 0 0 9.5rem;
 			width: 9.5rem;
-			max-width: none;
+			border-left: var(--rule) solid var(--ink);
 		}
 	}
 

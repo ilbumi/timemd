@@ -117,9 +117,13 @@
 	.marks a {
 		flex: 1;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
+		gap: 5px;
+		min-width: 0;
 		min-height: 58px;
+		padding: 8px 2px 6px;
 		text-decoration: none;
 	}
 
@@ -132,9 +136,18 @@
 		color: var(--paper);
 	}
 
-	/* Present for screen readers at every width; only drawn when there is a
-	   sidebar to draw it in. */
-	.tab-label,
+	/* The mark is the tab; the name sits under it so a phone is not guessing
+	   which shape is which. Desktop restyles this into a labelled row. */
+	.tab-label {
+		font-size: 0.5625rem;
+		font-weight: 600;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		line-height: 1;
+		white-space: nowrap;
+	}
+
+	/* Settings hangs off the timer on a phone; only the sidebar draws it. */
 	.settings {
 		position: absolute;
 		width: 1px;
@@ -195,6 +208,7 @@
 		}
 
 		.marks a {
+			flex-direction: row;
 			justify-content: flex-start;
 			gap: 14px;
 			min-height: 52px;
@@ -205,23 +219,24 @@
 			border-left: none;
 		}
 
-		.tab-label,
+		.tab-label {
+			font-size: 0.8125rem;
+			font-weight: 500;
+			letter-spacing: 0.14em;
+		}
+
 		.settings {
 			position: static;
 			width: auto;
 			height: auto;
-			margin: 0;
+			margin: auto 0 0;
 			overflow: visible;
 			clip-path: none;
+			padding: 14px var(--pad);
 			font-size: 0.8125rem;
 			font-weight: 500;
 			letter-spacing: 0.14em;
 			text-transform: uppercase;
-		}
-
-		.settings {
-			margin-top: auto;
-			padding: 14px var(--pad);
 			text-decoration: none;
 			color: var(--ink-60);
 		}

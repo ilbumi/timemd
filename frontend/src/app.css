@@ -287,6 +287,17 @@ button.quiet {
 }
 
 /*
+ * A button that carries a name, not a verb. The action-label type (uppercase,
+ * tracked) is what clipped "Evening draft" to "EVENING DRA…" on the day list:
+ * `font: inherit` does not reset `text-transform`.
+ */
+button.named {
+	text-transform: none;
+	letter-spacing: 0;
+	font-weight: inherit;
+}
+
+/*
  * A row of buttons sharing one outer rule, divided by 2px rather than gapped.
  * This is the design's standard bottom action bar; the shared border is why the
  * buttons inside it drop their own left edge.
@@ -304,6 +315,37 @@ button.quiet {
 
 .actions > button + button {
 	border-left: var(--rule) solid var(--ink);
+}
+
+/*
+ * The same shared outer rule as `.actions`, for a mixed row of inputs and a
+ * button. Each child drops its own box so the cluster is one frame, not three.
+ */
+.cluster {
+	display: flex;
+	align-items: stretch;
+	border: var(--rule) solid var(--ink);
+}
+
+.cluster > :is(button, input, select) {
+	border: none;
+	min-height: var(--tap-target);
+}
+
+.cluster > :is(button, input, select) + :is(button, input, select) {
+	border-left: var(--rule) solid var(--ink);
+}
+
+/*
+ * Stacked fields sharing one outer rule, divided by a hairline. Four separate
+ * boxes with a gap between them is the ntfy panel's noise; this is one frame.
+ */
+.stack {
+	border: var(--rule) solid var(--ink);
+}
+
+.stack > * + * {
+	border-top: 1px solid var(--ink-15);
 }
 
 /* A segmented switch: DAY / WEEK / LOG. Same construction, smaller. */
@@ -341,6 +383,33 @@ textarea {
 	border: var(--rule) solid var(--ink);
 	background: var(--white);
 	color: var(--ink);
+}
+
+/*
+ * Native date/time chrome is a second type and colour system. Keep the picker
+ * (a tap still opens it) but draw the field as the sheet draws every other
+ * input: Jost, ink, hard corners, the glyph recolored to ink rather than left
+ * in the browser's blue.
+ */
+input[type='date'],
+input[type='time'] {
+	appearance: none;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator,
+input[type='time']::-webkit-calendar-picker-indicator {
+	width: 14px;
+	height: 14px;
+	margin: 0 0 0 8px;
+	padding: 0;
+	cursor: pointer;
+	opacity: 0.45;
+	filter: invert(1) brightness(0);
+}
+
+input[type='date']::-webkit-datetime-edit,
+input[type='time']::-webkit-datetime-edit {
+	padding: 0;
 }
 
 textarea {

@@ -76,6 +76,20 @@ test('the todos composer gives the title the remaining width', async ({ page }) 
 	}
 });
 
+test('the todos composer controls share a height on a wide row', async ({ page }) => {
+	await open(page, '/todos', WIDTHS.desktop);
+	const title = page.getByRole('textbox', { name: 'New todo', exact: true });
+	const due = page.getByLabel('Due date for the new todo');
+	const add = page.getByRole('button', { name: 'Add', exact: true });
+	const titleBox = (await title.boundingBox())!;
+	const dueBox = (await due.boundingBox())!;
+	const addBox = (await add.boundingBox())!;
+	expect(Math.abs(titleBox.height - dueBox.height)).toBeLessThan(1);
+	expect(Math.abs(dueBox.height - addBox.height)).toBeLessThan(1);
+	expect(Math.abs(titleBox.y - dueBox.y)).toBeLessThan(1);
+	expect(Math.abs(dueBox.y - addBox.y)).toBeLessThan(1);
+});
+
 /**
  * A control is clear of the tab bar when a tap on its centre hits it, not ●■◆▲.
  * The add/edit sheets reuse the delete dialog's chrome so this stays true on
@@ -131,10 +145,10 @@ test('the add-time sheet is fully usable on a phone', async ({ page }) => {
 test('skip and restore stay tappable on a phone', async ({ page }) => {
 	await open(page, '/schedule', WIDTHS.phone);
 	await page.setViewportSize({ width: 390, height: 844 });
-	const skip = page
-		.getByRole('listitem')
-		.filter({ hasText: 'Atlas ingest' })
-		.getByRole('button', { name: 'Skip' });
+	// A recurring block is on every day of the fixture (Deep work on weekdays,
+	// Reading on the weekend). Pinning the name to "Atlas ingest" failed on
+	// days that block does not fire.
+	const skip = page.getByRole('button', { name: 'Skip' }).first();
 	await skip.scrollIntoViewIfNeeded();
 	await expectClearOfTabBar(page, skip);
 	await skip.click();

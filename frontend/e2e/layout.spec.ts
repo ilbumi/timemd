@@ -37,16 +37,22 @@ test.describe('adaptive behaviour', () => {
 		let navBox = (await nav.boundingBox())!;
 		let mainBox = (await main.boundingBox())!;
 		expect(navBox.y, 'bar sits below the content').toBeGreaterThan(mainBox.y);
-		// The labels are clipped rather than removed — they still have to be
-		// announced — so their width is what says whether they are drawn.
-		expect((await page.locator('.tab-label').first().boundingBox())!.width).toBeLessThanOrEqual(1);
+		const phoneLabel = (await page.locator('.tab-label').first().boundingBox())!;
+		const phoneMark = (await page.locator('.marks a').first().locator('svg').boundingBox())!;
+		expect(phoneLabel.width, 'phone labels are drawn').toBeGreaterThan(1);
+		expect(phoneLabel.y, 'phone labels sit under the mark').toBeGreaterThan(
+			phoneMark.y + phoneMark.height - SLACK
+		);
 
 		await open(page, '/', WIDTHS.sidebar);
 		navBox = (await nav.boundingBox())!;
 		mainBox = (await main.boundingBox())!;
 		expect(navBox.x, 'sidebar sits beside the content').toBeLessThan(mainBox.x);
 		expect(navBox.width).toBeCloseTo(216, 0);
-		expect((await page.locator('.tab-label').first().boundingBox())!.width).toBeGreaterThan(1);
+		const sideLabel = (await page.locator('.tab-label').first().boundingBox())!;
+		const sideMark = (await page.locator('.marks a').first().locator('svg').boundingBox())!;
+		expect(sideLabel.width, 'sidebar labels are drawn').toBeGreaterThan(1);
+		expect(sideLabel.x, 'sidebar labels sit beside the mark').toBeGreaterThan(sideMark.x);
 	});
 
 	test('the shell keeps the phone column below 700px', async ({ page }) => {
@@ -217,6 +223,53 @@ test.describe('controls behind a click', () => {
 		await page.getByRole('button', { name: 'Edit Standup', exact: true }).click();
 		await expect(page.getByRole('button', { name: 'Save block' })).toBeVisible();
 		await expectWellAligned(page, WIDTHS.phone);
+	});
+
+	test('a selected project tile', async ({ page }) => {
+		await open(page, '/', WIDTHS.phone);
+		const tile = page.getByRole('button', { name: /thesis/i });
+		await tile.click();
+		await expect(tile).toHaveAttribute('aria-pressed', 'true');
+		await expectWellAligned(page, WIDTHS.phone);
+	});
+});
+
+test.describe('hierarchy and identity', () => {
+	/**
+	 * Alarm-red is for discard and delete. An add action that paints the same
+	 * reads as destructive — the week view's + Block used to.
+	 */
+	test('+ Block is not styled as destructive', async ({ page }) => {
+		await open(page, '/schedule/week', WIDTHS.phone);
+		const add = page.getByRole('link', { name: '+ Block' });
+		const color = await add.evaluate((el) => getComputedStyle(el).backgroundColor);
+		expect(color).not.toBe('rgb(209, 51, 46)');
+	});
+
+	test('a chosen project is marked on the tile', async ({ page }) => {
+		await open(page, '/', WIDTHS.phone);
+		const tile = page.getByRole('button', { name: /thesis/i });
+		await tile.click();
+		const shadow = await tile.evaluate((el) => getComputedStyle(el).boxShadow);
+		expect(shadow, 'selected tile has an inset frame').not.toBe('none');
+	});
+
+	test('week chips tall enough to hold a title show one', async ({ page }) => {
+		await open(page, '/schedule/week', WIDTHS.phone);
+		await expect(page.locator('.chip-title', { hasText: 'Deep work' }).first()).toBeVisible();
+	});
+
+	/**
+	 * One-off rows are buttons so they open the editor. The action-label type
+	 * (uppercase, tracked) is what clipped "Evening draft" to "EVENING DRA…".
+	 */
+	test('a one-off title keeps its written case and is not clipped', async ({ page }) => {
+		await open(page, '/schedule', WIDTHS.desktop);
+		const title = page.locator('.legend .title', { hasText: 'Evening draft' });
+		await expect(title).toBeVisible();
+		await expect(title).toHaveCSS('text-transform', 'none');
+		const overflow = await title.evaluate((el) => el.scrollWidth - el.clientWidth);
+		expect(overflow, 'Evening draft clipped').toBeLessThanOrEqual(1);
 	});
 });
 

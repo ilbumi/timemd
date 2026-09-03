@@ -95,6 +95,25 @@ for (const width of [WIDTHS.phone, WIDTHS.sidebar, WIDTHS.desktop]) {
 }
 
 /**
+ * First-run is a fifth timer screen, and the only one whose furniture is a
+ * pitch plus a picker rather than a dial. It was never measured: the fixture
+ * always has projects, so `/` never lands here.
+ */
+for (const width of [WIDTHS.phone, WIDTHS.desktop]) {
+	test(`first run @ ${width}px`, async ({ page }) => {
+		await page.setViewportSize({ width, height: 900 });
+		await page.route('**/api/projects', async (route) => {
+			if (route.request().method() !== 'GET') return route.fallback();
+			await route.fulfill({ json: [] });
+		});
+		await page.goto('/');
+		await page.locator('.welcome').waitFor({ state: 'visible' });
+		expect(await page.locator('.logo svg').count()).toBe(4);
+		await expectWellAligned(page, width);
+	});
+}
+
+/**
  * Fullscreen mode, measured the same way as the screens it hides the chrome on.
  *
  * The browser's own fullscreen is a side effect of the click; what is under
