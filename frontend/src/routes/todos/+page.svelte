@@ -286,8 +286,16 @@
 		line-height: 0.9;
 	}
 
+	/* Fill the shell and let the list scroll, so the composer stays above ●■◆▲
+	   instead of wrapping a second row off the bottom of the viewport. */
+	.screen {
+		height: 100%;
+	}
+
 	.body {
 		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
 	}
 
 	.section-head {
