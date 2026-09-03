@@ -2,6 +2,11 @@
 
 Written from the conventional commits in each release.
 
+## [0.5.1](https://github.com/ilbumi/timemd/compare/v0.5.0...v0.5.1) - 2026-09-03
+
+### Fixed
+
+- **ui:** quiet competing rules and align the sheet (#30) ([54175b3](https://github.com/ilbumi/timemd/commit/54175b3685e671f719e9cc6da0911cd0a6e72c59))
 ## [0.5.0](https://github.com/ilbumi/timemd/compare/v0.4.0...v0.5.0) - 2026-09-02
 
 ### Added

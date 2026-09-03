@@ -2960,7 +2960,7 @@ dependencies = [
 
 [[package]]
 name = "timemd"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -2976,7 +2976,7 @@ dependencies = [
 
 [[package]]
 name = "timemd-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -2990,7 +2990,7 @@ dependencies = [
 
 [[package]]
 name = "timemd-mcp"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -3005,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "timemd-server"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
