@@ -192,8 +192,8 @@
 			</div>
 			{#if settings}
 				<p class="meta">
-					Minutes, in steps of 5. A long break every {settings.longBreakEvery} sessions. Reminders
-					lead by {settings.remindBefore} unless a block says otherwise.
+					Minutes, in steps of 5. A long break every {settings.longBreakEvery} sessions. Reminders lead
+					by {settings.remindBefore} unless a block says otherwise.
 				</p>
 			{/if}
 		</div>

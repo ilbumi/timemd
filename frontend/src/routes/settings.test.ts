@@ -177,8 +177,12 @@ describe('the duration steppers', () => {
 		stubApi();
 		render(Settings);
 
-		await vi.waitFor(() => screen.getByRole('button', { name: /shorten focus by 5 minutes/i }));
-		expect(screen.getByRole('button', { name: /lengthen break by 5 minutes/i })).toBeInTheDocument();
-		expect(screen.getByText(/minutes, in steps of 5/i)).toBeInTheDocument();
+		await vi.waitFor(() => {
+			expect(screen.getByText(/minutes, in steps of 5/i)).toBeInTheDocument();
+		});
+		expect(screen.getByRole('button', { name: /shorten focus by 5 minutes/i })).toBeInTheDocument();
+		expect(
+			screen.getByRole('button', { name: /lengthen break by 5 minutes/i })
+		).toBeInTheDocument();
 	});
 });

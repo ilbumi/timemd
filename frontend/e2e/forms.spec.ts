@@ -145,10 +145,10 @@ test('the add-time sheet is fully usable on a phone', async ({ page }) => {
 test('skip and restore stay tappable on a phone', async ({ page }) => {
 	await open(page, '/schedule', WIDTHS.phone);
 	await page.setViewportSize({ width: 390, height: 844 });
-	const skip = page
-		.getByRole('listitem')
-		.filter({ hasText: 'Atlas ingest' })
-		.getByRole('button', { name: 'Skip' });
+	// A recurring block is on every day of the fixture (Deep work on weekdays,
+	// Reading on the weekend). Pinning the name to "Atlas ingest" failed on
+	// days that block does not fire.
+	const skip = page.getByRole('button', { name: 'Skip' }).first();
 	await skip.scrollIntoViewIfNeeded();
 	await expectClearOfTabBar(page, skip);
 	await skip.click();
