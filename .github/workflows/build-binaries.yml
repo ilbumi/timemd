@@ -65,7 +65,7 @@ jobs:
 
       - uses: ./.github/actions/setup-web
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           target: ${{ matrix.target }}
           cache: false # a release build shares nothing useful with CI's cache
